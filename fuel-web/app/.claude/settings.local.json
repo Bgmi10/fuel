@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(/mnt/c/users/administrator/desktop/app/**)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
