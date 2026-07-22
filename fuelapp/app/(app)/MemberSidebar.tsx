@@ -17,8 +17,7 @@ import { useAuth } from "../../src/contexts/AuthContext"; // adjust path
 const navItems = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { label: "Workouts", href: "/workout-plans", icon: Dumbbell },
-  { label: "Diet Plans", href: "/diet-plans", icon: Apple },
-  { label: "Food Tracker", href: "/food-tracker", icon: ClipboardCheck },
+  { label: "Nutrition", href: "/nutrition/diet-plans", icon: Apple },
   { label: "Progress", href: "/progress", icon: TrendingUp },
   { label: "Membership", href: "/membership", icon: CreditCard },
   { label: "Book Session", href: "/slot", icon: CalendarPlus2 },
@@ -75,7 +74,7 @@ export default function MemberSidebar({ onClose }: Props) {
   }}
 >
   <Image
-    source={require("../../assets/splash-icon.png")} // adjust path
+    source={require("../../assets/main.jpg")} // adjust path
     style={{
       width: 80,
       height: 40,

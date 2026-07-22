@@ -42,6 +42,7 @@ export async function POST(
           externalFoodId,
           foodName,
           brandName,
+          consumed: true,
           nutritionMultiplier,
           servingValue,
           quantity:

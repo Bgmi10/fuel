@@ -9,7 +9,6 @@ import { useRouter } from "next/navigation";
 function Header() {
   const { user, logout } = useAuth();
   const [open, setOpen] = useState(false);
-  const router = useRouter()
 
   return (
     <header className="h-16 border-b border-neutral-800 bg-neutral-950 px-6 flex items-center justify-end">

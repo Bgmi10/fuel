@@ -1,4 +1,3 @@
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -83,6 +82,7 @@ enum TimeSlot {
   AFTERNOON
   EVENING
 }
+
 model Setting {
   id String @id @default(cuid())
 
@@ -96,15 +96,21 @@ model Setting {
   referralRewardPercentage Float?
 
   referralMembershipDays Int?
+
+  groupJoiningEnabled Boolean @default(false)
+
+  groupJoiningMaxMembers Int @default(10)
+
+  groupDiscountRules Json @default("[]")
 }
 
 model Branch {
   id String @id @default(cuid())
 
-  name       String
-  address    String
-  phone      String
-  gstNumber  String
+  name      String
+  address   String
+  phone     String
+  gstNumber String
 
   terms        String?
   supportEmail String?
@@ -118,7 +124,117 @@ model Branch {
   slots         Slot[]
   slotBookings  SlotBooking[]
 
+  tvDevices                 TvDevice[]
+  workoutProgramAssignments WorkoutProgramAssignment[]
+
   createdAt DateTime @default(now())
+}
+
+model WorkoutVideo {
+  id String @id @default(cuid())
+
+  name            String
+  videoUrl        String
+  thumbnailUrl    String?
+  durationSeconds Int?
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  programItems WorkoutProgramItem[]
+}
+
+model WorkoutProgram {
+  id String @id @default(cuid())
+
+  name        String
+  description String?
+  isActive    Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items       WorkoutProgramItem[]
+  assignments WorkoutProgramAssignment[]
+}
+
+model WorkoutProgramItem {
+  id String @id @default(cuid())
+
+  programId String
+  videoId   String
+  sortOrder Int
+
+  program WorkoutProgram @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  video WorkoutVideo @relation(fields: [videoId], references: [id])
+
+  @@unique([programId, sortOrder])
+  @@index([programId])
+  @@index([videoId])
+}
+
+model WorkoutProgramAssignment {
+  id String @id @default(cuid())
+
+  programId String
+  branchId  String
+
+  scheduledAt DateTime
+
+  status WorkoutProgramAssignmentStatus @default(SCHEDULED)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  program WorkoutProgram @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([branchId, scheduledAt])
+  @@index([programId])
+}
+
+enum WorkoutProgramAssignmentStatus {
+  DRAFT
+  SCHEDULED
+  LIVE
+  COMPLETED
+  CANCELLED
+}
+
+model TvDevice {
+  id          String @id @default(cuid())
+  name        String
+  deviceToken String @unique
+  branchId    String
+  branch      Branch @relation(fields: [branchId], references: [id])
+
+  isOnline   Boolean   @default(false)
+  lastSeenAt DateTime?
+  pairedAt   DateTime  @default(now())
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}
+
+model TvPairingSession {
+  id          String          @id @default(cuid())
+  pairingCode String          @unique
+  socketId    String?
+  status      TvPairingStatus @default(WAITING)
+  expiresAt   DateTime
+  createdAt   DateTime        @default(now())
+
+  deviceId String?
+}
+
+enum TvPairingStatus {
+  WAITING
+  PAIRED
+  EXPIRED
+  CANCELLED
 }
 
 model Service {
@@ -129,52 +245,51 @@ model Service {
   branches Branch[]
 
   packages ServicePackage[]
+  slots    Slot[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
-
 model Slot {
-  id String @id @default(cuid())
+  id       String @id @default(cuid())
   branchId String
-  branch   Branch  @relation(fields: [branchId], references: [id])
-  packageId String
-  package   ServicePackage  @relation(fields: [packageId], references: [id])
-  name String
+  branch   Branch @relation(fields: [branchId], references: [id])
+
+  serviceId String
+  service   Service       @relation(fields: [serviceId], references: [id])
+  name      String
   startTime String
-endTime String
+  endTime   String
   capacity  Int
-  isActive  Boolean  @default(true)
-  createdAt  DateTime  @default(now())
-  bookings    SlotBooking[]
-  updatedAt DateTime @updatedAt
+  isActive  Boolean       @default(true)
+  createdAt DateTime      @default(now())
+  bookings  SlotBooking[]
+  updatedAt DateTime      @updatedAt
 }
 
 model SlotBooking {
-  id String @id @default(cuid())
-  bookingDay  String?
-  memberId  String
-  member   Member @relation(fields: [memberId], references: [id])
-  branchId   String
-  branch       Branch  @relation(fields: [branchId], references: [id])
-  packageId   String
-  package   ServicePackage  @relation(fields: [packageId], references: [id])
+  id             String          @id @default(cuid())
+  bookingDay     String?
+  memberId       String
+  member         Member          @relation(fields: [memberId], references: [id])
+  branchId       String
+  branch         Branch          @relation(fields: [branchId], references: [id])
+  packageId      String
+  package        ServicePackage  @relation(fields: [packageId], references: [id])
   subscriptionId String
-  subscription   Subscription @relation(fields: [subscriptionId], references: [id])
-  slotId  String
-  
-  slot  Slot  @relation(fields: [slotId], references: [id])
-  bookingDate DateTime 
-  checkedInAt DateTime?
-  status   SlotBookingEnum   @default(BOOKED)
-  createdAt DateTime @default(now())
-updatedAt DateTime @updatedAt
+  subscription   Subscription    @relation(fields: [subscriptionId], references: [id])
+  slotId         String
+  slot           Slot            @relation(fields: [slotId], references: [id])
+  bookingDate    DateTime
+  checkedInAt    DateTime?
+  status         SlotBookingEnum @default(BOOKED)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
 
-
-@@unique([memberId, slotId, bookingDate])
-@@index([slotId, bookingDate])
-@@index([memberId])
+  @@unique([memberId, slotId, bookingDate])
+  @@index([slotId, bookingDate])
+  @@index([memberId])
 }
 
 enum SlotBookingEnum {
@@ -195,28 +310,34 @@ model ServicePackage {
   price Int
 
   originalPrice Int?
-  coupons     Coupon[] @relation("CouponPackages")
-
+  coupons       Coupon[] @relation("CouponPackages")
 
   description String?
 
   isActive Boolean @default(true)
 
+  usageType MembershipUsageType @default(DURATION_BASED)
+
+  totalSessions Int?
   subscriptions Subscription[]
   invoices      Invoice[]
-  slots         Slot[]
   slotBookings  SlotBooking[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
+enum MembershipUsageType {
+  DURATION_BASED
+  SESSION_BASED
+}
+
 model Member {
   id String @id @default(cuid())
 
-  name    String
-  phone   String @unique
-  email   String @unique
+  name  String
+  phone String @unique
+  email String @unique
 
   dob                String?
   gender             String?
@@ -228,10 +349,14 @@ model Member {
   profileImage       String?
   address            String?
   fitnessAssessments FitnessAssessment[]
-  onBoardCompleted  Boolean @default(false)
-workoutPlans WorkoutPlan[]
-  branchId String?
-  branch   Branch? @relation(fields: [branchId], references: [id])
+  onBoardCompleted   Boolean             @default(false)
+  workoutPlans       WorkoutPlan[]
+  branchId           String?
+  branch             Branch?             @relation(fields: [branchId], references: [id])
+
+  outgoingMembershipTransfers MembershipTransfer[] @relation("MembershipTransferFrom")
+
+  incomingMembershipTransfers MembershipTransfer[] @relation("MembershipTransferTo")
 
   status MemberStatus @default(ACTIVE)
 
@@ -241,9 +366,9 @@ workoutPlans WorkoutPlan[]
 
   payments Payment[]
 
-dietPlans DietPlan[]
-  foodLogs FoodLog[]
-referralCode String? @unique
+  dietPlans     DietPlan[]
+  foodLogs      FoodLog[]
+  referralCode  String?    @unique
   otpCode       String?
   otpType       OTPType?
   otpExpiresAt  DateTime?
@@ -251,36 +376,36 @@ referralCode String? @unique
 
   coachId String?
 
-coach User? @relation("MemberCoach", fields: [coachId], references: [id])
+  coach User? @relation("MemberCoach", fields: [coachId], references: [id])
 
-notifications Notification[]
-  createdAt DateTime @default(now())
+  notifications Notification[]
+  createdAt     DateTime       @default(now())
 
-  referrals Referral[] @relation("MemberReferrals")
- slotBookings SlotBooking[]
-referredBy Referral[] @relation("ReferredMember")
-  updatedAt DateTime @updatedAt
+  referrals    Referral[]    @relation("MemberReferrals")
+  slotBookings SlotBooking[]
+  referredBy   Referral[]    @relation("ReferredMember")
+  updatedAt    DateTime      @updatedAt
 }
 
 model Referral {
   id String @id @default(cuid())
 
   referrerId String
-  referrer Member @relation("MemberReferrals", fields: [referrerId], references: [id])
+  referrer   Member @relation("MemberReferrals", fields: [referrerId], references: [id])
 
   referredMemberId String?
-  referredMember Member? @relation("ReferredMember", fields: [referredMemberId], references: [id])
+  referredMember   Member? @relation("ReferredMember", fields: [referredMemberId], references: [id])
 
   status ReferralStatus @default(PENDING)
 
-  rewardIssued Boolean @default(false)
-  rewardClaimed  Boolean  @default(false)
+  rewardIssued  Boolean @default(false)
+  rewardClaimed Boolean @default(false)
 
   rewardIssuedAt DateTime?
 
- claimedSubscriptionId String?
- claimedInvoiceId String?    @unique
- claimedInvoice    Invoice?  @relation(fields: [claimedInvoiceId], references: [id])
+  claimedSubscriptionId String?
+  claimedInvoiceId      String?  @unique
+  claimedInvoice        Invoice? @relation(fields: [claimedInvoiceId], references: [id])
 
   rewardType ReferralRewardType?
 
@@ -293,19 +418,17 @@ model Referral {
   createdAt DateTime @default(now())
 }
 
-
 enum ReferralRewardType {
   FIXED_AMOUNT
   PERCENTAGE_DISCOUNT
   MEMBERSHIP_DAYS
 }
 
-
 model Notification {
   id String @id @default(cuid())
 
   memberId String
-  member Member @relation(fields: [memberId], references: [id])
+  member   Member @relation(fields: [memberId], references: [id])
 
   title String
 
@@ -317,7 +440,6 @@ model Notification {
 
   createdAt DateTime @default(now())
 }
-
 
 model Campaign {
   id String @id @default(cuid())
@@ -338,8 +460,6 @@ model Campaign {
   updatedAt DateTime @updatedAt
 }
 
-
-
 enum NotificationType {
   MEMBERSHIP
   PAYMENT
@@ -355,12 +475,11 @@ enum ReferralStatus {
   REWARDED
 }
 
-
 model DietPlan {
   id String @id @default(cuid())
 
   memberId String
-  member Member @relation(fields: [memberId], references: [id])
+  member   Member @relation(fields: [memberId], references: [id])
 
   title String?
 
@@ -372,13 +491,12 @@ model DietPlan {
 
   targetCarbs Float
 
-
   /// How the coach configured the plan
-  macroDistributionType MacroDistributionType @default(GRAMS)
-    targetProteinPercentage Float?
-  targetCarbsPercentage Float?
-  targetFatPercentage Float?
-  
+  macroDistributionType   MacroDistributionType @default(GRAMS)
+  targetProteinPercentage Float?
+  targetCarbsPercentage   Float?
+  targetFatPercentage     Float?
+
   targetFat Float
 
   startDate DateTime
@@ -398,13 +516,12 @@ enum MacroDistributionType {
   PERCENTAGE
 }
 
-
 model DietPlanMeal {
   id String @id @default(cuid())
 
   dietPlanId String
 
-  dietPlan DietPlan @relation(fields: [dietPlanId],references: [id],onDelete: Cascade)
+  dietPlan DietPlan @relation(fields: [dietPlanId], references: [id], onDelete: Cascade)
 
   name String
 
@@ -414,7 +531,6 @@ model DietPlanMeal {
 
   createdAt DateTime @default(now())
 }
-
 
 model FoodLog {
   id String @id @default(cuid())
@@ -437,7 +553,7 @@ model FoodLogMeal {
 
   foodLogId String
 
-  foodLog FoodLog @relation(fields: [foodLogId], references: [id],onDelete: Cascade)
+  foodLog FoodLog @relation(fields: [foodLogId], references: [id], onDelete: Cascade)
 
   name String
 
@@ -448,13 +564,13 @@ model FoodLogMeal {
   createdAt DateTime @default(now())
 }
 
-
 model FoodLogMealItem {
-  id String @id @default(cuid())
+  id                   String  @id @default(cuid())
+  copiedFromDietItemId String?
 
   mealId String
 
-  meal FoodLogMeal @relation( fields: [mealId],references: [id],onDelete: Cascade)
+  meal FoodLogMeal @relation(fields: [mealId], references: [id], onDelete: Cascade)
 
   externalFoodId String?
 
@@ -468,10 +584,10 @@ model FoodLogMealItem {
 
   calories Float
 
-  servingValue Float    @default(0)
-  nutritionMultiplier Float  @default(0)
-  protein Float
-    consumed Boolean @default(false)
+  servingValue        Float   @default(0)
+  nutritionMultiplier Float   @default(0)
+  protein             Float
+  consumed            Boolean @default(false)
 
   consumedAt DateTime?
 
@@ -487,7 +603,7 @@ model DietPlanMealItem {
 
   mealId String
 
-  meal DietPlanMeal @relation(fields: [mealId], references: [id],onDelete: Cascade)
+  meal DietPlanMeal @relation(fields: [mealId], references: [id], onDelete: Cascade)
 
   externalFoodId String?
 
@@ -495,12 +611,12 @@ model DietPlanMealItem {
 
   brandName String?
 
-  quantity Float
+  quantity     Float
   servingValue String
-  servingUnit String
+  servingUnit  String
 
-  nutritionMultiplier Float  @default(0)
- 
+  nutritionMultiplier Float @default(0)
+
   calories Float
 
   protein Float
@@ -526,13 +642,13 @@ model WorkoutPlan {
   id String @id @default(cuid())
 
   memberId String
-  member Member @relation(fields: [memberId], references: [id])
+  member   Member @relation(fields: [memberId], references: [id])
 
-  title String
+  title       String
   description String?
 
   startDate DateTime
-  endDate DateTime?
+  endDate   DateTime?
 
   isActive Boolean @default(true)
 
@@ -542,13 +658,11 @@ model WorkoutPlan {
   updatedAt DateTime @updatedAt
 }
 
-
-
 model WorkoutDay {
   id String @id @default(cuid())
 
   workoutPlanId String
-  workoutPlan WorkoutPlan @relation(fields: [workoutPlanId], references: [id],onDelete: Cascade)
+  workoutPlan   WorkoutPlan @relation(fields: [workoutPlanId], references: [id], onDelete: Cascade)
 
   dayNumber Int
 
@@ -563,7 +677,7 @@ model WorkoutExercise {
   id String @id @default(cuid())
 
   workoutDayId String
-  workoutDay WorkoutDay @relation(fields: [workoutDayId], references: [id],onDelete: Cascade)
+  workoutDay   WorkoutDay @relation(fields: [workoutDayId], references: [id], onDelete: Cascade)
 
   exerciseName String
 
@@ -593,7 +707,7 @@ model Subscription {
   packageId String
   package   ServicePackage @relation(fields: [packageId], references: [id])
 
-  invoiceId String?   @unique
+  invoiceId String?  @unique
   invoice   Invoice? @relation(fields: [invoiceId], references: [id])
 
   serviceName String
@@ -606,17 +720,27 @@ model Subscription {
 
   branchName String
 
+  usageType MembershipUsageType @default(DURATION_BASED)
+
+  totalSessions Int?
+
+  remainingSessions Int?
+
   startDate DateTime
   endDate   DateTime
 
   freezeStart DateTime?
   freezeEnd   DateTime?
 
-  status SubscriptionStatus @default(ACTIVE)
-  slotBookings SlotBooking[]
+  status              SubscriptionStatus   @default(ACTIVE)
+  slotBookings        SlotBooking[]
+  membershipTransfers MembershipTransfer[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([memberId, status])
+  @@index([usageType, remainingSessions])
 }
 
 enum SubscriptionStatus {
@@ -631,6 +755,9 @@ model Invoice {
 
   invoiceNumber String @unique
 
+  groupMemberCount        Int?
+  groupDiscountPercentage Float?
+
   memberId String
   member   Member @relation(fields: [memberId], references: [id])
 
@@ -643,7 +770,7 @@ model Invoice {
   subscription Subscription?
 
   salesRepId String?
-  salesRep   User? @relation(fields: [salesRepId], references: [id])
+  salesRep   User?   @relation(fields: [salesRepId], references: [id])
 
   salesRepName String?
 
@@ -676,11 +803,11 @@ model Invoice {
   cgstAmount Float?
   sgstAmount Float?
 
-referralDiscountAmount Int @default(0)
-  totalTax Float?
+  referralDiscountAmount Int    @default(0)
+  totalTax               Float?
 
-  status InvoiceStatus @default(PENDING)
-  referrel    Referral?
+  status   InvoiceStatus @default(PENDING)
+  referrel Referral?
   payments Payment[]
 
   notes String?
@@ -706,12 +833,12 @@ model Coupon {
   isPrivate Boolean @default(false)
 
   // DISCOUNT
-  discountPercent Int?
+  discountPercent    Int?
   discountFlatAmount Int?
-  packages     ServicePackage[] @relation("CouponPackages")
+  packages           ServicePackage[] @relation("CouponPackages")
   // OPTIONAL LIMIT
-  usageLimit Int?
-  usedCount Int @default(0)
+  usageLimit         Int?
+  usedCount          Int              @default(0)
 
   // OPTIONAL EXPIRY
   expiresAt DateTime?
@@ -721,7 +848,6 @@ model Coupon {
 }
 
 enum InvoiceStatus {
-  
   PENDING
   PARTIAL_PAID
   FULLY_PAID
@@ -747,7 +873,7 @@ model Payment {
 
   status InvoicePaymentStatus @default(PAID)
 
-  razorpayOrderId   String? @unique
+  razorpayOrderId   String?
   razorpayPaymentId String?
   razorpaySignature String?
 
@@ -756,6 +882,8 @@ model Payment {
   paidAt DateTime @default(now())
 
   createdAt DateTime @default(now())
+
+  @@index([razorpayOrderId])
 }
 
 enum PaymentType {
@@ -763,7 +891,7 @@ enum PaymentType {
   BALANCE
 }
 
-enum InvoicePaymentStatus  {
+enum InvoicePaymentStatus {
   PAID
   FAILED
   REFUNDED
@@ -772,19 +900,20 @@ enum InvoicePaymentStatus  {
 
 model User {
   id String @id @default(cuid())
-  
+
   name     String
-  email    String @unique
+  email    String   @unique
   password String
   branchId String?
-  branch   Branch?   @relation(fields: [branchId], references: [id])
-  role UserRole
+  branch   Branch?  @relation(fields: [branchId], references: [id])
+  role     UserRole
 
-assignedMembers Member[] @relation("MemberCoach")
-  invoices Invoice[]
-  employee  Employee?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  assignedMembers     Member[]             @relation("MemberCoach")
+  invoices            Invoice[]
+  membershipTransfers MembershipTransfer[]
+  employee            Employee?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
 }
 
 enum UserRole {
@@ -839,7 +968,7 @@ model BlogFaq {
   id String @id @default(cuid())
 
   blogId String
-  blog   Blog @relation(fields: [blogId], references: [id], onDelete: Cascade)
+  blog   Blog   @relation(fields: [blogId], references: [id], onDelete: Cascade)
 
   question String
   answer   String @db.Text
@@ -847,32 +976,31 @@ model BlogFaq {
   createdAt DateTime @default(now())
 }
 
-
 model FitnessAssessment {
   id String @id @default(cuid())
 
   memberId String
-  member Member @relation(fields: [memberId], references: [id])
+  member   Member @relation(fields: [memberId], references: [id])
 
-  weight Float?
-   height Float?
+  weight            Float?
+  height            Float?
   bodyFatPercentage Float?
-  memberNotes String?
+  memberNotes       String?
 
   hba1c         Float?
   bloodPressure String?
 
-  t3            Float?
-  t4            Float?
-  tsh           Float?
+  t3  Float?
+  t4  Float?
+  tsh Float?
 
-  chest Float?
-  waist Float?
-  hips Float?
+  chest  Float?
+  waist  Float?
+  hips   Float?
   biceps Float?
   thighs Float?
-  neck Float?
-  calf Float?
+  neck   Float?
+  calf   Float?
 
   bmi Float?
 
@@ -885,49 +1013,49 @@ model FitnessAssessment {
 }
 
 model Employee {
-  id String @id @default(cuid())
-  userId  String?  @unique
-  user    User?    @relation(fields: [userId], references: [id])
+  id          String       @id @default(cuid())
+  userId      String?      @unique
+  user        User?        @relation(fields: [userId], references: [id])
   basicSalary Int?
-  salaryType  SalaryType @default(MONTHLY)
-  bankName   String?
+  salaryType  SalaryType   @default(MONTHLY)
+  bankName    String?
   accountNo   String?
   ifscCode    String?
   payrolls    Payroll[]
-  attendances Attendance[] 
+  attendances Attendance[]
 }
 
 model Attendance {
-  id String @id @default(uuid())
-  date  DateTime
+  id         String           @id @default(uuid())
+  date       DateTime
   employeeId String
-  employee Employee  @relation(fields: [employeeId], references: [id])
-  checkIn DateTime?
-  checkOut DateTime?
-  status    AttendanceStatus   @default(PRESENT)
-  createdAt DateTime  @default(now()) 
+  employee   Employee         @relation(fields: [employeeId], references: [id])
+  checkIn    DateTime?
+  checkOut   DateTime?
+  status     AttendanceStatus @default(PRESENT)
+  createdAt  DateTime         @default(now())
 }
 
 enum AttendanceStatus {
- ABSENT
- PRESENT
- HALFDAY
- LEAVE
+  ABSENT
+  PRESENT
+  HALFDAY
+  LEAVE
 }
 
 model Payroll {
-  id String  @id @default(uuid())
-  month Int  
-  year  Int
-  employeeId String
-  employee Employee  @relation(fields: [employeeId], references: [id])
-  basicSalary Int
-  incentive Int?
-  deduction Int?
+  id               String               @id @default(uuid())
+  month            Int
+  year             Int
+  employeeId       String
+  employee         Employee             @relation(fields: [employeeId], references: [id])
+  basicSalary      Int
+  incentive        Int?
+  deduction        Int?
   advanceDeduction Int?
-  netSalary Int
-  createdAt DateTime  @default(now())
-  paidMethod  PayrollPaymentMethod
+  netSalary        Int
+  createdAt        DateTime             @default(now())
+  paidMethod       PayrollPaymentMethod
 }
 
 enum PayrollPaymentMethod {
@@ -940,4 +1068,30 @@ enum SalaryType {
   MONTHLY
   YEARLY
   HOURLY
+}
+
+model MembershipTransfer {
+  id String @id @default(cuid())
+
+  subscriptionId String
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id])
+
+  fromMemberId String
+  fromMember   Member @relation("MembershipTransferFrom", fields: [fromMemberId], references: [id])
+
+  toMemberId String
+  toMember   Member @relation("MembershipTransferTo", fields: [toMemberId], references: [id])
+
+  reason String?
+
+  transferFee Int @default(0)
+
+  transferredById String
+  transferredBy   User   @relation(fields: [transferredById], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([subscriptionId])
+  @@index([fromMemberId])
+  @@index([toMemberId])
 }

@@ -92,29 +92,50 @@ export async function POST(req: NextRequest) {
     }
 
     // Already copied once
-    if (foodLogMeal.items.length > 0) {
+    const copiedDietItemIds = new Set(
+      foodLogMeal.items
+        .map((item) => item.copiedFromDietItemId)
+        .filter(
+          (id): id is string =>
+            typeof id === "string"
+        )
+    );
+    
+    const itemsToCopy = dietMeal.items.filter(
+      (item) => !copiedDietItemIds.has(item.id)
+    );
+
+    if (itemsToCopy.length === 0) {
       return NextResponse.json({
         success: true,
         alreadyCopied: true,
+        message:
+          "All foods from this assigned meal are already in the tracker",
         data: foodLogMeal,
       });
     }
-
-    // Copy all foods
+    
     await prisma.foodLogMealItem.createMany({
-      data: dietMeal.items.map((item) => ({
+      data: itemsToCopy.map((item) => ({
         mealId: foodLogMeal.id,
-
+    
+        // Important
+        copiedFromDietItemId: item.id,
+    
         externalFoodId: item.externalFoodId,
-
         foodName: item.foodName,
         brandName: item.brandName,
-        nutritionMultiplier: item.nutritionMultiplier,
-        servingValue: parseFloat(item.servingValue),
-
+    consumed: true,
+        nutritionMultiplier:
+          item.nutritionMultiplier,
+    
+        servingValue: Number(
+          item.servingValue
+        ),
+    
         quantity: item.quantity,
         servingUnit: item.servingUnit,
-
+    
         calories: item.calories,
         protein: item.protein,
         carbs: item.carbs,

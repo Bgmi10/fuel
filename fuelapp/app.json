@@ -4,15 +4,16 @@
     "slug": "fuelapp",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/splash-icon.png",
+    "icon": "./assets/main.jpg",
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "plugins": [
       "expo-router",
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      "expo-secure-store"
     ],
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/main.jpg",
       "resizeMode": "contain",
       "backgroundColor": "#000000"
     },
@@ -26,10 +27,17 @@
         "backgroundColor": "#000000"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.lqkweqlweqkwe.fuelapp"
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "5402f71d-7932-42e9-895c-191084cfd841"
+      }
     }
   }
 }

@@ -9,7 +9,24 @@ export const MemberSidebar = () => {
 
 
   return (
-    <aside className="hidden lg:flex flex-col w-[280px] h-screen fixed left-0 top-0 z-40">
+    <aside
+  className="
+    fixed
+    bottom-0
+    left-0
+    top-[var(--member-portal-offset)]
+    z-40
+    hidden
+    w-[280px]
+    flex-col
+    overflow-y-auto
+    border-r border-slate-800
+    bg-slate-950
+    transition-[top]
+    duration-300
+    lg:flex
+  "
+>
       {/* Glassmorphism background */}
       <div className="absolute inset-0 bg-white/[0.03] backdrop-blur-xl border-r border-white/10" />
       

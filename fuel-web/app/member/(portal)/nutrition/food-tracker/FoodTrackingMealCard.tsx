@@ -232,11 +232,7 @@ const total =
   {meal.items.map((item: any) => (
     <div
       key={item.id}
-      className={`p-5 transition-all ${
-        item.consumed
-          ? "bg-lime-400/5"
-          : ""
-      }`}
+      className={`p-5 transition-all`}
     >
       <div className="flex justify-between items-start gap-4">
       <div className="flex items-center gap-2">
@@ -245,7 +241,7 @@ const total =
 </div>
 
         <label className="flex gap-3 flex-1 cursor-pointer">
-
+{/* 
           <input
             type="checkbox"
             checked={item.consumed}
@@ -256,15 +252,11 @@ const total =
                 )
               }
             className="mt-1 h-5 w-5 accent-lime-400"
-          />
+          /> */}
 
           <div>
           <h4
-  className={`text-lg font-semibold ${
-    item.consumed
-      ? "line-through text-gray-400"
-      : "text-white"
-  }`}
+  className={`text-lg font-semibold`}
 >
               {item.foodName}
             </h4>

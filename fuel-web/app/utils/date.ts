@@ -6,6 +6,21 @@ export const toUTC = (value: string | Date) => {
   return new Date(value);
 };
 
+export const formatTime = (time: string) => {
+  if (!time) return "";
+
+  const [hours, minutes] = time.split(":").map(Number);
+
+  const date = new Date();
+  date.setHours(hours, minutes, 0, 0);
+
+  return date.toLocaleTimeString("en-IN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  });
+};
+
 export const startOfDayUTC = (dateStr: string) => {
     const d = new Date(dateStr);
     d.setUTCHours(0, 0, 0, 0);

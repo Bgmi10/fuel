@@ -9,6 +9,7 @@ import {
   Package,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { formatTime } from "@/app/utils/date";
 
 const Page = () => {
   const { user: member } = useAuth();
@@ -127,7 +128,7 @@ const fetchSlots = async () => {
           const data = await res.json();
       
           if (!data.valid) {
-            alert(data.message);
+            alert(data.error);
             return;
           }
       
@@ -468,7 +469,7 @@ const fetchSlots = async () => {
                 </h3>
 
                 <p className="text-sm text-gray-400 mt-1">
-                  {slot.startTime} - {slot.endTime}
+                  {formatTime(slot.startTime)} - {formatTime(slot.endTime)}
                 </p>
 
                 <p className="text-xs text-gray-500 mt-2">
@@ -577,8 +578,8 @@ const fetchSlots = async () => {
         </p>
 
         <p className="text-sm text-gray-400 mt-1">
-          {selectedSlot?.startTime} -{" "}
-          {selectedSlot?.endTime}
+          {formatTime(selectedSlot?.startTime)} -{" "}
+          {formatTime(selectedSlot?.endTime)}
         </p>
       </div>
     </div>

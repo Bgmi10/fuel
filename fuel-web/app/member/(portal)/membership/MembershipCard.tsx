@@ -13,6 +13,8 @@ import {
   AlertCircle,
   Clock,
   Snowflake,
+  Dumbbell,
+  Infinity as InfinityIcon,
 } from "lucide-react";
 
 declare global {
@@ -31,6 +33,54 @@ const MembershipCard = ({
   const [paying, setPaying] = useState(false);
 
   const invoice = subscription.invoice;
+
+  const isSessionBased =
+    subscription.usageType ===
+    "SESSION_BASED";
+
+  const totalSessions =
+    typeof subscription.totalSessions ===
+      "number"
+      ? subscription.totalSessions
+      : 0;
+
+  const remainingSessions =
+    typeof subscription.remainingSessions ===
+      "number"
+      ? Math.max(
+          subscription.remainingSessions,
+          0
+        )
+      : 0;
+
+  const usedSessions =
+    isSessionBased
+      ? Math.max(
+          totalSessions -
+            remainingSessions,
+          0
+        )
+      : 0;
+
+  const sessionUsagePercentage =
+    isSessionBased &&
+    totalSessions > 0
+      ? Math.min(
+          100,
+          Math.max(
+            0,
+            Math.round(
+              (usedSessions /
+                totalSessions) *
+                100
+            )
+          )
+        )
+      : 0;
+
+  const hasNoSessionsRemaining =
+    isSessionBased &&
+    remainingSessions <= 0;
 
   const loadRazorpay = (): Promise<boolean> => {
     return new Promise((resolve) => {
@@ -162,6 +212,154 @@ const MembershipCard = ({
             </span>
           )}
         </div>
+      </div>
+
+      {/* MEMBERSHIP ACCESS */}
+      <div
+        className={`rounded-2xl border p-5 ${
+          isSessionBased
+            ? hasNoSessionsRemaining
+              ? "border-red-500/20 bg-red-500/5"
+              : "border-violet-500/20 bg-violet-500/5"
+            : "border-lime-500/20 bg-lime-500/5"
+        }`}
+      >
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3">
+            <div
+              className={`flex h-11 w-11 items-center justify-center rounded-xl ${
+                isSessionBased
+                  ? "bg-violet-500/10 text-violet-300"
+                  : "bg-lime-500/10 text-lime-300"
+              }`}
+            >
+              {isSessionBased ? (
+                <Dumbbell size={21} />
+              ) : (
+                <InfinityIcon size={21} />
+              )}
+            </div>
+
+            <div>
+              <p className="text-xs uppercase tracking-[0.16em] text-gray-500">
+                Membership Access
+              </p>
+
+              <h3 className="mt-1 font-semibold text-white">
+                {isSessionBased
+                  ? "Fixed Session Membership"
+                  : "Unlimited Access Membership"}
+              </h3>
+
+              <p className="mt-1 text-xs text-gray-400">
+                {isSessionBased
+                  ? "One session is deducted after every successful QR check-in."
+                  : "Unlimited entries are available until the membership expires."}
+              </p>
+            </div>
+          </div>
+
+          <span
+            className={`w-fit rounded-full px-3 py-1.5 text-xs font-semibold ${
+              isSessionBased
+                ? hasNoSessionsRemaining
+                  ? "bg-red-500/10 text-red-400"
+                  : "bg-violet-500/10 text-violet-300"
+                : "bg-lime-500/10 text-lime-300"
+            }`}
+          >
+            {isSessionBased
+              ? `${remainingSessions} Sessions Left`
+              : "Unlimited Entry"}
+          </span>
+        </div>
+
+        {isSessionBased && (
+          <div className="mt-5">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div className="rounded-xl bg-black/20 p-4">
+                <p className="text-xs text-gray-500">
+                  Total Sessions
+                </p>
+
+                <p className="mt-1 text-xl font-bold text-white">
+                  {totalSessions}
+                </p>
+              </div>
+
+              <div className="rounded-xl bg-black/20 p-4">
+                <p className="text-xs text-gray-500">
+                  Sessions Used
+                </p>
+
+                <p className="mt-1 text-xl font-bold text-white">
+                  {usedSessions}
+                </p>
+              </div>
+
+              <div className="rounded-xl bg-black/20 p-4">
+                <p className="text-xs text-gray-500">
+                  Sessions Remaining
+                </p>
+
+                <p
+                  className={`mt-1 text-xl font-bold ${
+                    hasNoSessionsRemaining
+                      ? "text-red-400"
+                      : "text-violet-300"
+                  }`}
+                >
+                  {remainingSessions}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4">
+              <div className="mb-2 flex items-center justify-between text-xs">
+                <span className="text-gray-500">
+                  Session usage
+                </span>
+
+                <span className="font-medium text-gray-300">
+                  {usedSessions} of{" "}
+                  {totalSessions} used
+                </span>
+              </div>
+
+              <div className="h-2 overflow-hidden rounded-full bg-black/30">
+                <div
+                  className={`h-full rounded-full transition-all ${
+                    hasNoSessionsRemaining
+                      ? "bg-red-400"
+                      : "bg-violet-400"
+                  }`}
+                  style={{
+                    width: `${sessionUsagePercentage}%`,
+                  }}
+                />
+              </div>
+            </div>
+
+            {hasNoSessionsRemaining && (
+              <div className="mt-4 flex items-start gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3">
+                <AlertCircle
+                  size={17}
+                  className="mt-0.5 shrink-0 text-red-400"
+                />
+
+                <div>
+                  <p className="text-sm font-medium text-red-400">
+                    No sessions remaining
+                  </p>
+
+                  <p className="mt-1 text-xs text-red-300/70">
+                    Renew or purchase another session package to continue booking classes.
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* DATES */}

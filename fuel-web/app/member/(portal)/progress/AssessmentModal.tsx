@@ -380,9 +380,7 @@ export function AssessmentModal({
                   className="w-full p-3 bg-neutral-800 text-white rounded-lg border border-neutral-700 focus:border-lime-400 focus:outline-none"
                 />
               </div>
-              
-              
-              
+            
             </div>
           </div>
 

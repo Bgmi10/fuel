@@ -1,114 +1,239 @@
 import { getMemberFromRequest } from "@/app/utils/memberAuth";
 import { prisma } from "@/prisma";
-import { NextRequest, NextResponse } from "next/server";
+import {
+  NextRequest,
+  NextResponse,
+} from "next/server";
+import { SlotBookingEnum } from "@prisma/client";
+
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 export async function GET(req: NextRequest) {
   try {
-    const member = await getMemberFromRequest(req);
+    const member =
+      await getMemberFromRequest(req);
 
     if (!member) {
       return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
+        {
+          error: "Unauthorized",
+        },
+        {
+          status: 401,
+        }
       );
     }
 
-    const searchParams = req.nextUrl.searchParams;
+    const searchParams =
+      req.nextUrl.searchParams;
 
     const subscriptionId =
-      searchParams.get("subscriptionId");
+      searchParams.get("subscriptionId")?.trim();
 
-    const bookingDate =
-      searchParams.get("bookingDate");
+    const rawBookingDate =
+      searchParams.get("bookingDate")?.trim();
 
-    if (!subscriptionId || !bookingDate) {
+    if (
+      !subscriptionId ||
+      !rawBookingDate
+    ) {
       return NextResponse.json(
         {
           error:
             "subscriptionId and bookingDate are required",
         },
-        { status: 400 }
+        {
+          status: 400,
+        }
       );
     }
 
+    /*
+     * Supports both:
+     * 2026-07-16
+     * 2026-07-16T00:00:00.000Z
+     */
+    const bookingDay =
+      rawBookingDate.split("T")[0];
+
+    if (!DATE_PATTERN.test(bookingDay)) {
+      return NextResponse.json(
+        {
+          error: "Invalid booking date",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
+
+    const bookingDayStart = new Date(
+      `${bookingDay}T00:00:00.000Z`
+    );
+
+    const bookingDayEnd = new Date(
+      `${bookingDay}T23:59:59.999Z`
+    );
+
+    if (
+      Number.isNaN(
+        bookingDayStart.getTime()
+      )
+    ) {
+      return NextResponse.json(
+        {
+          error: "Invalid booking date",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
+
+    /*
+     * Verify that:
+     * - subscription belongs to member
+     * - subscription is active
+     * - selected date is within subscription validity
+     */
     const subscription =
       await prisma.subscription.findFirst({
         where: {
           id: subscriptionId,
           memberId: member.id,
           status: "ACTIVE",
+
+          startDate: {
+            lte: bookingDayEnd,
+          },
+
+          endDate: {
+            gte: bookingDayStart,
+          },
+        },
+
+        select: {
+          id: true,
+          branchId: true,
+          packageId: true,
+
+          package: {
+            select: {
+              serviceId: true,
+            },
+          },
         },
       });
-
-      const bookingDateString = new Date(
-        bookingDate
-      )
-        .toISOString()
-        .split("T")[0];
 
     if (!subscription) {
       return NextResponse.json(
         {
-          error: "Subscription not found",
+          error:
+            "Subscription not found or is not valid for the selected date",
         },
-        { status: 404 }
+        {
+          status: 404,
+        }
       );
     }
 
-    const date = new Date(bookingDate);
+    /*
+     * Find slots belonging to:
+     * - subscription branch
+     * - subscription package's service
+     */
+    const slots =
+      await prisma.slot.findMany({
+        where: {
+          branchId:
+            subscription.branchId,
 
-    const slots = await prisma.slot.findMany({
-      where: {
-        branchId: subscription.branchId,
-        packageId: subscription.packageId,
-        isActive: true,
-      },
-      orderBy: {
-        startTime: "asc",
-      },
-    });
+          serviceId:
+            subscription.package
+              .serviceId,
+
+          isActive: true,
+        },
+
+        include: {
+          branch: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+
+          service: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+        },
+
+        orderBy: {
+          startTime: "asc",
+        },
+      });
+
+    if (slots.length === 0) {
+      return NextResponse.json([]);
+    }
 
     const slotIds = slots.map(
       (slot) => slot.id
     );
 
-    const startOfDay = new Date(date);
-startOfDay.setHours(0, 0, 0, 0);
+    /*
+     * Count bookings separately for every slot
+     * on the selected booking day.
+     */
+    const bookings =
+      await prisma.slotBooking.groupBy({
+        by: ["slotId"],
 
-const endOfDay = new Date(date);
-endOfDay.setHours(23, 59, 59, 999);
+        where: {
+          slotId: {
+            in: slotIds,
+          },
 
-const bookings =
-  await prisma.slotBooking.groupBy({
-    by: ["slotId"],
-    where: {
-      slotId: {
-        in: slotIds,
-      },
-      bookingDay: bookingDateString,
-      status: {
-        in: ["BOOKED", "ATTENDED"],
-      },
-    },
-    _count: {
-      id: true,
-    },
-  });
+          bookingDay,
+
+          status: {
+            in: [
+              SlotBookingEnum.BOOKED,
+              SlotBookingEnum.ATTENDED,
+            ],
+          },
+        },
+
+        _count: {
+          id: true,
+        },
+      });
+
+    const bookingCountMap = new Map(
+      bookings.map((booking) => [
+        booking.slotId,
+        booking._count.id,
+      ])
+    );
+
     const slotsWithAvailability =
       slots.map((slot) => {
-        const booking =
-          bookings.find(
-            (b) => b.slotId === slot.id
-          );
-
         const booked =
-          booking?._count.id ?? 0;
+          bookingCountMap.get(slot.id) ??
+          0;
+
+        const available = Math.max(
+          slot.capacity - booked,
+          0
+        );
 
         return {
           ...slot,
           booked,
-          available:
-            slot.capacity - booked,
+          available,
           isFull:
             booked >= slot.capacity,
         };
@@ -118,14 +243,19 @@ const bookings =
       slotsWithAvailability
     );
   } catch (error) {
-    console.error(error);
+    console.error(
+      "GET available slots error:",
+      error
+    );
 
     return NextResponse.json(
       {
         error:
           "Failed to fetch available slots",
       },
-      { status: 500 }
+      {
+        status: 500,
+      }
     );
   }
 }

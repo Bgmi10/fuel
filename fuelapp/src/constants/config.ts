@@ -1,1 +1,2 @@
-export const API_BASE_URL = "https://0f79-117-250-254-3.ngrok-free.app/api";
+export const API_BASE_URL = "https://fuel.moviespot.space/api";
+export const BASE_URL = "https://fuel.moviespot.space";

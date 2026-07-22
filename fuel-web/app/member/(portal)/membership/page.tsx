@@ -12,6 +12,7 @@ const page = () => {
         <MembershipSummary 
         //@ts-ignore
         subscriptions={subscriptions} />
+        
         <OutstandingBalanceAlert 
         //@ts-ignore
         subscriptions={subscriptions} />

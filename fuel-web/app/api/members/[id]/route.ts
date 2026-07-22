@@ -154,27 +154,61 @@ export const GET = async (
             },
           },
         },
+        
 
         // 🔥 SUBSCRIPTIONS
         subscriptions: {
           orderBy: {
             createdAt: "desc",
           },
-
+        
           include: {
             branch: true,
-
+        
             package: {
               include: {
                 service: true,
               },
             },
-
+        
             invoice: {
               include: {
                 payments: {
                   orderBy: {
                     createdAt: "desc",
+                  },
+                },
+              },
+            },
+        
+            // Latest transfer received by this member
+            membershipTransfers: {
+              where: {
+                toMemberId: id,
+              },
+        
+              orderBy: {
+                createdAt: "desc",
+              },
+        
+              take: 1,
+        
+              include: {
+                fromMember: {
+                  select: {
+                    id: true,
+                    name: true,
+                    phone: true,
+                    email: true,
+                  },
+                },
+        
+                transferredBy: {
+                  select: {
+                    id: true,
+                    name: true,
+                    email: true,
+                    role: true,
                   },
                 },
               },

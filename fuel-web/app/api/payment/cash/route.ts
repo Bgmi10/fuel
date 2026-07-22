@@ -329,6 +329,10 @@ if (paidAmount > invoiceTotal) {
 
           packageId: plan.id,
 
+          usageType: plan.usageType,
+          totalSessions: plan.totalSessions,
+          remainingSessions: plan.totalSessions,
+
           branchId: branch.id,
 
           invoiceId: invoice.id,

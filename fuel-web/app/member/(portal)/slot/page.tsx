@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import QrModal from "./QrModal";
+import { formatTime } from "@/app/utils/date";
 
 const Page = () => {
   const router = useRouter();
@@ -89,8 +90,8 @@ const Page = () => {
             <div className="flex items-center gap-3 text-gray-300">
               <Clock3 size={18} />
               <span>
-                {upcomingBooking.slot.startTime} -{" "}
-                {upcomingBooking.slot.endTime}
+                {formatTime(upcomingBooking.slot.startTime)} -{" "}
+                {formatTime(upcomingBooking.slot.endTime)}
               </span>
             </div>
 
@@ -201,7 +202,7 @@ const Page = () => {
                </span>
            
                <span>
-                 {booking.slot.startTime} - {booking.slot.endTime}
+                 {formatTime(booking.slot.startTime)} - {formatTime(booking.slot.endTime)}
                </span>
              </div>
            </div>
