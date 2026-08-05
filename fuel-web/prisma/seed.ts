@@ -1,5 +1,10 @@
-import { prisma } from "."
 import bcrypt from "bcrypt";
+import { prisma } from "./index";
+import dotenv from "dotenv"
+
+
+
+dotenv.config();
 
 const emails = [{
     name: 'subash',

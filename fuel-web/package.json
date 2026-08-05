@@ -28,6 +28,7 @@
     "date-fns": "^4.4.0",
     "dayjs": "^1.11.21",
     "dayjs-plugin-utc": "^0.1.2",
+    "dotenv": "^17.4.2",
     "framer-motion": "^12.38.0",
     "html5-qrcode": "^2.3.8",
     "jose": "^6.2.3",
