@@ -102,6 +102,8 @@ model Setting {
   groupJoiningMaxMembers Int @default(10)
 
   groupDiscountRules Json @default("[]")
+
+  membershipTransferFeeRules Json @default("[]")
 }
 
 model Branch {
@@ -1084,6 +1086,25 @@ model MembershipTransfer {
 
   reason String?
 
+  // Remaining membership days when transferred
+  remainingDays Int?
+
+  // Applied configured slab snapshot
+  feeSlabId      String?
+  feeSlabLabel   String?
+  feeSlabMinDays Int?
+  feeSlabMaxDays Int?
+
+  // Fee before tax
+  baseTransferFee Int @default(0)
+
+  // Tax snapshot
+  cgstPercentage Float?
+  sgstPercentage Float?
+  cgstAmount     Float?
+  sgstAmount     Float?
+
+  // Final transfer fee including GST
   transferFee Int @default(0)
 
   transferredById String

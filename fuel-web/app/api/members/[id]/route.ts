@@ -181,7 +181,6 @@ export const GET = async (
               },
             },
         
-            // Latest transfer received by this member
             membershipTransfers: {
               where: {
                 toMemberId: id,
@@ -193,7 +192,36 @@ export const GET = async (
         
               take: 1,
         
-              include: {
+              select: {
+                id: true,
+        
+                subscriptionId: true,
+        
+                fromMemberId: true,
+                toMemberId: true,
+        
+                reason: true,
+        
+                remainingDays: true,
+        
+                feeSlabId: true,
+                feeSlabLabel: true,
+                feeSlabMinDays: true,
+                feeSlabMaxDays: true,
+        
+                baseTransferFee: true,
+        
+                cgstPercentage: true,
+                sgstPercentage: true,
+        
+                cgstAmount: true,
+                sgstAmount: true,
+        
+                transferFee: true,
+        
+                transferredById: true,
+                createdAt: true,
+        
                 fromMember: {
                   select: {
                     id: true,

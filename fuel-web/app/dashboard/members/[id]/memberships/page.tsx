@@ -13,6 +13,69 @@ import {
 import { TransferMembershipModal } from "./TransferMembershipModal";
 import { FreezeModal } from "../Freezemodal";
 
+const BUSINESS_TIMEZONE = "Asia/Kolkata";
+const MILLISECONDS_PER_DAY =
+  24 * 60 * 60 * 1000;
+
+function getCalendarDayNumber(date: Date) {
+  const parts = new Intl.DateTimeFormat(
+    "en-CA",
+    {
+      timeZone: BUSINESS_TIMEZONE,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }
+  ).formatToParts(date);
+
+  const year = Number(
+    parts.find((part) => part.type === "year")
+      ?.value
+  );
+
+  const month = Number(
+    parts.find((part) => part.type === "month")
+      ?.value
+  );
+
+  const day = Number(
+    parts.find((part) => part.type === "day")
+      ?.value
+  );
+
+  return Math.floor(
+    Date.UTC(year, month - 1, day) /
+      MILLISECONDS_PER_DAY
+  );
+}
+
+function calculateInclusiveDaysLeft(
+  endDate: Date,
+  referenceDate = new Date()
+) {
+  const today =
+    getCalendarDayNumber(referenceDate);
+
+  const end =
+    getCalendarDayNumber(endDate);
+
+  return Math.max(0, end - today + 1);
+}
+
+function formatCurrency(value: unknown) {
+  const amount = Number(value ?? 0);
+
+  if (!Number.isFinite(amount)) {
+    return "0";
+  }
+
+  return amount.toLocaleString("en-IN", {
+    minimumFractionDigits:
+      Number.isInteger(amount) ? 0 : 2,
+    maximumFractionDigits: 2,
+  });
+}
+
 export default function MembershipsPage() {
   const { id } = useParams();
   const router = useRouter();
@@ -137,24 +200,25 @@ export default function MembershipsPage() {
               const hasNoSessionsRemaining =
                 isSessionBased &&
                 remainingSessions <= 0;
-
-              const effectiveStart = today > startDate ? today : startDate;
-
-              const daysLeft = Math.max(
-                0,
-                Math.ceil((endDate.getTime() - effectiveStart.getTime()) / (1000 * 60 * 60 * 24))
-              );
-
-              const totalDays = Math.ceil(
-                (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
+                const daysLeft =
+                calculateInclusiveDaysLeft(endDate);
+              
+              const totalDays = Math.max(
+                1,
+                getCalendarDayNumber(endDate) -
+                  getCalendarDayNumber(startDate) +
+                  1
               );
 
               const latestTransfer =
-  sub.membershipTransfers?.[0] || null;
+  sub.membershipTransfers?.[0] ?? null;
 
-  const receivedThroughTransfer =
-  Boolean(latestTransfer);
 
+const receivedThroughTransfer =
+  Boolean(
+    latestTransfer &&
+      latestTransfer.toMemberId === member.id
+  );
               return (
                 <div
                   key={sub.id}
@@ -298,94 +362,189 @@ onClick={() => {
                   </div>
 
 
-                  {receivedThroughTransfer && latestTransfer && (
-  <div className="mt-6 rounded-2xl border border-violet-500/30 bg-violet-500/10 p-4">
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-      <div>
-        <p className="text-sm font-semibold text-violet-300">
-          Received through membership transfer
-        </p>
+                  {receivedThroughTransfer &&
+  latestTransfer && (
+    <div className="mt-6 rounded-2xl border border-violet-500/30 bg-violet-500/10 p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-sm font-semibold text-violet-300">
+            Received through membership transfer
+          </p>
 
-        <p className="mt-1 text-sm text-neutral-400">
-          Transferred from{" "}
-          <span className="font-medium text-white">
+          <p className="mt-1 text-sm text-neutral-400">
+            Transferred from{" "}
+            <span className="font-medium text-white">
+              {latestTransfer.fromMember.name}
+            </span>{" "}
+            by{" "}
+            <span className="font-medium text-white">
+              {latestTransfer.transferredBy.name}
+            </span>
+            .
+          </p>
+        </div>
+
+        <p className="shrink-0 text-xs text-neutral-500">
+          {new Date(
+            latestTransfer.createdAt
+          ).toLocaleString("en-IN", {
+            timeZone: BUSINESS_TIMEZONE,
+            day: "2-digit",
+            month: "short",
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          })}
+        </p>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="rounded-xl border border-neutral-800 bg-black/30 p-3">
+          <p className="text-xs text-neutral-500">
+            Previous member
+          </p>
+
+          <p className="mt-1 text-sm font-medium text-white">
             {latestTransfer.fromMember.name}
-          </span>{" "}
-          by{" "}
-          <span className="font-medium text-white">
+          </p>
+
+          <p className="mt-1 text-xs text-neutral-500">
+            {latestTransfer.fromMember.phone}
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-neutral-800 bg-black/30 p-3">
+          <p className="text-xs text-neutral-500">
+            Remaining duration
+          </p>
+
+          <p className="mt-1 text-sm font-medium text-white">
+            {latestTransfer.remainingDays != null
+              ? `${latestTransfer.remainingDays} days`
+              : "Not recorded"}
+          </p>
+
+          <p className="mt-1 text-xs text-neutral-500">
+            At the time of transfer
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-neutral-800 bg-black/30 p-3">
+          <p className="text-xs text-neutral-500">
+            Applied slab
+          </p>
+
+          <p className="mt-1 text-sm font-medium text-white">
+            {latestTransfer.feeSlabLabel ||
+              "Legacy manual fee"}
+          </p>
+
+          {latestTransfer.feeSlabMinDays != null &&
+            latestTransfer.feeSlabMaxDays !=
+              null && (
+              <p className="mt-1 text-xs text-neutral-500">
+                {
+                  latestTransfer.feeSlabMinDays
+                }
+                –
+                {
+                  latestTransfer.feeSlabMaxDays
+                }{" "}
+                days
+              </p>
+            )}
+        </div>
+
+        <div className="rounded-xl border border-neutral-800 bg-black/30 p-3">
+          <p className="text-xs text-neutral-500">
+            Transferred by
+          </p>
+
+          <p className="mt-1 text-sm font-medium text-white">
             {latestTransfer.transferredBy.name}
-          </span>
-          .
-        </p>
+          </p>
+
+          <p className="mt-1 text-xs text-neutral-500">
+            {latestTransfer.transferredBy.role}
+          </p>
+        </div>
       </div>
 
-      <p className="shrink-0 text-xs text-neutral-500">
-        {new Date(
-          latestTransfer.createdAt
-        ).toLocaleString("en-IN", {
-          day: "2-digit",
-          month: "short",
-          year: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-        })}
-      </p>
-    </div>
+      <div className="mt-3 overflow-hidden rounded-xl border border-neutral-800 bg-black/30">
+        <div className="grid gap-3 p-4 sm:grid-cols-3">
+          <div>
+            <p className="text-xs text-neutral-500">
+              Base transfer fee
+            </p>
 
-    <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      <div className="rounded-xl border border-neutral-800 bg-black/30 p-3">
-        <p className="text-xs text-neutral-500">
-          Previous member
-        </p>
+            <p className="mt-1 font-medium text-white">
+              ₹
+              {formatCurrency(
+                latestTransfer.baseTransferFee ??
+                  latestTransfer.transferFee
+              )}
+            </p>
+          </div>
 
-        <p className="mt-1 text-sm font-medium text-white">
-          {latestTransfer.fromMember.name}
-        </p>
+          <div>
+            <p className="text-xs text-neutral-500">
+              CGST{" "}
+              {latestTransfer.cgstPercentage !=
+                null &&
+                `(${latestTransfer.cgstPercentage}%)`}
+            </p>
 
-        <p className="mt-1 text-xs text-neutral-500">
-          {latestTransfer.fromMember.phone}
-        </p>
+            <p className="mt-1 font-medium text-white">
+              ₹
+              {formatCurrency(
+                latestTransfer.cgstAmount
+              )}
+            </p>
+          </div>
+
+          <div>
+            <p className="text-xs text-neutral-500">
+              SGST{" "}
+              {latestTransfer.sgstPercentage !=
+                null &&
+                `(${latestTransfer.sgstPercentage}%)`}
+            </p>
+
+            <p className="mt-1 font-medium text-white">
+              ₹
+              {formatCurrency(
+                latestTransfer.sgstAmount
+              )}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between border-t border-neutral-800 bg-neutral-950/70 px-4 py-3">
+          <p className="text-sm font-medium text-neutral-300">
+            Total transfer fee
+          </p>
+
+          <p className="text-lg font-bold text-lime-400">
+            ₹
+            {formatCurrency(
+              latestTransfer.transferFee
+            )}
+          </p>
+        </div>
       </div>
 
-      <div className="rounded-xl border border-neutral-800 bg-black/30 p-3">
+      <div className="mt-3 rounded-xl border border-neutral-800 bg-black/30 p-3">
         <p className="text-xs text-neutral-500">
-          Transfer fee
-        </p>
-
-        <p className="mt-1 text-sm font-medium text-white">
-          ₹
-          {Number(
-            latestTransfer.transferFee ?? 0
-          ).toLocaleString("en-IN")}
-        </p>
-      </div>
-
-      <div className="rounded-xl border border-neutral-800 bg-black/30 p-3">
-        <p className="text-xs text-neutral-500">
-          Transferred by
-        </p>
-
-        <p className="mt-1 text-sm font-medium text-white">
-          {latestTransfer.transferredBy.name}
-        </p>
-
-        <p className="mt-1 text-xs text-neutral-500">
-          {latestTransfer.transferredBy.role}
-        </p>
-      </div>
-
-      <div className="rounded-xl border border-neutral-800 bg-black/30 p-3">
-        <p className="text-xs text-neutral-500">
-          Reason
+          Transfer reason
         </p>
 
         <p className="mt-1 break-words text-sm text-white">
-          {latestTransfer.reason || "Not provided"}
+          {latestTransfer.reason ||
+            "Not provided"}
         </p>
       </div>
     </div>
-  </div>
-)}
+  )}
 
 {/* MEMBERSHIP ACCESS */}
                   <div

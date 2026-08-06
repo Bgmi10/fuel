@@ -16,6 +16,17 @@ import {
     discountPercentage: number;
   };
   
+
+  type MembershipTransferFeeRule = {
+    id: string;
+    label: string;
+    minDays: number;
+    maxDays: number;
+    fee: number;
+    isActive: boolean;
+  };
+
+
   const validReferralTypes =
     new Set<string>([
       "FIXED_AMOUNT",
@@ -61,6 +72,132 @@ import {
     return rules.sort(
       (a, b) => a.minMembers - b.minMembers
     );
+  }
+
+  function normalizeTransferFeeRules(
+    value: unknown
+  ): MembershipTransferFeeRule[] | null {
+    if (!Array.isArray(value)) return null;
+  
+    const rules: MembershipTransferFeeRule[] = [];
+  
+    for (const item of value) {
+      if (!item || typeof item !== "object") {
+        return null;
+      }
+  
+      const rule = item as Record<string, unknown>;
+  
+      const id = String(rule.id || "").trim();
+      const label = String(rule.label || "").trim();
+  
+      const minDays = Number(rule.minDays);
+      const maxDays = Number(rule.maxDays);
+      const fee = Number(rule.fee);
+  
+      const isActive =
+        typeof rule.isActive === "boolean"
+          ? rule.isActive
+          : true;
+  
+      if (
+        !id ||
+        !label ||
+        !Number.isInteger(minDays) ||
+        !Number.isInteger(maxDays) ||
+        !Number.isFinite(fee)
+      ) {
+        return null;
+      }
+  
+      rules.push({
+        id,
+        label,
+        minDays,
+        maxDays,
+        fee,
+        isActive,
+      });
+    }
+  
+    return rules.sort((a, b) => {
+      return b.minDays - a.minDays;
+    });
+  }
+
+
+  function validateTransferFeeRules(
+    rules: MembershipTransferFeeRule[]
+  ): string | null {
+    if (rules.length === 0) {
+      return "At least one membership transfer fee rule is required.";
+    }
+  
+    const ids = new Set<string>();
+  
+    for (const rule of rules) {
+      if (ids.has(rule.id)) {
+        return "Transfer fee rule IDs must be unique.";
+      }
+  
+      ids.add(rule.id);
+  
+      if (rule.minDays < 0) {
+        return "Minimum remaining days cannot be negative.";
+      }
+  
+      if (rule.maxDays < rule.minDays) {
+        return `Maximum days cannot be lower than minimum days for "${rule.label}".`;
+      }
+  
+      if (
+        !Number.isInteger(rule.fee) ||
+        rule.fee < 0
+      ) {
+        return `Transfer fee for "${rule.label}" must be a valid whole amount.`;
+      }
+    }
+  
+    const activeRules = rules
+      .filter((rule) => rule.isActive)
+      .sort((a, b) => a.minDays - b.minDays);
+  
+    if (activeRules.length === 0) {
+      return "At least one active transfer fee rule is required.";
+    }
+  
+    for (
+      let index = 1;
+      index < activeRules.length;
+      index += 1
+    ) {
+      const previous = activeRules[index - 1];
+      const current = activeRules[index];
+  
+      if (current.minDays <= previous.maxDays) {
+        return `"${current.label}" overlaps with "${previous.label}".`;
+      }
+    }
+  
+    return null;
+  }
+
+  function parseBoolean(
+    value: unknown
+  ): boolean | null {
+    if (typeof value === "boolean") {
+      return value;
+    }
+  
+    if (value === "true") {
+      return true;
+    }
+  
+    if (value === "false") {
+      return false;
+    }
+  
+    return null;
   }
   
   function validateRules({
@@ -183,9 +320,51 @@ import {
         groupJoiningEnabled,
         groupJoiningMaxMembers,
         groupDiscountRules,
+        membershipTransferFeeRules,
       } = body;
   
       const updateData: Prisma.SettingUpdateInput = {};
+
+
+      if (membershipTransferFeeRules !== undefined) {
+        const normalizedTransferFeeRules =
+          normalizeTransferFeeRules(
+            membershipTransferFeeRules
+          );
+      
+        if (!normalizedTransferFeeRules) {
+          return NextResponse.json(
+            {
+              success: false,
+              message:
+                "Membership transfer fee rules are invalid.",
+            },
+            {
+              status: 400,
+            }
+          );
+        }
+      
+        const transferFeeValidationError =
+          validateTransferFeeRules(
+            normalizedTransferFeeRules
+          );
+      
+        if (transferFeeValidationError) {
+          return NextResponse.json(
+            {
+              success: false,
+              message: transferFeeValidationError,
+            },
+            {
+              status: 400,
+            }
+          );
+        }
+      
+        updateData.membershipTransferFeeRules =
+          normalizedTransferFeeRules as Prisma.InputJsonValue;
+      }
   
       if (cgstPercentage !== undefined) {
         const value = Number(cgstPercentage);
@@ -323,10 +502,29 @@ import {
         updateData.referralMembershipDays = value;
       }
   
-      const finalEnabled =
-        groupJoiningEnabled !== undefined
-          ? Boolean(groupJoiningEnabled)
-          : currentSetting.groupJoiningEnabled;
+      let finalEnabled =
+      currentSetting.groupJoiningEnabled;
+    
+    if (groupJoiningEnabled !== undefined) {
+      const parsedEnabled = parseBoolean(
+        groupJoiningEnabled
+      );
+    
+      if (parsedEnabled === null) {
+        return NextResponse.json(
+          {
+            success: false,
+            message:
+              "Group joining enabled must be a boolean.",
+          },
+          {
+            status: 400,
+          }
+        );
+      }
+    
+      finalEnabled = parsedEnabled;
+    }
   
       const finalMaxMembers =
         groupJoiningMaxMembers !== undefined

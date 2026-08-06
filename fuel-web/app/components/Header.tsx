@@ -43,9 +43,9 @@ export const Header = ({
 
           {/* LOGO */}
           <img
-            src="https://fuelgym.in/wp-content/uploads/2025/10/fuel-logo.webp"
+            src="/logo.png"
             alt="Fuel Gym Logo"
-            className="h-10 w-auto"
+            className="h-16 w-auto"
           />
 
           {/* 🔥 BRANCH SELECTOR */}

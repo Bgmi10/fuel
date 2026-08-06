@@ -17,6 +17,27 @@ type MemberSearchResult = {
   email: string | null;
 };
 
+type MembershipTransferQuote = {
+  remainingDays: number;
+
+  slab: {
+    id: string;
+    label: string;
+    minDays: number;
+    maxDays: number;
+  };
+
+  baseTransferFee: number;
+
+  cgstPercentage: number;
+  sgstPercentage: number;
+
+  cgstAmount: number;
+  sgstAmount: number;
+
+  transferFee: number;
+};
+
 type Props = {
   open: boolean;
   subscriptionId: string;
@@ -49,7 +70,14 @@ export function TransferMembershipModal({
     useState<MemberSearchResult | null>(null);
 
   const [reason, setReason] = useState("");
-  const [transferFee, setTransferFee] = useState("0");
+  const [transferQuote, setTransferQuote] =
+  useState<MembershipTransferQuote | null>(null);
+
+const [loadingTransferQuote, setLoadingTransferQuote] =
+  useState(false);
+
+const [transferQuoteError, setTransferQuoteError] =
+  useState("");
 
   const [searching, setSearching] = useState(false);
   const [transferring, setTransferring] =
@@ -59,13 +87,52 @@ export function TransferMembershipModal({
   const [transferError, setTransferError] =
     useState("");
 
+
+    const fetchTransferQuote = async () => {
+      try {
+        setLoadingTransferQuote(true);
+        setTransferQuoteError("");
+        setTransferQuote(null);
+    
+        const response = await fetch(
+          `/api/subscriptions/${subscriptionId}/transfer-quote`,
+          {
+            cache: "no-store",
+          }
+        );
+    
+        const data = await response.json();
+    
+        if (!response.ok || !data.success) {
+          throw new Error(
+            data.message ||
+              "Unable to calculate the transfer fee."
+          );
+        }
+    
+        setTransferQuote(data.quote);
+      } catch (error) {
+        setTransferQuote(null);
+    
+        setTransferQuoteError(
+          error instanceof Error
+            ? error.message
+            : "Unable to calculate the transfer fee."
+        );
+      } finally {
+        setLoadingTransferQuote(false);
+      }
+    };
+
   const resetModal = () => {
     setStep("SEARCH");
     setQuery("");
     setMembers([]);
     setSelectedMember(null);
     setReason("");
-    setTransferFee("0");
+    setTransferQuote(null);
+setTransferQuoteError("");
+setLoadingTransferQuote(false);
     setSearchError("");
     setTransferError("");
     setSearching(false);
@@ -152,35 +219,36 @@ export function TransferMembershipModal({
       controller.abort();
     };
   }, [query, open, step, currentMemberId]);
-
-  const selectMember = (member: MemberSearchResult) => {
+  const selectMember = (
+    member: MemberSearchResult
+  ) => {
     setSelectedMember(member);
     setTransferError("");
+    setTransferQuoteError("");
     setStep("CONFIRM");
+  
+    void fetchTransferQuote();
   };
 
   const confirmTransfer = async () => {
     if (!selectedMember) return;
 
     const normalizedReason = reason.trim();
-    const parsedTransferFee = Number(transferFee);
-
+    
     if (!normalizedReason) {
       setTransferError(
         "Please enter the reason for the transfer."
       );
       return;
     }
-
-    if (
-      !Number.isInteger(parsedTransferFee) ||
-      parsedTransferFee < 0
-    ) {
+    
+    if (!transferQuote) {
       setTransferError(
-        "Transfer fee must be zero or a valid whole amount."
+        "The transfer fee has not been calculated."
       );
       return;
     }
+
 
     try {
       setTransferring(true);
@@ -196,7 +264,6 @@ export function TransferMembershipModal({
           body: JSON.stringify({
             toMemberId: selectedMember.id,
             reason: normalizedReason,
-            transferFee: parsedTransferFee,
           }),
         }
       );
@@ -355,6 +422,9 @@ export function TransferMembershipModal({
                 onClick={() => {
                   setStep("SEARCH");
                   setTransferError("");
+                  setTransferQuoteError("");
+                  setTransferQuote(null);
+                  setSelectedMember(null);
                 }}
                 className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-neutral-800 text-neutral-400 transition-colors hover:bg-neutral-900 hover:text-white disabled:opacity-50"
               >
@@ -413,34 +483,129 @@ export function TransferMembershipModal({
                   className="w-full resize-none rounded-xl border border-neutral-800 bg-black p-4 text-sm text-white outline-none transition-colors placeholder:text-neutral-600 focus:border-lime-400"
                 />
               </div>
-
               <div>
-                <label className="mb-2 block text-sm font-medium text-neutral-300">
-                  Transfer fee
-                </label>
+  <label className="mb-2 block text-sm font-medium text-neutral-300">
+    Transfer fee
+  </label>
 
-                <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-500">
-                    ₹
-                  </span>
+  {loadingTransferQuote ? (
+    <div className="flex min-h-32 items-center justify-center rounded-2xl border border-neutral-800 bg-black">
+      <Loader2
+        size={20}
+        className="animate-spin text-lime-400"
+      />
 
-                  <input
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={transferFee}
-                    onChange={(event) =>
-                      setTransferFee(event.target.value)
-                    }
-                    className="h-12 w-full rounded-xl border border-neutral-800 bg-black pl-9 pr-4 text-sm text-white outline-none transition-colors focus:border-lime-400"
-                  />
-                </div>
+      <span className="ml-3 text-sm text-neutral-400">
+        Calculating transfer fee...
+      </span>
+    </div>
+  ) : transferQuoteError ? (
+    <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4">
+      <p className="text-sm leading-6 text-red-400">
+        {transferQuoteError}
+      </p>
 
-                <p className="mt-2 text-xs text-neutral-600">
-                  This amount is stored only for reference. No
-                  invoice or payment receipt will be generated.
-                </p>
-              </div>
+      <button
+        type="button"
+        onClick={() => {
+          void fetchTransferQuote();
+        }}
+        className="mt-3 text-sm font-semibold text-red-300 underline underline-offset-4"
+      >
+        Try again
+      </button>
+    </div>
+  ) : transferQuote ? (
+    <div className="overflow-hidden rounded-2xl border border-neutral-800 bg-black">
+      <div className="space-y-3 p-4">
+        <div className="flex items-center justify-between gap-4 text-sm">
+          <span className="text-neutral-500">
+            Remaining membership
+          </span>
+
+          <span className="font-medium text-white">
+            {transferQuote.remainingDays} days
+          </span>
+        </div>
+
+        <div className="flex items-center justify-between gap-4 text-sm">
+          <span className="text-neutral-500">
+            Applied slab
+          </span>
+
+          <span className="text-right font-medium text-white">
+            {transferQuote.slab.label}
+          </span>
+        </div>
+
+        <div className="flex items-center justify-between gap-4 text-sm">
+          <span className="text-neutral-500">
+            Base transfer fee
+          </span>
+
+          <span className="font-medium text-white">
+            ₹
+            {transferQuote.baseTransferFee.toLocaleString(
+              "en-IN"
+            )}
+          </span>
+        </div>
+
+        <div className="flex items-center justify-between gap-4 text-sm">
+          <span className="text-neutral-500">
+            CGST ({transferQuote.cgstPercentage}%)
+          </span>
+
+          <span className="text-white">
+            ₹
+            {transferQuote.cgstAmount.toLocaleString(
+              "en-IN",
+              {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              }
+            )}
+          </span>
+        </div>
+
+        <div className="flex items-center justify-between gap-4 text-sm">
+          <span className="text-neutral-500">
+            SGST ({transferQuote.sgstPercentage}%)
+          </span>
+
+          <span className="text-white">
+            ₹
+            {transferQuote.sgstAmount.toLocaleString(
+              "en-IN",
+              {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              }
+            )}
+          </span>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between border-t border-neutral-800 bg-neutral-900 px-4 py-4">
+        <span className="font-medium text-neutral-300">
+          Total transfer fee
+        </span>
+
+        <span className="text-xl font-bold text-lime-400">
+          ₹
+          {transferQuote.transferFee.toLocaleString(
+            "en-IN"
+          )}
+        </span>
+      </div>
+    </div>
+  ) : null}
+
+  <p className="mt-2 text-xs leading-5 text-neutral-600">
+    The fee is automatically selected from the central
+    settings based on the remaining membership duration.
+  </p>
+</div>
 
               <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
                 <div className="flex items-start gap-3">
@@ -449,14 +614,21 @@ export function TransferMembershipModal({
                     className="mt-0.5 shrink-0 text-amber-400"
                   />
 
-                  <p className="text-sm leading-6 text-amber-100">
-                    This action will transfer the membership,
-                    original invoice, and all associated payment
-                    records from the current member to the selected
-                    member. The previous member will no longer see
-                    these records. This action cannot be
-                    automatically reversed.
-                  </p>
+<p className="text-sm leading-6 text-amber-100">
+  This action will transfer the membership, original
+  invoice, and all associated payment records from the
+  current member to the selected member. A transfer fee
+  of{" "}
+  <strong>
+    {transferQuote
+      ? `₹${transferQuote.transferFee.toLocaleString(
+          "en-IN"
+        )}`
+      : "the configured amount"}
+  </strong>{" "}
+  will be recorded against this transfer. This action
+  cannot be automatically reversed.
+</p>
                 </div>
               </div>
 
@@ -475,17 +647,17 @@ export function TransferMembershipModal({
                 >
                   Cancel
                 </button>
-
                 <button
-                  type="button"
-                  disabled={
-                    transferring ||
-                    !reason.trim() ||
-                    transferFee === ""
-                  }
-                  onClick={confirmTransfer}
-                  className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-red-500 px-4 font-semibold text-white transition-colors hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-50"
-                >
+  type="button"
+  disabled={
+    transferring ||
+    loadingTransferQuote ||
+    !transferQuote ||
+    !reason.trim()
+  }
+  onClick={confirmTransfer}
+  className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-red-500 px-4 font-semibold text-white transition-colors hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+>
                   {transferring && (
                     <Loader2
                       size={17}
