@@ -17,6 +17,12 @@ import {
   };
   
 
+  type GroupDiscountApplicability = {
+    serviceId: string;
+    packageIds: string[];
+  }
+
+
   type MembershipTransferFeeRule = {
     id: string;
     label: string;
@@ -34,6 +40,198 @@ import {
       "MEMBERSHIP_DAYS",
     ]);
   
+
+    async function validateGroupDiscountApplicability(
+      applicability:
+        GroupDiscountApplicability[]
+    ): Promise<string | null> {
+      if (
+        applicability.length === 0
+      ) {
+        return null;
+      }
+    
+      const serviceIds =
+        applicability.map(
+          (item) =>
+            item.serviceId
+        );
+    
+      const services =
+        await prisma.service.findMany({
+          where: {
+            id: {
+              in: serviceIds,
+            },
+          },
+    
+          select: {
+            id: true,
+            name: true,
+    
+            packages: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+        });
+    
+      const serviceMap =
+        new Map(
+          services.map(
+            (service) => [
+              service.id,
+              service,
+            ]
+          )
+        );
+    
+      for (
+        const item of
+        applicability
+      ) {
+        const service =
+          serviceMap.get(
+            item.serviceId
+          );
+    
+        if (!service) {
+          return (
+            `Service ${item.serviceId} ` +
+            `does not exist.`
+          );
+        }
+    
+        const validPackageIds =
+          new Set(
+            service.packages.map(
+              (pkg) => pkg.id
+            )
+          );
+    
+        for (
+          const packageId of
+          item.packageIds
+        ) {
+          if (
+            !validPackageIds.has(
+              packageId
+            )
+          ) {
+            return (
+              `Package ${packageId} ` +
+              `does not belong to ` +
+              `${service.name}.`
+            );
+          }
+        }
+      }
+    
+      return null;
+    }
+    
+    function normalizeGroupDiscountApplicability(
+      value: unknown
+    ): GroupDiscountApplicability[] | null {
+      if (!Array.isArray(value)) {
+        return null;
+      }
+    
+      /*
+       * Use a Map so duplicate service entries
+       * are automatically merged.
+       */
+      const serviceMap = new Map<
+        string,
+        Set<string>
+      >();
+    
+      for (const item of value) {
+        if (
+          !item ||
+          typeof item !== "object"
+        ) {
+          return null;
+        }
+    
+        const entry =
+          item as Record<
+            string,
+            unknown
+          >;
+    
+        const serviceId = String(
+          entry.serviceId || ""
+        ).trim();
+    
+        if (
+          !serviceId ||
+          !Array.isArray(
+            entry.packageIds
+          )
+        ) {
+          return null;
+        }
+    
+        const packageIds = [
+          ...new Set(
+            entry.packageIds
+              .map((packageId) =>
+                String(
+                  packageId || ""
+                ).trim()
+              )
+              .filter(Boolean)
+          ),
+        ];
+    
+        /*
+         * Every configured service must have
+         * at least one applicable membership.
+         */
+        if (
+          packageIds.length === 0
+        ) {
+          return null;
+        }
+    
+        const existingPackages =
+          serviceMap.get(
+            serviceId
+          ) ?? new Set<string>();
+    
+        for (
+          const packageId of
+          packageIds
+        ) {
+          existingPackages.add(
+            packageId
+          );
+        }
+    
+        serviceMap.set(
+          serviceId,
+          existingPackages
+        );
+      }
+    
+      return Array.from(
+        serviceMap.entries()
+      ).map(
+        ([
+          serviceId,
+          packageIds,
+        ]) => ({
+          serviceId,
+    
+          packageIds: Array.from(
+            packageIds
+          ),
+        })
+      );
+    }
   function normalizeRules(
     value: unknown
   ): GroupDiscountRule[] | null {
@@ -321,6 +519,8 @@ import {
         groupJoiningMaxMembers,
         groupDiscountRules,
         membershipTransferFeeRules,
+
+  groupDiscountApplicability,
       } = body;
   
       const updateData: Prisma.SettingUpdateInput = {};
@@ -576,6 +776,58 @@ import {
       updateData.groupDiscountRules =
         finalRules as Prisma.InputJsonValue;
   
+
+
+        if (
+          groupDiscountApplicability !==
+          undefined
+        ) {
+          const normalizedApplicability =
+            normalizeGroupDiscountApplicability(
+              groupDiscountApplicability
+            );
+        
+          if (
+            !normalizedApplicability
+          ) {
+            return NextResponse.json(
+              {
+                success: false,
+        
+                message:
+                  "Group discount applicability is invalid.",
+              },
+              {
+                status: 400,
+              }
+            );
+          }
+        
+          const applicabilityError =
+            await validateGroupDiscountApplicability(
+              normalizedApplicability
+            );
+        
+          if (
+            applicabilityError
+          ) {
+            return NextResponse.json(
+              {
+                success: false,
+        
+                message:
+                  applicabilityError,
+              },
+              {
+                status: 400,
+              }
+            );
+          }
+        
+          updateData.groupDiscountApplicability =
+            normalizedApplicability as Prisma.InputJsonValue;
+        }
+
       const updatedSetting =
         await prisma.setting.update({
           where: {

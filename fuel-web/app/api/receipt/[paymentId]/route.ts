@@ -546,9 +546,7 @@ Receipt Date : ${formatDate(
         )
 
         .text(
-          `₹ ${paymentAmountWithGST.toFixed(
-            2
-          )}`,
+          `₹ ${paymentAmountWithGST}`,
           470,
           totalsY + 87
         );

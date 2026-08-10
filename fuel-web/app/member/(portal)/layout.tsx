@@ -9,12 +9,9 @@ import { useRouter } from "next/navigation";
 
 import { MemberSidebar } from "./MemberSidebar";
 import { MemberHeader } from "./MemberHeader";
-import { DownloadAppBanner } from "./DownloadAppBanner";
 
 import { useAuth } from "@/app/contexts/MemberAuthContext";
 
-const APP_BANNER_STORAGE_KEY =
-  "fuel-app-download-banner-dismissed";
 
 export default function MemberPortalLayout({
   children,
@@ -26,17 +23,10 @@ export default function MemberPortalLayout({
     loading,
   } = useAuth();
 
+  const [mobileSidebarOpen, setMobileSidebarOpen] =
+  useState(false);
   const router = useRouter();
 
-  const [
-    showDownloadBanner,
-    setShowDownloadBanner,
-  ] = useState(false);
-
-  const [
-    bannerPreferenceLoaded,
-    setBannerPreferenceLoaded,
-  ] = useState(false);
 
   useEffect(() => {
     if (!loading && !member) {
@@ -44,27 +34,7 @@ export default function MemberPortalLayout({
     }
   }, [loading, member, router]);
 
-  useEffect(() => {
-    const dismissed =
-      localStorage.getItem(
-        APP_BANNER_STORAGE_KEY
-      );
 
-    setShowDownloadBanner(
-      dismissed !== "true"
-    );
-
-    setBannerPreferenceLoaded(true);
-  }, []);
-
-  const handleCloseBanner = () => {
-    localStorage.setItem(
-      APP_BANNER_STORAGE_KEY,
-      "true"
-    );
-
-    setShowDownloadBanner(false);
-  };
 
   if (loading) {
     return (
@@ -84,27 +54,12 @@ export default function MemberPortalLayout({
     return null;
   }
 
-  const bannerVisible =
-    bannerPreferenceLoaded &&
-    showDownloadBanner;
 
   return (
     <div
       className="min-h-screen bg-slate-950 text-white"
-      style={
-        {
-          "--member-portal-offset":
-            bannerVisible
-              ? "3.5rem"
-              : "0rem",
-        } as React.CSSProperties
-      }
     >
-      {bannerVisible && (
-        <DownloadAppBanner
-          onClose={handleCloseBanner}
-        />
-      )}
+     
 
       {/* Pushes the complete portal below the fixed banner */}
       <div
@@ -115,10 +70,15 @@ export default function MemberPortalLayout({
           duration-300
         "
       >
-        <MemberSidebar />
+         <MemberSidebar
+        mobileOpen={mobileSidebarOpen}
+        onMobileClose={() =>
+          setMobileSidebarOpen(false)
+        }
+      />
 
         <div className="lg:pl-[280px]">
-          <MemberHeader member={member} />
+          <MemberHeader member={member}   mobileSidebarOpen={mobileSidebarOpen} setMobileSidebarOpen={setMobileSidebarOpen} />
 
           <main className="relative p-4 lg:p-8">
             <div className="pointer-events-none fixed inset-0 bg-gradient-to-br from-lime-400/5 via-transparent to-green-400/5" />

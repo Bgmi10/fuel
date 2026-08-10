@@ -8,8 +8,7 @@ import { memberNavItems } from "./member-nav";
 import { Member } from "@prisma/client";
 
 
-export const MemberHeader = ({ member }: {member: Member}) => {
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+export const MemberHeader = ({ member, setMobileSidebarOpen, mobileSidebarOpen }: {member: Member, mobileSidebarOpen: any, setMobileSidebarOpen: any }) => {
   const [profileOpen, setProfileOpen] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
@@ -155,7 +154,7 @@ export const MemberHeader = ({ member }: {member: Member}) => {
       {/* Mobile Header */}
       <header className="lg:hidden flex items-center justify-between px-4 py-4 border-b border-white/5">
         <button
-          onClick={() => setIsMobileMenuOpen(true)}
+          onClick={() => setMobileSidebarOpen(true)}
           className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors"
         >
           <Menu size={20} className="text-white" />
@@ -191,19 +190,19 @@ export const MemberHeader = ({ member }: {member: Member}) => {
       {/* Mobile Menu Drawer */}
       <div
         className={`lg:hidden fixed inset-0 z-50 transition-opacity duration-300 ${
-          isMobileMenuOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+          mobileSidebarOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
         }`}
       >
         {/* Backdrop */}
         <div
           className="absolute inset-0 bg-black/80"
-          onClick={() => setIsMobileMenuOpen(false)}
+          onClick={() => setMobileSidebarOpen(false)}
         />
 
         {/* Drawer */}
         <div
           className={`absolute left-0 top-0 h-full w-[280px] bg-neutral-950 border-r border-white/10 transform transition-transform duration-300 ${
-            isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"
+            mobileSidebarOpen ? "translate-x-0" : "-translate-x-full"
           }`}
         >
           {/* Drawer Header */}
@@ -223,7 +222,7 @@ export const MemberHeader = ({ member }: {member: Member}) => {
                 <Link
                   key={item.href}
                   href={item.href}
-                  onClick={() => setIsMobileMenuOpen(false)}
+                  onClick={() => setMobileSidebarOpen(false)}
                   className={`
                     flex items-center gap-3 px-4 py-3 rounded-2xl transition-all duration-200
                     ${

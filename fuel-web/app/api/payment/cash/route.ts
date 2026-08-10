@@ -181,13 +181,13 @@ const invoiceTotal =
 const balanceAmount =
   invoiceTotal - paidAmount;
 
-if (paidAmount > invoiceTotal) {
-  return NextResponse.json({
-    success: false,
-    message:
-      "Paid amount cannot exceed invoice total",
-  });
-}
+// if (paidAmount > invoiceTotal) {
+//   return NextResponse.json({
+//     success: false,
+//     message:
+//       "Paid amount cannot exceed invoice total",
+//   });
+// }
 
     // STATUS
     let invoiceStatus:
@@ -481,7 +481,7 @@ invoiceStatus === "PENDING"
 
   ₹ ${paiseToRupees(
     paidAmount
-  ).toFixed(2)}
+  )}
 
 </td>
 
@@ -521,7 +521,7 @@ invoiceStatus === "PENDING"
       referralDiscountAmount:
       paiseToRupees(
         invoice.referralDiscountAmount
-      ).toFixed(2),
+      ),
       memberName:
         member.name || "-",
 
@@ -602,22 +602,22 @@ invoiceStatus === "PENDING"
       baseFee:
       paiseToRupees(Number(
         gstBreakdown.baseFee
-      )).toFixed(2),
+      )),
     
     cgst:
     paiseToRupees(Number(
         gstBreakdown.cgst
-      )).toFixed(2),
+      )),
     
     sgst:
     paiseToRupees(Number(
         gstBreakdown.sgst
-      )).toFixed(2),
+      )),
     
     totalTax:
       paiseToRupees(Number(
         gstBreakdown.totalTax
-      )).toFixed(2),
+      )),
 
       cgstPercentage:
         setting?.cgstPercentage?.toFixed(
@@ -636,7 +636,7 @@ invoiceStatus === "PENDING"
       finalAmount:
   paiseToRupees(
     invoice.finalAmount
-  ).toFixed(2),
+  ),
 
 invoiceTotal:
   totalAmount.toFixed(2),
@@ -644,22 +644,22 @@ invoiceTotal:
       packageAmount:
         paiseToRupees(
           invoice.packageAmount
-        ).toFixed(2),
+        ),
 
       discountAmount:
         paiseToRupees(
           invoice.discountAmount
-        ).toFixed(2),
+        ),
 
       paidAmount:
         paiseToRupees(
           invoice.paidAmount
-        ).toFixed(2),
+        ),
 
       balanceAmount:
         paiseToRupees(
           invoice.balanceAmount
-        ).toFixed(2),
+        ),
 
       // =====================================================
       // PAYMENT

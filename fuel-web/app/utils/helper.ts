@@ -108,7 +108,7 @@ export const calculateGSTBreakdown = async (
 
     totalTax,
 
-    amount: +(amount + totalTax).toFixed(2),
+    amount: +(amount + totalTax),
 
     cgstPercentage,
 
@@ -140,7 +140,7 @@ export const calculateGSTBreakdownFormatted = async (
  *
  * @param paise Amount in paise (e.g., 100000 for ₹1000)
  */
-export const paiseToRupees = (paise: number): number => paise / 100;
+export const paiseToRupees = (paise: number): any => (paise / 100).toFixed(2);
 
 /**
  * Map Razorpay payment method codes to user-friendly labels.

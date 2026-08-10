@@ -483,7 +483,7 @@ const sendMembershipNotification =
   >
     ₹ ${paiseToRupees(
       payment.amount
-    ).toFixed(2)}
+    )}
   </td>
 
   <td
@@ -530,7 +530,7 @@ const sendMembershipNotification =
           invoiceTotal:
             paiseToRupees(
               emailInvoiceTotal
-            ).toFixed(2),
+            ),
 
           memberName:
             freshInvoice.memberName ||
@@ -557,7 +557,7 @@ const sendMembershipNotification =
               freshInvoice
                 .referralDiscountAmount ||
                 0
-            ).toFixed(2),
+            ),
 
           /*
            * Group fields are harmless for
@@ -657,21 +657,21 @@ const sendMembershipNotification =
                 gstBreakdown
                   .baseFee
               )
-            ).toFixed(2),
+            ),
 
           cgst:
             paiseToRupees(
               Number(
                 gstBreakdown.cgst
               )
-            ).toFixed(2),
+            ),
 
           sgst:
             paiseToRupees(
               Number(
                 gstBreakdown.sgst
               )
-            ).toFixed(2),
+            ),
 
           totalTax:
             paiseToRupees(
@@ -679,7 +679,7 @@ const sendMembershipNotification =
                 gstBreakdown
                   .totalTax
               )
-            ).toFixed(2),
+            ),
 
           cgstPercentage:
             setting
@@ -697,31 +697,31 @@ const sendMembershipNotification =
             paiseToRupees(
               freshInvoice
                 .finalAmount
-            ).toFixed(2),
+            ),
 
           packageAmount:
             paiseToRupees(
               freshInvoice
                 .packageAmount
-            ).toFixed(2),
+            ),
 
           discountAmount:
             paiseToRupees(
               freshInvoice
                 .discountAmount
-            ).toFixed(2),
+            ),
 
           paidAmount:
             paiseToRupees(
               freshInvoice
                 .paidAmount
-            ).toFixed(2),
+            ),
 
           balanceAmount:
             paiseToRupees(
               freshInvoice
                 .balanceAmount
-            ).toFixed(2),
+            ),
 
           paymentMode:
             currentPayment

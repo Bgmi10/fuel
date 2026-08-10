@@ -1,0 +1,5 @@
+-- CreateEnum
+CREATE TYPE "SlotWeekday" AS ENUM ('MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY');
+
+-- AlterTable
+ALTER TABLE "Slot" ADD COLUMN     "daysOfWeek" "SlotWeekday"[] DEFAULT ARRAY['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY']::"SlotWeekday"[];

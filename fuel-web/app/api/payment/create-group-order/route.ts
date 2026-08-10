@@ -268,35 +268,50 @@ import {
       }
   
       const maximumMembers =
-        Math.min(
-          10,
-          Math.max(
-            2,
-            Number(
-              setting
-                .groupJoiningMaxMembers ||
-                10
-            )
-          )
-        );
-  
-      if (
-        members.length < 2 ||
-        members.length >
-          maximumMembers
-      ) {
-        return NextResponse.json(
-          {
-            success: false,
-  
-            message:
-              `Group joining supports 2 to ${maximumMembers} members.`,
-          },
-          {
-            status: 400,
-          }
-        );
-      }
+  Number(
+    setting.groupJoiningMaxMembers
+  ) || 10;
+
+/*
+ * This endpoint is specifically for
+ * group checkout, so at least 2 actual
+ * members must be submitted.
+ *
+ * This has NOTHING to do with
+ * groupJoiningMaxMembers.
+ */
+if (members.length < 2) {
+  return NextResponse.json(
+    {
+      success: false,
+      message:
+        "Group checkout requires at least 2 members.",
+    },
+    {
+      status: 400,
+    }
+  );
+}
+
+/*
+ * groupJoiningMaxMembers is ONLY
+ * the upper limit configured by admin.
+ */
+if (
+  members.length >
+  maximumMembers
+) {
+  return NextResponse.json(
+    {
+      success: false,
+      message:
+        `Maximum ${maximumMembers} members are allowed in one group.`,
+    },
+    {
+      status: 400,
+    }
+  );
+}
   
       for (
         let index = 0;

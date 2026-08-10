@@ -349,14 +349,14 @@ export const POST = async (
       invoiceTotal -
       Number(paidAmount);
 
-    if (Number(paidAmount) > invoiceTotal) {
-      return NextResponse.json({
-        success: false,
+    // if (Number(paidAmount) > invoiceTotal) {
+    //   return NextResponse.json({
+    //     success: false,
 
-        message:
-          "Paid amount cannot exceed invoice total",
-      });
-    }
+    //     message:
+    //       "Paid amount cannot exceed invoice total",
+    //   });
+    // }
 
     // =====================================================
     // DATES

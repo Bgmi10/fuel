@@ -1,10 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Branch, Service } from "@prisma/client";
+import type {
+  Branch,
+  Service,
+  SlotWeekday,
+} from "@prisma/client";
 import { useRouter } from "next/navigation";  
-import { formatTime } from "@/app/utils/date";
 
+import { formatTime } from "@/app/utils/date";
 type Slot = {
   id: string;
   name: string;
@@ -12,6 +16,8 @@ type Slot = {
   endTime: string;
   capacity: number;
   isActive: boolean;
+
+  daysOfWeek: SlotWeekday[];
 
   branchId: string;
   serviceId: string;
@@ -23,6 +29,67 @@ type Slot = {
     bookings: number;
   };
 };
+const WEEKDAYS: {
+  value: SlotWeekday;
+  label: string;
+  shortLabel: string;
+}[] = [
+  {
+    value: "MONDAY",
+    label: "Monday",
+    shortLabel: "Mon",
+  },
+  {
+    value: "TUESDAY",
+    label: "Tuesday",
+    shortLabel: "Tue",
+  },
+  {
+    value: "WEDNESDAY",
+    label: "Wednesday",
+    shortLabel: "Wed",
+  },
+  {
+    value: "THURSDAY",
+    label: "Thursday",
+    shortLabel: "Thu",
+  },
+  {
+    value: "FRIDAY",
+    label: "Friday",
+    shortLabel: "Fri",
+  },
+  {
+    value: "SATURDAY",
+    label: "Saturday",
+    shortLabel: "Sat",
+  },
+  {
+    value: "SUNDAY",
+    label: "Sunday",
+    shortLabel: "Sun",
+  },
+];
+
+const ALL_WEEKDAYS: SlotWeekday[] =
+  WEEKDAYS.map((day) => day.value);
+
+function formatSlotDays(
+  daysOfWeek: SlotWeekday[]
+) {
+  if (
+    !daysOfWeek ||
+    daysOfWeek.length === 7
+  ) {
+    return "Every day";
+  }
+
+  return WEEKDAYS.filter((day) =>
+    daysOfWeek.includes(day.value)
+  )
+    .map((day) => day.shortLabel)
+    .join(", ");
+}
 
 type SessionForm = {
   startTime: string;
@@ -32,6 +99,8 @@ type SessionForm = {
 
 type CreateForm = {
   branchId: string;
+
+  daysOfWeek: SlotWeekday[];
   serviceId: string;
   sessionCount: string;
   sessions: SessionForm[];
@@ -40,6 +109,9 @@ type CreateForm = {
 type EditForm = {
   name: string;
   startTime: string;
+
+  daysOfWeek: SlotWeekday[];
+  
   endTime: string;
   capacity: string;
   branchId: string;
@@ -56,6 +128,7 @@ const initialCreateForm = (): CreateForm => ({
   branchId: "",
   serviceId: "",
   sessionCount: "1",
+    daysOfWeek: [...ALL_WEEKDAYS],
   sessions: [createEmptySession()],
 });
 
@@ -63,6 +136,8 @@ const initialEditForm = (): EditForm => ({
   name: "",
   startTime: "",
   endTime: "",
+
+  daysOfWeek: [...ALL_WEEKDAYS],
   capacity: "",
   branchId: "",
   serviceId: "",
@@ -83,6 +158,45 @@ export default function Page() {
   const [editingSlotId, setEditingSlotId] = useState<string | null>(
     null
   );
+
+
+  const toggleCreateWeekday = (
+    weekday: SlotWeekday
+  ) => {
+    setCreateForm((current) => {
+      const selected =
+        current.daysOfWeek.includes(weekday);
+  
+      return {
+        ...current,
+  
+        daysOfWeek: selected
+          ? current.daysOfWeek.filter(
+              (day) => day !== weekday
+            )
+          : [...current.daysOfWeek, weekday],
+      };
+    });
+  };
+  
+  const toggleEditWeekday = (
+    weekday: SlotWeekday
+  ) => {
+    setEditForm((current) => {
+      const selected =
+        current.daysOfWeek.includes(weekday);
+  
+      return {
+        ...current,
+  
+        daysOfWeek: selected
+          ? current.daysOfWeek.filter(
+              (day) => day !== weekday
+            )
+          : [...current.daysOfWeek, weekday],
+      };
+    });
+  };
 
   const [createForm, setCreateForm] = useState<CreateForm>(
     initialCreateForm
@@ -242,6 +356,13 @@ export default function Page() {
       return;
     }
 
+    if (createForm.daysOfWeek.length === 0) {
+      alert(
+        "Please select at least one operating day."
+      );
+      return;
+    }
+
     if (!createForm.serviceId) {
       alert("Please select a service");
       return;
@@ -301,6 +422,8 @@ export default function Page() {
      const payload = {
   branchId: createForm.branchId,
   serviceId: createForm.serviceId,
+  daysOfWeek:
+    createForm.daysOfWeek,
   sessionCount: Number.parseInt(
     createForm.sessionCount,
     10
@@ -356,7 +479,7 @@ export default function Page() {
 
   const openEditModal = (slot: Slot) => {
     setEditingSlotId(slot.id);
-
+  
     setEditForm({
       name: slot.name,
       startTime: slot.startTime,
@@ -364,8 +487,13 @@ export default function Page() {
       capacity: String(slot.capacity),
       branchId: slot.branchId,
       serviceId: slot.serviceId,
+  
+      daysOfWeek:
+        slot.daysOfWeek?.length > 0
+          ? [...slot.daysOfWeek]
+          : [...ALL_WEEKDAYS],
     });
-
+  
     setEditModal(true);
   };
 
@@ -377,6 +505,14 @@ export default function Page() {
 
   const updateSlot = async () => {
     if (!editingSlotId) {
+      return;
+    }
+
+
+    if (editForm.daysOfWeek.length === 0) {
+      alert(
+        "Please select at least one operating day."
+      );
       return;
     }
 
@@ -416,6 +552,8 @@ export default function Page() {
             ...editForm,
             name: editForm.name.trim(),
             capacity: Number(editForm.capacity),
+
+  daysOfWeek: editForm.daysOfWeek,
           }),
         }
       );
@@ -534,6 +672,15 @@ export default function Page() {
   Capacity: {slot.capacity}
 </p>
 
+<p className="mt-1 text-xs text-neutral-500">
+  Runs on:{" "}
+  <span className="font-medium text-neutral-300">
+    {formatSlotDays(
+      slot.daysOfWeek || ALL_WEEKDAYS
+    )}
+  </span>
+</p>
+
                   <p className="mt-2 text-xs text-lime-400">
                     {slot.service?.name || "Service unavailable"}
                     {" • "}
@@ -649,11 +796,98 @@ export default function Page() {
                     </option>
                   ))}
                 </select>
+
+
+              
+
               </div>
             </div>
 
             {/* SESSION COUNT */}
+            <div className="mt-5">
+  <div className="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <label className="block text-sm font-medium text-neutral-300">
+        Operating Days
+      </label>
 
+      <p className="mt-1 text-xs text-neutral-500">
+        Select the days on which these
+        sessions will be available.
+      </p>
+    </div>
+
+    <div className="flex gap-2">
+      <button
+        type="button"
+        onClick={() =>
+          setCreateForm((current) => ({
+            ...current,
+            daysOfWeek: [...ALL_WEEKDAYS],
+          }))
+        }
+        className="text-xs font-medium text-lime-400"
+      >
+        Select all
+      </button>
+
+      <button
+        type="button"
+        onClick={() =>
+          setCreateForm((current) => ({
+            ...current,
+            daysOfWeek: [],
+          }))
+        }
+        className="text-xs font-medium text-neutral-500"
+      >
+        Clear
+      </button>
+    </div>
+  </div>
+
+  <div className="mt-3 grid grid-cols-4 gap-2 sm:grid-cols-7">
+    {WEEKDAYS.map((day) => {
+      const selected =
+        createForm.daysOfWeek.includes(
+          day.value
+        );
+
+      return (
+        <button
+          key={day.value}
+          type="button"
+          onClick={() =>
+            toggleCreateWeekday(day.value)
+          }
+          className={`rounded-xl border px-2 py-3 text-xs font-semibold transition-colors ${
+            selected
+              ? "border-lime-400 bg-lime-400 text-black"
+              : "border-neutral-800 bg-neutral-900 text-neutral-400 hover:border-neutral-700 hover:text-white"
+          }`}
+        >
+          <span className="sm:hidden">
+            {day.shortLabel}
+          </span>
+
+          <span className="hidden sm:inline">
+            {day.label.slice(0, 3)}
+          </span>
+        </button>
+      );
+    })}
+  </div>
+
+  {createForm.daysOfWeek.length > 0 && (
+    <p className="mt-3 text-xs text-lime-400">
+      Sessions will run on{" "}
+      {formatSlotDays(
+        createForm.daysOfWeek
+      )}
+      .
+    </p>
+  )}
+</div>
             <div className="mt-4">
   <label className="mb-2 block text-sm font-medium text-neutral-300">
     Number of Sessions
@@ -822,166 +1056,268 @@ export default function Page() {
       {/* EDIT MODAL */}
 
       {editModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-lg rounded-2xl border border-neutral-800 bg-neutral-950 p-6">
-            <h2 className="mb-5 text-xl font-bold text-white">
-              Edit Slot
-            </h2>
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+    <div className="flex max-h-[90dvh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-neutral-800 bg-neutral-950 shadow-2xl">
+      {/* Fixed Header */}
+      <div className="shrink-0 border-b border-neutral-800 px-6 py-5">
+        <h2 className="text-xl font-bold text-white">
+          Edit Slot
+        </h2>
 
-            <div>
-              <label className="mb-2 block text-sm text-neutral-400">
-                Slot Name
-              </label>
+        <p className="mt-1 text-sm text-neutral-500">
+          Update slot details and operating days.
+        </p>
+      </div>
 
-              <input
-                value={editForm.name}
-                onChange={(event) =>
-                  setEditForm((current) => ({
-                    ...current,
-                    name: event.target.value,
-                  }))
-                }
-                className="mb-3 h-11 w-full rounded-xl border border-neutral-800 bg-neutral-900 px-4 text-white outline-none"
-              />
-            </div>
+      {/* Scrollable Content */}
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-5">
+        <div>
+          <label className="mb-2 block text-sm text-neutral-400">
+            Slot Name
+          </label>
 
-            <div className="mb-3 grid grid-cols-2 gap-3">
-              <div>
-                <label className="mb-2 block text-sm text-neutral-400">
-                  Start Time
-                </label>
+          <input
+            value={editForm.name}
+            onChange={(event) =>
+              setEditForm((current) => ({
+                ...current,
+                name: event.target.value,
+              }))
+            }
+            className="h-11 w-full rounded-xl border border-neutral-800 bg-neutral-900 px-4 text-white outline-none focus:border-lime-400"
+          />
+        </div>
 
-                <input
-                  type="time"
-                  value={editForm.startTime}
-                  onChange={(event) =>
-                    setEditForm((current) => ({
-                      ...current,
-                      startTime: event.target.value,
-                    }))
-                  }
-                  className="h-11 w-full rounded-xl border border-neutral-800 bg-neutral-900 px-4 text-white outline-none"
-                />
-              </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div>
+            <label className="mb-2 block text-sm text-neutral-400">
+              Start Time
+            </label>
 
-              <div>
-                <label className="mb-2 block text-sm text-neutral-400">
-                  End Time
-                </label>
+            <input
+              type="time"
+              value={editForm.startTime}
+              onChange={(event) =>
+                setEditForm((current) => ({
+                  ...current,
+                  startTime: event.target.value,
+                }))
+              }
+              style={{
+                colorScheme: "dark",
+              }}
+              className="h-11 w-full rounded-xl border border-neutral-800 bg-neutral-900 px-4 text-white outline-none focus:border-lime-400"
+            />
+          </div>
 
-                <input
-                  type="time"
-                  value={editForm.endTime}
-                  onChange={(event) =>
-                    setEditForm((current) => ({
-                      ...current,
-                      endTime: event.target.value,
-                    }))
-                  }
-                  className="h-11 w-full rounded-xl border border-neutral-800 bg-neutral-900 px-4 text-white outline-none"
-                />
-              </div>
-            </div>
+          <div>
+            <label className="mb-2 block text-sm text-neutral-400">
+              End Time
+            </label>
 
-            <div>
-              <label className="mb-2 block text-sm text-neutral-400">
-                Maximum Bookings
-              </label>
+            <input
+              type="time"
+              value={editForm.endTime}
+              onChange={(event) =>
+                setEditForm((current) => ({
+                  ...current,
+                  endTime: event.target.value,
+                }))
+              }
+              style={{
+                colorScheme: "dark",
+              }}
+              className="h-11 w-full rounded-xl border border-neutral-800 bg-neutral-900 px-4 text-white outline-none focus:border-lime-400"
+            />
+          </div>
+        </div>
 
-              <input
-                type="number"
-                min={1}
-                value={editForm.capacity}
-                onChange={(event) =>
-                  setEditForm((current) => ({
-                    ...current,
-                    capacity: event.target.value,
-                  }))
-                }
-                className="mb-3 h-11 w-full rounded-xl border border-neutral-800 bg-neutral-900 px-4 text-white outline-none"
-              />
-            </div>
+        <div>
+          <label className="mb-2 block text-sm text-neutral-400">
+            Maximum Bookings
+          </label>
 
-            <div>
-              <label className="mb-2 block text-sm text-neutral-400">
-                Branch
-              </label>
+          <input
+            type="number"
+            min={1}
+            value={editForm.capacity}
+            onChange={(event) =>
+              setEditForm((current) => ({
+                ...current,
+                capacity: event.target.value,
+              }))
+            }
+            className="h-11 w-full rounded-xl border border-neutral-800 bg-neutral-900 px-4 text-white outline-none focus:border-lime-400"
+          />
+        </div>
 
-              <select
-                value={editForm.branchId}
-                onChange={(event) =>
-                  setEditForm((current) => ({
-                    ...current,
-                    branchId: event.target.value,
-                  }))
-                }
-                className="mb-3 h-11 w-full rounded-xl border border-neutral-800 bg-neutral-900 px-4 text-white outline-none"
+        <div>
+          <label className="mb-2 block text-sm text-neutral-400">
+            Branch
+          </label>
+
+          <select
+            value={editForm.branchId}
+            onChange={(event) =>
+              setEditForm((current) => ({
+                ...current,
+                branchId: event.target.value,
+              }))
+            }
+            className="h-11 w-full rounded-xl border border-neutral-800 bg-neutral-900 px-4 text-white outline-none focus:border-lime-400"
+          >
+            <option value="">
+              Select Branch
+            </option>
+
+            {branches.map((branch) => (
+              <option
+                key={branch.id}
+                value={branch.id}
               >
-                <option value="">Select Branch</option>
+                {branch.name}
+              </option>
+            ))}
+          </select>
+        </div>
 
-                {branches.map((branch) => (
-                  <option
-                    key={branch.id}
-                    value={branch.id}
-                  >
-                    {branch.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+        <div>
+          <label className="mb-2 block text-sm text-neutral-400">
+            Service
+          </label>
 
+          <select
+            value={editForm.serviceId}
+            onChange={(event) =>
+              setEditForm((current) => ({
+                ...current,
+                serviceId: event.target.value,
+              }))
+            }
+            className="h-11 w-full rounded-xl border border-neutral-800 bg-neutral-900 px-4 text-white outline-none focus:border-lime-400"
+          >
+            <option value="">
+              Select Service
+            </option>
+
+            {services.map((service) => (
+              <option
+                key={service.id}
+                value={service.id}
+              >
+                {service.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-4">
+          <div className="flex items-center justify-between gap-3">
             <div>
-              <label className="mb-2 block text-sm text-neutral-400">
-                Service
+              <label className="block text-sm font-medium text-neutral-300">
+                Operating Days
               </label>
 
-              <select
-                value={editForm.serviceId}
-                onChange={(event) =>
-                  setEditForm((current) => ({
-                    ...current,
-                    serviceId: event.target.value,
-                  }))
-                }
-                className="mb-5 h-11 w-full rounded-xl border border-neutral-800 bg-neutral-900 px-4 text-white outline-none"
-              >
-                <option value="">Select Service</option>
-
-                {services.map((service) => (
-                  <option
-                    key={service.id}
-                    value={service.id}
-                  >
-                    {service.name}
-                  </option>
-                ))}
-              </select>
+              <p className="mt-1 text-xs text-neutral-500">
+                Select when this slot is available.
+              </p>
             </div>
 
-            <div className="flex justify-end gap-3">
+            <div className="flex items-center gap-3">
               <button
                 type="button"
-                onClick={closeEditModal}
-                disabled={actionLoading}
-                className="rounded-xl border border-neutral-700 px-4 py-2 text-neutral-300 disabled:opacity-50"
+                onClick={() =>
+                  setEditForm((current) => ({
+                    ...current,
+                    daysOfWeek: [
+                      ...ALL_WEEKDAYS,
+                    ],
+                  }))
+                }
+                className="text-xs font-medium text-lime-400"
               >
-                Cancel
+                Select all
               </button>
 
               <button
                 type="button"
-                onClick={updateSlot}
-                disabled={actionLoading}
-                className="rounded-xl bg-blue-500 px-5 py-2 font-semibold text-white disabled:opacity-50"
+                onClick={() =>
+                  setEditForm((current) => ({
+                    ...current,
+                    daysOfWeek: [],
+                  }))
+                }
+                className="text-xs font-medium text-neutral-500"
               >
-                {actionLoading
-                  ? "Updating..."
-                  : "Update Slot"}
+                Clear
               </button>
             </div>
           </div>
+
+          <div className="mt-4 grid grid-cols-4 gap-2 sm:grid-cols-7">
+            {WEEKDAYS.map((day) => {
+              const selected =
+                editForm.daysOfWeek.includes(
+                  day.value
+                );
+
+              return (
+                <button
+                  key={day.value}
+                  type="button"
+                  onClick={() =>
+                    toggleEditWeekday(
+                      day.value
+                    )
+                  }
+                  className={`rounded-lg border px-2 py-2.5 text-xs font-semibold transition ${
+                    selected
+                      ? "border-lime-400 bg-lime-400 text-black"
+                      : "border-neutral-800 bg-neutral-950 text-neutral-400 hover:border-neutral-700 hover:text-white"
+                  }`}
+                >
+                  {day.shortLabel}
+                </button>
+              );
+            })}
+          </div>
+
+          {editForm.daysOfWeek.length === 0 && (
+            <p className="mt-3 text-xs text-red-400">
+              Select at least one operating day.
+            </p>
+          )}
         </div>
-      )}
+      </div>
+
+      {/* Fixed Footer */}
+      <div className="flex shrink-0 justify-end gap-3 border-t border-neutral-800 bg-neutral-950 px-6 py-4">
+        <button
+          type="button"
+          onClick={closeEditModal}
+          disabled={actionLoading}
+          className="rounded-xl border border-neutral-700 px-4 py-2 text-neutral-300 transition hover:bg-neutral-900 disabled:opacity-50"
+        >
+          Cancel
+        </button>
+
+        <button
+          type="button"
+          onClick={updateSlot}
+          disabled={
+            actionLoading ||
+            editForm.daysOfWeek.length === 0
+          }
+          className="rounded-xl bg-blue-500 px-5 py-2 font-semibold text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {actionLoading
+            ? "Updating..."
+            : "Update Slot"}
+        </button>
+      </div>
+    </div>
+  </div>
+)}
     </div>
   );
 }

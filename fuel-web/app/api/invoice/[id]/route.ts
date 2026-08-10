@@ -90,7 +90,11 @@ export async function GET(
   );
   
   const invoiceTotal =
-    taxableAmount + totalTax;
+  Math.round(
+    (Number(taxableAmount) +
+      Number(totalTax)) *
+      100
+  ) / 100;
 
   // =====================================================
   // ASSETS
@@ -437,7 +441,7 @@ doc
       doc
         .fontSize(8)
         .text(
-          `Base Fee: ₹${baseFee.toFixed(2)}`,
+          `Base Fee: ₹${baseFee}`,
           440,
           amountY,
           {
@@ -511,25 +515,25 @@ doc
 
       drawRow(
         "Package Amount",
-        `₹${paiseToRupees(invoice.packageAmount).toFixed(2)}`,
+        `₹${paiseToRupees(invoice.packageAmount)}`,
         totalsY
       );
 
       drawRow(
         "Discount",
-        `-₹${paiseToRupees(invoice.discountAmount).toFixed(2)}`,
+        `-₹${paiseToRupees(invoice.discountAmount)}`,
         totalsY + 18
       );
       
       drawRow(
         "Referral Reward",
-        `-₹${paiseToRupees(invoice.referralDiscountAmount || 0).toFixed(2)}`,
+        `-₹${paiseToRupees(invoice.referralDiscountAmount || 0)}`,
         totalsY + 36
       );
       
       drawRow(
         "Taxable Amount",
-        `₹${taxableAmount.toFixed(2)}`,
+        `₹${taxableAmount}`,
         totalsY + 54
       );
       
@@ -582,22 +586,22 @@ doc
       doc
         .fontSize(8)
         .text(
-          `Package Amount : ₹ ${paiseToRupees(invoice.packageAmount).toFixed(2)}`,
+          `Package Amount : ₹ ${paiseToRupees(invoice.packageAmount)}`,
           40,
           summaryY + 16
         )
         .text(
-          `Discount : ₹ ${paiseToRupees(invoice.discountAmount).toFixed(2)}`,
+          `Discount : ₹ ${paiseToRupees(invoice.discountAmount)}`,
           40,
           summaryY + 29
         )
         .text(
-          `Referral Reward : ₹ ${paiseToRupees(invoice.referralDiscountAmount || 0).toFixed(2)}`,
+          `Referral Reward : ₹ ${paiseToRupees(invoice.referralDiscountAmount || 0)}`,
           40,
           summaryY + 42
         )
         .text(
-          `Taxable Amount : ₹ ${taxableAmount.toFixed(2)}`,
+          `Taxable Amount : ₹ ${taxableAmount}`,
           40,
           summaryY + 55
         )
@@ -612,12 +616,12 @@ doc
           summaryY + 81
         )
         .text(
-          `Paid Amount : ₹ ${paiseToRupees(invoice.paidAmount).toFixed(2)}`,
+          `Paid Amount : ₹ ${paiseToRupees(invoice.paidAmount)}`,
           40,
           summaryY + 94
         )
         .text(
-          `Balance : ₹ ${paiseToRupees(invoice.balanceAmount).toFixed(2)}`,
+          `Balance : ₹ ${paiseToRupees(invoice.balanceAmount)}`,
           40,
           summaryY + 107
         );

@@ -101,6 +101,8 @@ model Setting {
 
   groupJoiningMaxMembers Int @default(10)
 
+  groupDiscountApplicability Json @default("[]")
+
   groupDiscountRules Json @default("[]")
 
   membershipTransferFeeRules Json @default("[]")
@@ -265,9 +267,20 @@ model Slot {
   endTime   String
   capacity  Int
   isActive  Boolean       @default(true)
+  daysOfWeek SlotWeekday[] @default([MONDAY,TUESDAY,WEDNESDAY,THURSDAY,FRIDAY,SATURDAY,SUNDAY])
   createdAt DateTime      @default(now())
   bookings  SlotBooking[]
   updatedAt DateTime      @updatedAt
+}
+
+enum SlotWeekday {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
 }
 
 model SlotBooking {
@@ -697,53 +710,53 @@ model WorkoutExercise {
   createdAt DateTime @default(now())
 }
 
-model Subscription {
-  id String @id @default(cuid())
+  model Subscription {
+    id String @id @default(cuid())
 
-  memberId String
-  member   Member @relation(fields: [memberId], references: [id])
+    memberId String
+    member   Member @relation(fields: [memberId], references: [id])
 
-  branchId String
-  branch   Branch @relation(fields: [branchId], references: [id])
+    branchId String
+    branch   Branch @relation(fields: [branchId], references: [id])
 
-  packageId String
-  package   ServicePackage @relation(fields: [packageId], references: [id])
+    packageId String
+    package   ServicePackage @relation(fields: [packageId], references: [id])
 
-  invoiceId String?  @unique
-  invoice   Invoice? @relation(fields: [invoiceId], references: [id])
+    invoiceId String?  @unique
+    invoice   Invoice? @relation(fields: [invoiceId], references: [id])
 
-  serviceName String
-  packageName String
+    serviceName String
+    packageName String
 
-  packageDurationInDays Int
+    packageDurationInDays Int
 
-  originalPrice Int?
-  finalPrice    Int
+    originalPrice Int?
+    finalPrice    Int
 
-  branchName String
+    branchName String
 
-  usageType MembershipUsageType @default(DURATION_BASED)
+    usageType MembershipUsageType @default(DURATION_BASED)
 
-  totalSessions Int?
+    totalSessions Int?
 
-  remainingSessions Int?
+    remainingSessions Int?
 
-  startDate DateTime
-  endDate   DateTime
+    startDate DateTime
+    endDate   DateTime
 
-  freezeStart DateTime?
-  freezeEnd   DateTime?
+    freezeStart DateTime?
+    freezeEnd   DateTime?
 
-  status              SubscriptionStatus   @default(ACTIVE)
-  slotBookings        SlotBooking[]
-  membershipTransfers MembershipTransfer[]
+    status              SubscriptionStatus   @default(ACTIVE)
+    slotBookings        SlotBooking[]
+    membershipTransfers MembershipTransfer[]
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
 
-  @@index([memberId, status])
-  @@index([usageType, remainingSessions])
-}
+    @@index([memberId, status])
+    @@index([usageType, remainingSessions])
+  }
 
 enum SubscriptionStatus {
   ACTIVE

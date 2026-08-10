@@ -24,18 +24,47 @@ type MembershipTransferFeeRuleForm = {
   isActive: boolean;
 };
 
+type GroupDiscountApplicabilityForm = {
+  serviceId: string;
+  packageIds: string[];
+};
+
+type ServiceWithPackages = {
+  id: string;
+  name: string;
+
+  packages: {
+    id: string;
+    name: string;
+    isActive?: boolean;
+  }[];
+};
 type SettingsForm = {
   cgstPercentage: string;
   sgstPercentage: string;
 
-  referralRewardType: ReferralRewardType;
-  referralRewardAmount: string;
-  referralRewardPercentage: string;
-  referralMembershipDays: string;
+  referralRewardType:
+    ReferralRewardType;
 
-  groupJoiningEnabled: boolean;
-  groupJoiningMaxMembers: string;
-  groupDiscountRules: GroupDiscountRuleForm[];
+  referralRewardAmount: string;
+
+  referralRewardPercentage:
+    string;
+
+  referralMembershipDays:
+    string;
+
+  groupJoiningEnabled:
+    boolean;
+
+  groupJoiningMaxMembers:
+    string;
+
+  groupDiscountRules:
+    GroupDiscountRuleForm[];
+
+  groupDiscountApplicability:
+    GroupDiscountApplicabilityForm[];
 
   membershipTransferFeeRules:
     MembershipTransferFeeRuleForm[];
@@ -181,26 +210,120 @@ function parseRules(value: unknown): GroupDiscountRuleForm[] {
     .sort((a, b) => Number(a.minMembers) - Number(b.minMembers));
 }
 
+function parseGroupDiscountApplicability(
+  value: unknown
+): GroupDiscountApplicabilityForm[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => {
+      if (
+        !item ||
+        typeof item !== "object"
+      ) {
+        return null;
+      }
+
+      const entry =
+        item as Record<
+          string,
+          unknown
+        >;
+
+      const serviceId =
+        typeof entry.serviceId ===
+        "string"
+          ? entry.serviceId.trim()
+          : "";
+
+      const packageIds =
+        Array.isArray(
+          entry.packageIds
+        )
+          ? entry.packageIds
+              .map((id) =>
+                String(id).trim()
+              )
+              .filter(Boolean)
+          : [];
+
+      if (!serviceId) {
+        return null;
+      }
+
+      return {
+        serviceId,
+
+        packageIds: [
+          ...new Set(
+            packageIds
+          ),
+        ],
+      };
+    })
+    .filter(
+      (
+        item
+      ): item is GroupDiscountApplicabilityForm =>
+        item !== null
+    );
+}
+
 export default function Page() {
   const [setting, setSetting] = useState<Setting | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
- const [form, setForm] = useState<SettingsForm>({
-  cgstPercentage: "",
-  sgstPercentage: "",
+  const [form, setForm] =
+  useState<SettingsForm>({
+    cgstPercentage: "",
+    sgstPercentage: "",
 
-  referralRewardType: "FIXED_AMOUNT",
-  referralRewardAmount: "",
-  referralRewardPercentage: "",
-  referralMembershipDays: "",
+    referralRewardType:
+      "FIXED_AMOUNT",
 
-  groupJoiningEnabled: false,
-  groupJoiningMaxMembers: "10",
-  groupDiscountRules: [],
+    referralRewardAmount:
+      "",
 
-  membershipTransferFeeRules: [],
-});
+    referralRewardPercentage:
+      "",
+
+    referralMembershipDays:
+      "",
+
+    groupJoiningEnabled:
+      false,
+
+    groupJoiningMaxMembers:
+      "10",
+
+    groupDiscountRules: [],
+
+    groupDiscountApplicability:
+      [],
+
+    membershipTransferFeeRules:
+      [],
+  });
+
+  const [
+    services,
+    setServices,
+  ] = useState<
+    ServiceWithPackages[]
+  >([]);
+  
+  const [
+    servicesLoading,
+    setServicesLoading,
+  ] = useState(false);
+  
+  const [
+    servicesError,
+    setServicesError,
+  ] = useState("");
 
   const fetchSetting = async () => {
     try {
@@ -218,32 +341,74 @@ export default function Page() {
 
       setSetting(data.setting);
 
-      setForm({
-        cgstPercentage:
-          data.setting.cgstPercentage?.toString() || "",
-        sgstPercentage:
-          data.setting.sgstPercentage?.toString() || "",
-        referralRewardType:
-          data.setting.referralRewardType || "FIXED_AMOUNT",
-        referralRewardAmount:
-          data.setting.referralRewardAmount != null
-            ? (data.setting.referralRewardAmount / 100).toString()
-            : "",
-        referralRewardPercentage:
-          data.setting.referralRewardPercentage?.toString() || "",
-        referralMembershipDays:
-          data.setting.referralMembershipDays?.toString() || "",
-        groupJoiningEnabled:
-          Boolean(data.setting.groupJoiningEnabled),
-        groupJoiningMaxMembers:
-          String(data.setting.groupJoiningMaxMembers ?? 10),
-        groupDiscountRules:
-          parseRules(data.setting.groupDiscountRules),
-          membershipTransferFeeRules:
-  parseTransferFeeRules(
-    data.setting.membershipTransferFeeRules
-  ),
-      });
+     setForm({
+  cgstPercentage:
+    data.setting
+      .cgstPercentage
+      ?.toString() || "",
+
+  sgstPercentage:
+    data.setting
+      .sgstPercentage
+      ?.toString() || "",
+
+  referralRewardType:
+    data.setting
+      .referralRewardType ||
+    "FIXED_AMOUNT",
+
+  referralRewardAmount:
+    data.setting
+      .referralRewardAmount !=
+    null
+      ? (
+          data.setting
+            .referralRewardAmount /
+          100
+        ).toString()
+      : "",
+
+  referralRewardPercentage:
+    data.setting
+      .referralRewardPercentage
+      ?.toString() || "",
+
+  referralMembershipDays:
+    data.setting
+      .referralMembershipDays
+      ?.toString() || "",
+
+  groupJoiningEnabled:
+    Boolean(
+      data.setting
+        .groupJoiningEnabled
+    ),
+
+  groupJoiningMaxMembers:
+    String(
+      data.setting
+        .groupJoiningMaxMembers ??
+        10
+    ),
+
+  groupDiscountRules:
+    parseRules(
+      data.setting
+        .groupDiscountRules
+    ),
+
+  groupDiscountApplicability:
+    parseGroupDiscountApplicability(
+      data.setting
+        .groupDiscountApplicability
+    ),
+
+  membershipTransferFeeRules:
+    parseTransferFeeRules(
+      data.setting
+        .membershipTransferFeeRules
+    ),
+});
     } catch (error) {
       console.error(error);
       alert(
@@ -256,9 +421,276 @@ export default function Page() {
     }
   };
 
-  useEffect(() => {
-    fetchSetting();
-  }, []);
+
+  const fetchServices =
+  async () => {
+    try {
+      setServicesLoading(
+        true
+      );
+
+      setServicesError("");
+
+      const res =
+        await fetch(
+          "/api/services",
+          {
+            cache:
+              "no-store",
+          }
+        );
+
+      const data =
+        await res.json();
+
+      if (!res.ok) {
+        throw new Error(
+          data.message ||
+            "Unable to load services"
+        );
+      }
+
+      const items =
+        Array.isArray(data)
+          ? data
+          : Array.isArray(
+              data.services
+            )
+          ? data.services
+          : [];
+
+      setServices(
+        items.map(
+          (service: any) => ({
+            id:
+              service.id,
+
+            name:
+              service.name,
+
+            packages:
+              Array.isArray(
+                service.packages
+              )
+                ? service.packages
+                : [],
+          })
+        )
+      );
+    } catch (error) {
+      console.error(
+        error
+      );
+
+      setServicesError(
+        error instanceof Error
+          ? error.message
+          : "Unable to load services"
+      );
+    } finally {
+      setServicesLoading(
+        false
+      );
+    }
+  };
+
+useEffect(() => {
+  fetchSetting();
+  fetchServices();
+}, []);
+
+
+const getSelectedPackageIds = (
+  serviceId: string
+) => {
+  return (
+    form.groupDiscountApplicability.find(
+      (item) =>
+        item.serviceId ===
+        serviceId
+    )?.packageIds || []
+  );
+};
+
+const toggleApplicablePackage = (
+  serviceId: string,
+  packageId: string
+) => {
+  setForm((current) => {
+    const existing =
+      current.groupDiscountApplicability.find(
+        (item) =>
+          item.serviceId ===
+          serviceId
+      );
+
+    /*
+     * First package selected
+     * for this service.
+     */
+    if (!existing) {
+      return {
+        ...current,
+
+        groupDiscountApplicability:
+          [
+            ...current.groupDiscountApplicability,
+
+            {
+              serviceId,
+
+              packageIds: [
+                packageId,
+              ],
+            },
+          ],
+      };
+    }
+
+    const alreadySelected =
+      existing.packageIds.includes(
+        packageId
+      );
+
+    const packageIds =
+      alreadySelected
+        ? existing.packageIds.filter(
+            (id) =>
+              id !==
+              packageId
+          )
+        : [
+            ...existing.packageIds,
+            packageId,
+          ];
+
+    /*
+     * Remove empty service entry.
+     */
+    const nextApplicability =
+      packageIds.length === 0
+        ? current.groupDiscountApplicability.filter(
+            (item) =>
+              item.serviceId !==
+              serviceId
+          )
+        : current.groupDiscountApplicability.map(
+            (item) =>
+              item.serviceId ===
+              serviceId
+                ? {
+                    ...item,
+                    packageIds,
+                  }
+                : item
+          );
+
+    return {
+      ...current,
+
+      groupDiscountApplicability:
+        nextApplicability,
+    };
+  });
+};
+
+
+const maximumGroupDiscount =
+  form.groupDiscountRules.reduce(
+    (
+      maximum,
+      rule
+    ) => {
+      const percentage =
+        Number(
+          rule.discountPercentage
+        );
+
+      if (
+        !Number.isFinite(
+          percentage
+        )
+      ) {
+        return maximum;
+      }
+
+      return Math.max(
+        maximum,
+        percentage
+      );
+    },
+
+    0
+  );
+  
+
+const toggleAllServicePackages = (
+  service:
+    ServiceWithPackages
+) => {
+  const availablePackages =
+    service.packages.filter(
+      (pkg) =>
+        pkg.isActive !==
+        false
+    );
+
+  const availableIds =
+    availablePackages.map(
+      (pkg) => pkg.id
+    );
+
+  const selectedIds =
+    getSelectedPackageIds(
+      service.id
+    );
+
+  const allSelected =
+    availableIds.length >
+      0 &&
+    availableIds.every(
+      (id) =>
+        selectedIds.includes(
+          id
+        )
+    );
+
+  setForm((current) => {
+    const withoutService =
+      current.groupDiscountApplicability.filter(
+        (item) =>
+          item.serviceId !==
+          service.id
+      );
+
+    if (allSelected) {
+      return {
+        ...current,
+
+        groupDiscountApplicability:
+          withoutService,
+      };
+    }
+
+    return {
+      ...current,
+
+      groupDiscountApplicability:
+        [
+          ...withoutService,
+
+          {
+            serviceId:
+              service.id,
+
+            packageIds:
+              availableIds,
+          },
+        ],
+    };
+  });
+};
+
 
 
   const updateTransferFeeRule = (
@@ -514,6 +946,29 @@ export default function Page() {
 
     if (!form.groupJoiningEnabled) return null;
 
+
+    const applicablePackageCount =
+  form.groupDiscountApplicability.reduce(
+    (
+      count,
+      item
+    ) =>
+      count +
+      item.packageIds.length,
+
+    0
+  );
+
+if (
+  applicablePackageCount ===
+  0
+) {
+  return (
+    "Select at least one membership " +
+    "where the group discount is applicable."
+  );
+}
+
     if (form.groupDiscountRules.length === 0) {
       return "Add at least one group discount rule.";
     }
@@ -593,6 +1048,16 @@ export default function Page() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
+          groupDiscountApplicability:
+  form.groupDiscountApplicability.map(
+    (item) => ({
+      serviceId:
+        item.serviceId,
+
+      packageIds:
+        item.packageIds,
+    })
+  ),
           cgstPercentage: Number(form.cgstPercentage),
           sgstPercentage: Number(form.sgstPercentage),
           membershipTransferFeeRules:
@@ -841,6 +1306,259 @@ export default function Page() {
             </p>
           </div>
 
+          {/* GROUP DISCOUNT APPLICABILITY */}
+
+<div
+  className={`mt-6 rounded-2xl border p-5 ${
+    form.groupJoiningEnabled
+      ? "border-neutral-800 bg-neutral-950"
+      : "border-neutral-800/60 bg-neutral-950/40 opacity-60"
+  }`}
+>
+  <div className="flex flex-wrap items-start justify-between gap-4">
+    <div>
+      <h3 className="font-semibold text-white">
+        Applicable Memberships
+      </h3>
+
+      <p className="mt-1 max-w-2xl text-sm leading-6 text-neutral-500">
+        Choose which services and
+        memberships can receive the
+        configured group discount.
+      </p>
+    </div>
+
+    <div className="rounded-full border border-neutral-800 bg-neutral-900 px-3 py-1 text-xs text-neutral-400">
+      {form.groupDiscountApplicability.reduce(
+        (
+          total,
+          item
+        ) =>
+          total +
+          item.packageIds.length,
+
+        0
+      )}{" "}
+      selected
+    </div>
+  </div>
+
+  {servicesLoading ? (
+    <div className="mt-5 rounded-xl border border-neutral-800 bg-neutral-900 px-4 py-8 text-center text-sm text-neutral-500">
+      Loading services and
+      memberships...
+    </div>
+  ) : servicesError ? (
+    <div className="mt-5 rounded-xl border border-red-500/20 bg-red-500/5 p-4">
+      <p className="text-sm text-red-300">
+        {servicesError}
+      </p>
+
+      <button
+        type="button"
+        onClick={
+          fetchServices
+        }
+        className="mt-3 text-sm font-semibold text-white underline"
+      >
+        Try again
+      </button>
+    </div>
+  ) : services.length === 0 ? (
+    <div className="mt-5 rounded-xl border border-dashed border-neutral-700 px-5 py-8 text-center">
+      <p className="text-sm text-neutral-500">
+        No services available.
+      </p>
+    </div>
+  ) : (
+    <div className="mt-5 space-y-4">
+      {services.map(
+        (service) => {
+          const packages =
+            service.packages.filter(
+              (pkg) =>
+                pkg.isActive !==
+                false
+            );
+
+          const selectedIds =
+            getSelectedPackageIds(
+              service.id
+            );
+
+          const selectedCount =
+            packages.filter(
+              (pkg) =>
+                selectedIds.includes(
+                  pkg.id
+                )
+            ).length;
+
+          const allSelected =
+            packages.length >
+              0 &&
+            selectedCount ===
+              packages.length;
+
+          return (
+            <div
+              key={
+                service.id
+              }
+              className={`overflow-hidden rounded-xl border ${
+                selectedCount >
+                0
+                  ? "border-lime-400/30 bg-lime-400/[0.03]"
+                  : "border-neutral-800 bg-neutral-900"
+              }`}
+            >
+              {/* SERVICE HEADER */}
+
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-neutral-800 px-4 py-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h4 className="font-medium text-white">
+                      {
+                        service.name
+                      }
+                    </h4>
+
+                    {selectedCount >
+                      0 && (
+                      <span className="rounded-full bg-lime-400/10 px-2 py-0.5 text-[10px] font-semibold text-lime-400">
+                        {
+                          selectedCount
+                        }{" "}
+                        selected
+                      </span>
+                    )}
+                  </div>
+
+                  <p className="mt-1 text-xs text-neutral-500">
+                    {
+                      packages.length
+                    }{" "}
+                    memberships
+                    available
+                  </p>
+                </div>
+
+                {packages.length >
+                  0 && (
+                  <button
+                    type="button"
+                    disabled={
+                      !form.groupJoiningEnabled
+                    }
+                    onClick={() =>
+                      toggleAllServicePackages(
+                        service
+                      )
+                    }
+                    className="text-xs font-semibold text-lime-400 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {allSelected
+                      ? "Clear"
+                      : "Select all"}
+                  </button>
+                )}
+              </div>
+
+              {/* PACKAGES */}
+
+              {packages.length ===
+              0 ? (
+                <div className="px-4 py-5 text-sm text-neutral-600">
+                  No active
+                  memberships for
+                  this service.
+                </div>
+              ) : (
+                <div className="grid gap-2 p-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {packages.map(
+                    (pkg) => {
+                      const selected =
+                        selectedIds.includes(
+                          pkg.id
+                        );
+
+                      return (
+                        <label
+                          key={
+                            pkg.id
+                          }
+                          className={`flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-3 transition ${
+                            selected
+                              ? "border-lime-400/40 bg-lime-400/10"
+                              : "border-neutral-800 bg-neutral-950 hover:border-neutral-700"
+                          } ${
+                            !form.groupJoiningEnabled
+                              ? "cursor-not-allowed opacity-50"
+                              : ""
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            disabled={
+                              !form.groupJoiningEnabled
+                            }
+                            checked={
+                              selected
+                            }
+                            onChange={() =>
+                              toggleApplicablePackage(
+                                service.id,
+                                pkg.id
+                              )
+                            }
+                            className="h-4 w-4 shrink-0 accent-lime-400"
+                          />
+
+                          <div className="min-w-0">
+                            <p
+                              className={`truncate text-sm font-medium ${
+                                selected
+                                  ? "text-white"
+                                  : "text-neutral-300"
+                              }`}
+                            >
+                              {
+                                pkg.name
+                              }
+                            </p>
+
+                            <p className="mt-0.5 text-[10px] text-neutral-600">
+                              Group discount{" "}
+                              {selected
+                                ? "enabled"
+                                : "not applicable"}
+                            </p>
+                          </div>
+                        </label>
+                      );
+                    }
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        }
+      )}
+    </div>
+  )}
+
+  {form.groupJoiningEnabled && (
+    <div className="mt-4 rounded-xl border border-blue-500/20 bg-blue-500/5 px-4 py-3">
+      <p className="text-xs leading-5 text-blue-200/70">
+        Group pricing will only be
+        shown on the public portal
+        for the memberships selected
+        above.
+      </p>
+    </div>
+  )}
+</div>
+
           <div
             className={`mt-6 rounded-2xl border p-5 ${
               form.groupJoiningEnabled
@@ -869,6 +1587,25 @@ export default function Page() {
                 Add Rule
               </button>
             </div>
+
+            {form.groupJoiningEnabled &&
+  maximumGroupDiscount >
+    0 && (
+    <div className="mt-4 rounded-xl border border-lime-400/20 bg-lime-400/5 px-4 py-3">
+      <p className="text-xs uppercase tracking-wider text-neutral-500">
+        Public Portal Preview
+      </p>
+
+      <p className="mt-1 text-sm font-medium text-lime-300">
+        Join as a group and get
+        up to{" "}
+        {
+          maximumGroupDiscount
+        }
+        % discount.
+      </p>
+    </div>
+  )}
 
             {form.groupDiscountRules.length === 0 ? (
               <div className="mt-5 rounded-xl border border-dashed border-neutral-700 px-5 py-8 text-center text-sm text-neutral-500">
