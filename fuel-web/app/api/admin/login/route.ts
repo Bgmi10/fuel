@@ -5,7 +5,7 @@ import {
 
 import {
   sendStaffLoginNotification,
-} from "@/app/services/staff-login-notification";
+} from "@/src/lib/services/staff-login-notification";
 
 import { prisma } from "@/prisma";
 

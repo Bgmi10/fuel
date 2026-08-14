@@ -1,4 +1,4 @@
-import { whatsapp } from "@/app/services/whatsapp";
+import { whatsapp } from "@/src/lib/services/whatsapp";
 import { NextRequest, NextResponse } from "next/server";
 
 export const POST = async (req: NextRequest) => {

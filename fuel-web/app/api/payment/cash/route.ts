@@ -10,8 +10,8 @@ import {
   paiseToRupees,
 } from "@/app/utils/helper";
 
-import { whatsapp } from "@/app/services/whatsapp";
-import { sendEmail } from "@/app/services/email";
+import { whatsapp } from "@/src/lib/services/whatsapp";
+import { sendEmail } from "@/src/lib/services/email";
 
 import { getUserFromRequest } from "@/app/utils/auth";
 

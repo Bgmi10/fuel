@@ -2,113 +2,465 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { Mail, MapPin, Phone } from "lucide-react";
+
+import {
+  Mail,
+  MapPin,
+  Phone,
+} from "lucide-react";
 
 export default function Footer() {
+  const quickLinks = [
+    {
+      label: "Home",
+      href: "/",
+    },
+    {
+      label: "About Us",
+      href: "/about",
+    },
+    {
+      label: "Services",
+      href: "/#pricing",
+    },
+    {
+      label: "Academy",
+      href: "/academy",
+    },
+    {
+      label: "Blogs",
+      href: "/blogs",
+    },
+  ];
+
+  const phoneNumbers = [
+    {
+      label: "+91 842 842 88 66",
+      value: "+918428428866",
+    },
+    {
+      label: "+91 842 842 88 22",
+      value: "+918428428822",
+    },
+    {
+      label: "+91 842 842 88 77",
+      value: "+918428428877",
+    },
+    {
+      label: "+91 842 842 88 99",
+      value: "+918428428899",
+    },
+  ];
+
   return (
-    <footer className="w-full bg-black text-white border-t border-white/10">
-      <div className="max-w-[1400px] mx-auto px-5 lg:px-8 py-10">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-10 lg:gap-6 items-start">
-          {/* LEFT */}
-          <div className="space-y-4 lg:pr-6">
-            {/* LOGO */}
-            <div className="relative w-[130px] h-[60px]">
+    <footer
+      className="
+        relative
+        w-full
+        bg-black
+        text-white
+        border-t
+        border-white/10
+        overflow-hidden
+      "
+    >
+      {/* TOP DASHED LINE */}
+      <div
+        className="
+          w-full
+          border-t
+          border-dashed
+          border-white/35
+        "
+      />
+
+      <div
+        className="
+          max-w-[1500px]
+          mx-auto
+          px-6
+          md:px-10
+          lg:px-12
+          py-10
+          md:py-12
+        "
+      >
+        {/* MAIN FOOTER */}
+
+        <div
+          className="
+            grid
+            grid-cols-1
+            md:grid-cols-2
+            lg:grid-cols-[1.2fr_0.8fr_1.4fr_0.7fr]
+            gap-10
+            lg:gap-12
+            items-start
+          "
+        >
+          {/* ===================================== */}
+          {/* BRAND */}
+          {/* ===================================== */}
+
+          <div>
+            <div
+              className="
+                relative
+                w-[120px]
+                h-[55px]
+              "
+            >
               <Image
                 src="/logo.png"
                 alt="Fuel Gym"
                 fill
-                className="object-contain"
+                className="object-contain object-left"
               />
             </div>
 
-            <p className="text-white/80 leading-7 text-sm uppercase max-w-sm">
-              Fuel is the spark that ignites your potential – the power that
-              drives you to move, grow and conquer limits.
+            <p
+              className="
+                mt-4
+                max-w-[280px]
+                text-[11px]
+                md:text-xs
+                leading-5
+                text-neutral-500
+              "
+            >
+              Fuel is the spark that ignites
+              your potential — the power that
+              drives you to move, grow and
+              conquer limits.
             </p>
           </div>
 
-          {/* CENTER */}
-          <div className="space-y-5 lg:px-4">
-            <h2 className="text-2xl font-black uppercase tracking-wide">
-              Visit Us
-            </h2>
+          {/* ===================================== */}
+          {/* QUICK LINKS */}
+          {/* ===================================== */}
 
-            <div className="space-y-4">
-              {/* ADDRESS */}
-              <div className="flex items-start gap-3">
-                <MapPin
-                  className="text-lime-400 min-w-[20px] mt-1"
-                  size={20}
-                />
+          <div>
+            <h3
+              className="
+                text-base
+                md:text-lg
+                font-medium
+                uppercase
+                tracking-wide
+                text-white
+              "
+            >
+              Quick Links
+            </h3>
 
-                <p className="text-sm leading-7 text-white/90">
-                  237 To 239, Purasaiwalkam High Road,
-                  <br />
-                  Purasaiwalkam, Chennai - 600084.
-                  <br />
-                  Near Welcome Hotel
-                </p>
-              </div>
-
-              {/* PHONE */}
-              <div className="flex items-center gap-3">
-                <Phone className="text-lime-400" size={20} />
-
-                <a
-                  href="tel:+918428428866"
-                  className="text-sm hover:text-lime-400 transition"
+            <div
+              className="
+                mt-4
+                flex
+                flex-col
+                items-start
+                gap-2.5
+              "
+            >
+              {quickLinks.map((item) => (
+                <Link
+                  key={item.label}
+                  href={item.href}
+                  className="
+                    text-sm
+                    text-neutral-400
+                    hover:text-lime-400
+                    transition-colors
+                    duration-300
+                  "
                 >
-                  +91 8428428866
-                </a>
+                  {item.label}
+                </Link>
+              ))}
+
+              {/* ENQUIRE */}
+
+              <a
+                href="mailto:fuelgym.co@gmail.com"
+                className="
+                  text-sm
+                  text-neutral-400
+                  hover:text-lime-400
+                  transition-colors
+                  duration-300
+                "
+              >
+                Enquire
+              </a>
+            </div>
+          </div>
+
+          {/* ===================================== */}
+          {/* CONTACT US */}
+          {/* ===================================== */}
+
+          <div>
+            <h3
+              className="
+                text-base
+                md:text-lg
+                font-medium
+                uppercase
+                tracking-wide
+                text-white
+              "
+            >
+              Contact Us
+            </h3>
+
+            <div
+              className="
+                mt-4
+                space-y-5
+              "
+            >
+              {/* ADDRESS */}
+
+              <div>
+                <div
+                  className="
+                    flex
+                    items-center
+                    gap-2
+                    mb-2
+                  "
+                >
+                  <MapPin
+                    size={15}
+                    className="text-lime-400"
+                  />
+
+                  <p
+                    className="
+                      text-sm
+                      font-medium
+                      uppercase
+                      text-white
+                    "
+                  >
+                    Home Branch
+                  </p>
+                </div>
+
+                <p
+                  className="
+                    text-xs
+                    text-neutral-500
+                    leading-5
+                    max-w-[330px]
+                  "
+                >
+                  #237 To 239,
+                  Purasaiwakkam High Road,
+                  Purasaiwakkam, Chennai,
+                  Tamil Nadu, India -
+                  600084.
+                </p>
+
               </div>
 
               {/* EMAIL */}
-              <div className="flex items-center gap-3">
-                <Mail className="text-lime-400" size={20} />
+
+              <div>
+                <div
+                  className="
+                    flex
+                    items-center
+                    gap-2
+                  "
+                >
+                  <Mail
+                    size={15}
+                    className="text-lime-400"
+                  />
+
+                  <p
+                    className="
+                      text-sm
+                      font-medium
+                      uppercase
+                      text-white
+                    "
+                  >
+                    Email
+                  </p>
+                </div>
 
                 <a
                   href="mailto:fuelgym.co@gmail.com"
-                  className="text-sm hover:text-lime-400 transition break-all"
+                  className="
+                    inline-block
+                    mt-1.5
+                    text-xs
+                    text-neutral-500
+                    hover:text-lime-400
+                    transition-colors
+                    cursor-pointer
+                  "
                 >
                   fuelgym.co@gmail.com
                 </a>
               </div>
+
+              {/* PHONE */}
+
+              <div>
+                <div
+                  className="
+                    flex
+                    items-center
+                    gap-2
+                  "
+                >
+                  <Phone
+                    size={15}
+                    className="text-lime-400"
+                  />
+
+                  <p
+                    className="
+                      text-sm
+                      font-medium
+                      uppercase
+                      text-white
+                    "
+                  >
+                    Phone
+                  </p>
+                </div>
+
+                <div
+                  className="
+                    mt-2
+                    flex
+                    flex-col
+                    items-start
+                    gap-2
+                  "
+                >
+                  {phoneNumbers.map(
+                    (phone) => (
+                      <a
+                        key={phone.value}
+                        href={`tel:${phone.value}`}
+                        className="
+                          text-xs
+                          text-neutral-500
+                          hover:text-lime-400
+                          transition-colors
+                        "
+                      >
+                        {phone.label}
+                      </a>
+                    )
+                  )}
+                </div>
+              </div>
             </div>
           </div>
 
-          {/* RIGHT */}
-          <div className="space-y-5 md:col-span-2 lg:col-span-1 lg:pl-6 lg:flex lg:flex-col lg:items-end">
-            <h2 className="text-2xl font-black uppercase tracking-wide">
-              Follow Us
-            </h2>
+          {/* ===================================== */}
+          {/* FOLLOW US */}
+          {/* ===================================== */}
 
-            <div className="flex items-center gap-4 lg:justify-end">
+          <div>
+            <h3
+              className="
+                text-base
+                md:text-lg
+                font-medium
+                uppercase
+                tracking-wide
+                text-white
+              "
+            >
+              Follow Us
+            </h3>
+
+            <div
+              className="
+                mt-5
+                flex
+                flex-wrap
+                gap-3
+                max-w-[120px]
+              "
+            >
+              {/* YOUTUBE */}
+
               <Link
                 href="https://www.youtube.com/@fuelgym"
                 target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Fuel Gym YouTube"
                 className="
-                  w-12 h-12 rounded-full
-                  border border-white/10
-                  hover:border-lime-400
-                  transition-all duration-300
-                  flex items-center justify-center
-                  bg-white/5 hover:bg-white/10
+                  w-12
+                  h-12
+                  rounded-full
+                  bg-white
+                  text-black
+                  flex
+                  items-center
+                  justify-center
+                  hover:bg-lime-400
+                  hover:scale-105
+                  transition-all
+                  duration-300
                 "
               >
                 <img
                   src="https://imgs.search.brave.com/TlENU9LrIKC8jpubywPxOQ6YCqw0OFGlktf0mHl2RZA/rs:fit:32:32:1:0/g:ce/aHR0cDovL2Zhdmlj/b25zLnNlYXJjaC5i/cmF2ZS5jb20vaWNv/bnMvYzY2MGJiOWU5/YjRiMjI5YWQyMDQz/NDk5OGZiZDAxNzE4/OGYwNDcxMGQ5Mjli/YWZmZDNmNjQ1YTFl/NjQyODE4OS9icmFu/ZC55b3V0dWJlLw"
                   alt="YouTube"
-                  className="w-6 h-6"
+                  className="
+                    w-6
+                    h-6
+                  "
                 />
               </Link>
             </div>
           </div>
         </div>
 
+        {/* ===================================== */}
         {/* BOTTOM */}
-        <div className="border-t border-white/10 mt-10 pt-5 text-center">
-          <p className="text-white/60 text-sm">
-            © 2026 Fuel Gym. All Rights Reserved.
+        {/* ===================================== */}
+
+        <div
+          className="
+            mt-10
+            pt-5
+            border-t
+            border-white/[0.07]
+            flex
+            flex-col
+            md:flex-row
+            items-center
+            justify-between
+            gap-3
+          "
+        >
+          <p
+            className="
+              text-[11px]
+              text-neutral-600
+            "
+          >
+            © 2026 Fuel Gym. All Rights
+            Reserved.
+          </p>
+
+          <p
+            className="
+              text-[11px]
+              text-neutral-700
+            "
+          >
+            Fuel Gym & Yoga · Chennai
           </p>
         </div>
       </div>

@@ -1,76 +1,379 @@
 export const Trainers = () => {
-    const trainers = [
-      {
-        name: "Arjun",
-        role: "Strength Coach",
-        img: "https://images.unsplash.com/photo-1605296867424-35fc25c9212a",
-      },
-      {
-        name: "Priya",
-        role: "Fat Loss Specialist",
-        img: "https://images.unsplash.com/photo-1571019614242-c5c5dee9f50b",
-      },
-      {
-        name: "Rahul",
-        role: "Personal Trainer",
-        img: "https://images.unsplash.com/photo-1594737625785-a6cbdabd333c",
-      },
-      {
-        name: "Neha",
-        role: "Nutrition Coach",
-        img: "https://images.unsplash.com/photo-1599058917212-d750089bc07e",
-      },
-    ];
-  
-    return (
-      <section className="bg-black py-16">
-  
-        {/* 🔥 Heading */}
-        <div className="text-center mb-10">
-          <p className="text-[12px] tracking-[0.6em] text-neutral-600 mb-4">
+  const trainers = [
+    {
+      name: "Arif",
+      role: "Head Coach",
+      img: "/arif.JPEG",
+      qualification: [
+        "CPT - NASM",
+        "PES - NASM",
+        "WLS - NASM",
+        "GBB - NASM",
+        "CFR PRO - ACFIT",
+        "CPR & FIRST AID",
+      ],
+    },
+    {
+      name: "Raghav",
+      role: "Coach - Gym",
+      img: "/ragav.JPEG",
+      qualification: [
+        "Fitness and Nutrition Science - INFS",
+        "Metabolic Science - NASM",
+        "Exercise Physiology - Harvard Medical School",
+        "CPR & FIRST AID",
+      ],
+    },
+    {
+      name: "Narendran",
+      role: "Coach - Gym",
+      img: "/nk.JPEG",
+      qualification: [
+        "CPT - ACE",
+        "MR. ASIA",
+        "MR. INDIA",
+        "MR. TAMILNADU",
+        "CPR & FIRST AID",
+      ],
+    },
+    {
+      name: "Nithya",
+      role: "Coach - Yoga",
+      img: "/nitya.JPEG",
+      qualification: [
+        "RYT",
+        "AERIAL YOGA",
+        "SINGING BOWL",
+        "SOUND HEALING",
+        "PRENATAL YOGA",
+        "CPR & FIRST AID",
+      ],
+    },
+  ];
+
+  return (
+    <section
+      className="
+        relative
+        bg-black
+        py-14
+        md:py-16
+        overflow-hidden
+      "
+    >
+      <div
+        className="
+          relative
+          max-w-[1450px]
+          mx-auto
+          px-6
+          md:px-10
+          lg:px-12
+        "
+      >
+        {/* HEADING */}
+
+        <div className="text-center mb-8 md:mb-10">
+          <p className="text-[12px] tracking-[0.6em] text-neutral-600 mb-2">
             TRAINERS
           </p>
-  
-          <h2 className="text-5xl  font-extrabold text-neutral-200">
-            MEET YOUR COACHES
+
+          <h2
+            className="
+              text-3xl
+              md:text-4xl
+              lg:text-5xl
+              font-black
+              uppercase
+              tracking-tight
+              text-white
+            "
+          >
+            Meet Your Coaches
           </h2>
         </div>
-  
-        {/* 🔥 Horizontal strip */}
-        <div className="flex gap-6 overflow-x-auto px-6 scrollbar-hide">
-  
-          {trainers.map((trainer, i) => (
+
+        {/* TRAINERS */}
+
+        <div
+          className="
+            grid
+            grid-cols-2
+            lg:grid-cols-4
+            gap-x-5
+            md:gap-x-6
+            lg:gap-x-7
+            gap-y-8
+            w-full
+          "
+        >
+          {trainers.map((trainer) => (
             <div
-              key={i}
-              className="min-w-[200px] group"
+              key={trainer.name}
+              className="group w-full"
             >
-              {/* Image */}
-              <div className="relative overflow-hidden rounded-xl">
-                <img
-                  src={`${trainer.img}?auto=format&fit=crop&w=400&q=80`}
-                  className="w-full h-[260px] object-cover 
-                             group-hover:scale-105 transition duration-500"
-                  alt=""
-                />
-  
-                {/* overlay */}
-                <div className="absolute inset-0 bg-black/20 group-hover:bg-black/10 transition" />
+              {/* FLIP CARD */}
+
+              <div
+                className="
+                  relative
+                  w-full
+                  h-[220px]
+                  sm:h-[240px]
+                  md:h-[260px]
+                  lg:h-[280px]
+                  xl:h-[300px]
+                  [perspective:1200px]
+                "
+              >
+                <div
+                  className="
+                    relative
+                    w-full
+                    h-full
+                    transition-transform
+                    duration-700
+                    ease-out
+                    [transform-style:preserve-3d]
+                    group-hover:[transform:rotateY(180deg)]
+                  "
+                >
+                  {/* FRONT */}
+
+                  <div
+                    className="
+                      absolute
+                      inset-0
+                      w-full
+                      h-full
+                      overflow-hidden
+                      rounded-2xl
+                      bg-neutral-950
+                      border
+                      border-white/[0.05]
+                      [backface-visibility:hidden]
+                    "
+                  >
+                    <img
+                      src={trainer.img}
+                      alt={trainer.name}
+                      className="
+                        w-full
+                        h-full
+                        object-cover
+                        object-top
+                        transition-all
+                        duration-500
+                        group-hover:scale-[1.03]
+                      "
+                    />
+
+                    <div
+                      className="
+                        absolute
+                        inset-x-0
+                        bottom-0
+                        h-20
+                        bg-gradient-to-t
+                        from-black/70
+                        to-transparent
+                        pointer-events-none
+                      "
+                    />
+                  </div>
+
+                  {/* BACK */}
+
+                  <div
+                    className="
+                      absolute
+                      inset-0
+                      w-full
+                      h-full
+                      overflow-hidden
+                      rounded-2xl
+                      border
+                      border-white/[0.08]
+                      [backface-visibility:hidden]
+                      [transform:rotateY(180deg)]
+                    "
+                  >
+                    {/* BLURRED BACKGROUND IMAGE */}
+
+                    <img
+                      src={trainer.img}
+                      alt=""
+                      className="
+                        absolute
+                        inset-0
+                        w-full
+                        h-full
+                        object-cover
+                        object-top
+                        scale-110
+                        blur-md
+                        opacity-40
+                      "
+                    />
+
+                    {/* DARK OVERLAY */}
+
+                    <div
+                      className="
+                        absolute
+                        inset-0
+                        bg-black/75
+                        backdrop-blur-[2px]
+                      "
+                    />
+
+                    {/* CONTENT */}
+
+                    <div
+                      className="
+                        relative
+                        z-10
+                        flex
+                        flex-col
+                        justify-center
+                        h-full
+                        px-4
+                        sm:px-5
+                        md:px-6
+                      "
+                    >
+                      <p
+                        className="
+                          text-[8px]
+                          sm:text-[9px]
+                          md:text-[10px]
+                          tracking-[0.28em]
+                          uppercase
+                          text-white/40
+                          mb-1
+                        "
+                      >
+                        Coach Profile
+                      </p>
+
+                      <h3
+                        className="
+                          text-base
+                          sm:text-lg
+                          md:text-xl
+                          font-black
+                          uppercase
+                          text-white
+                          leading-tight
+                        "
+                      >
+                        {trainer.name}
+                      </h3>
+
+                      <p
+                        className="
+                          mt-0.5
+                          text-[10px]
+                          sm:text-xs
+                          font-medium
+                          text-white/55
+                        "
+                      >
+                        {trainer.role}
+                      </p>
+
+                      <div
+                        className="
+                          w-7
+                          h-[2px]
+                          bg-white
+                          my-2
+                          md:my-3
+                        "
+                      />
+
+                      <div
+                        className="
+                          flex
+                          flex-col
+                          gap-[3px]
+                          md:gap-1
+                        "
+                      >
+                        {trainer.qualification.map(
+                          (item) => (
+                            <div
+                              key={item}
+                              className="
+                                flex
+                                items-start
+                                gap-1.5
+                              "
+                            >
+                              <span
+                                className="
+                                  mt-[5px]
+                                  w-[3px]
+                                  h-[3px]
+                                  rounded-full
+                                  bg-white/50
+                                  shrink-0
+                                "
+                              />
+
+                              <p
+                                className="
+                                  text-[8px]
+                                  sm:text-[9px]
+                                  md:text-[10px]
+                                  lg:text-[11px]
+                                  leading-[1.35]
+                                  text-neutral-300
+                                  font-medium
+                                "
+                              >
+                                {item}
+                              </p>
+                            </div>
+                          )
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
-  
-              {/* Info */}
+
+              {/* INFO */}
+
               <div className="mt-3">
-                <p className="text-white font-semibold">
+                <h3
+                  className="
+                    text-base
+                    md:text-lg
+                    font-black
+                    text-white
+                    leading-tight
+                  "
+                >
                   {trainer.name}
-                </p>
-  
-                <p className="text-neutral-400 text-sm">
+                </h3>
+
+                <p
+                  className="
+                    mt-1
+                    text-xs
+                    md:text-sm
+                    text-neutral-500
+                    leading-5
+                  "
+                >
                   {trainer.role}
                 </p>
               </div>
             </div>
           ))}
-  
         </div>
-      </section>
-    );
-  };
+      </div>
+    </section>
+  );
+};

@@ -9,11 +9,11 @@ import { prisma } from "@/prisma";
 
 import {
   whatsapp,
-} from "@/app/services/whatsapp";
+} from "@/src/lib/services/whatsapp";
 
 import {
   sendEmail,
-} from "@/app/services/email";
+} from "@/src/lib/services/email";
 
 import {
   calculateGSTBreakdownFormatted,

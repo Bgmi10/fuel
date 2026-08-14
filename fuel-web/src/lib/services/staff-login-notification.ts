@@ -3,7 +3,7 @@ import {
   } from "@prisma/client";
   
   import { prisma } from "@/prisma";
-  import { sendEmail } from "@/app/services/email";
+  import { sendEmail } from "@/src/lib/services/email";
   
   type LoggedInUser = {
     id: string;

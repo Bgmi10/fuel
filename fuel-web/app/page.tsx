@@ -21,11 +21,11 @@ export default function Home() {
      
       <Header setIsContactOpen={setIsContactOpen} />
       <Hero setIsBookTrailOpen={setIsBookTrailOpen} />
+      
       <About />
-      {/* <Transformations /> */}
-      <Services />
-      <Trainers />
       <Pricing />
+      
+      <Trainers />
       <Testimonials />
  
       {

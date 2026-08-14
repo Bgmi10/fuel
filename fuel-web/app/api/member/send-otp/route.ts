@@ -1,4 +1,4 @@
-import { sendEmail } from "@/app/services/email";
+import { sendEmail } from "@/src/lib/services/email";
 import { prisma } from "@/prisma";
 import { NextRequest, NextResponse } from "next/server";
 import twilio from "twilio";
