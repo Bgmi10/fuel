@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-
+import { BookTrialForm } from "@/app/components/BookTrialForm";
 import {
   useParams,
   useRouter,
@@ -516,6 +516,11 @@ export default function ServicePage() {
 
   const router =
     useRouter();
+
+    const [
+      isBookTrialOpen,
+      setIsBookTrialOpen,
+    ] = useState(false);
 
   const {
     selectedBranch,
@@ -1622,7 +1627,215 @@ export default function ServicePage() {
             </div>
           </div>
         </div>
-      </section>
+        </section>
+
+{/* ================================================= */}
+{/* BOOK FREE TRIAL CTA */}
+{/* ================================================= */}
+
+<section
+  className="
+    relative
+    bg-black
+    px-6
+    md:px-10
+    pb-16
+    md:pb-20
+  "
+>
+  <div
+    className="
+      relative
+
+      max-w-7xl
+      mx-auto
+
+      overflow-hidden
+
+      rounded-[28px]
+
+      border
+      border-lime-400/20
+
+      bg-neutral-950
+
+      px-6
+      md:px-10
+      lg:px-12
+
+      py-9
+      md:py-11
+    "
+  >
+    {/* GREEN GLOW */}
+
+    <div
+      className="
+        absolute
+        -top-24
+        -right-20
+
+        w-[300px]
+        h-[300px]
+
+        rounded-full
+
+        bg-lime-400/[0.08]
+
+        blur-[100px]
+
+        pointer-events-none
+      "
+    />
+
+    {/* SMALL ACCENT */}
+
+    <div
+      className="
+        absolute
+        top-0
+        left-10
+
+        w-20
+        h-[3px]
+
+        bg-lime-400
+      "
+    />
+
+    <div
+      className="
+        relative
+        z-10
+
+        flex
+        flex-col
+        lg:flex-row
+
+        lg:items-center
+        lg:justify-between
+
+        gap-7
+      "
+    >
+      {/* CONTENT */}
+
+      <div className="max-w-3xl">
+        <p
+          className="
+            text-xs
+            font-bold
+
+            uppercase
+
+            tracking-[0.3em]
+
+            text-lime-400
+          "
+        >
+          Ready To Start?
+        </p>
+
+        <h2
+          className="
+            mt-3
+
+            text-3xl
+            md:text-4xl
+            lg:text-5xl
+
+            font-black
+
+            uppercase
+
+            tracking-tight
+
+            leading-tight
+
+            text-white
+          "
+        >
+          Experience{" "}
+          <span className="text-lime-400">
+            {service.name}
+          </span>{" "}
+          At Fuel
+        </h2>
+
+        <p
+          className="
+            mt-4
+
+            max-w-2xl
+
+            text-sm
+            md:text-base
+
+            leading-7
+
+            text-neutral-400
+          "
+        >
+          Book a free trial session and
+          experience our structured
+          training, expert coaching and
+          FUEL community before choosing
+          your membership.
+        </p>
+      </div>
+
+      {/* CTA */}
+
+      <button
+        type="button"
+        onClick={() =>
+          setIsBookTrialOpen(true)
+        }
+        className="
+          shrink-0
+
+          min-w-[190px]
+
+          h-13
+
+          px-7
+
+          rounded-xl
+
+          bg-lime-400
+
+          text-black
+
+          text-sm
+          font-black
+
+          uppercase
+
+          tracking-wide
+
+          cursor-pointer
+
+          shadow-[0_0_30px_rgba(163,230,53,0.18)]
+
+          hover:bg-lime-300
+          hover:scale-[1.02]
+
+          hover:shadow-[0_0_40px_rgba(163,230,53,0.28)]
+
+          transition-all
+          duration-300
+        "
+      >
+        Book Free Trial
+      </button>
+    </div>
+  </div>
+</section>
+
+{/* ================================================= */}
+{/* PACKAGES */}
+{/* ================================================= */}
+
 
       {/* ================================================= */}
       {/* PACKAGES */}
@@ -2022,7 +2235,7 @@ export default function ServicePage() {
       </section>
 
       {/* ================================================= */}
-      {/* SUBSCRIBE MODAL */}
+      {/* `SUBSC`RIBE MODAL */}
       {/* ================================================= */}
 
       {selectedPackage && (
@@ -2035,6 +2248,12 @@ export default function ServicePage() {
           service={service}
         />
       )}
+
+
+<BookTrialForm
+  open={isBookTrialOpen}
+  setOpen={setIsBookTrialOpen}
+/>
 
       {/* ================================================= */}
       {/* CONTACT */}

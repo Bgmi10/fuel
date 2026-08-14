@@ -1,10 +1,13 @@
 export const Hero = () => {
   return (
     <section className="relative h-screen w-full overflow-hidden bg-black">
-      {/* Background Image */}
-      <img
-        src="/hero.jpeg"
-        alt="Fuel Human Performance"
+      {/* Background Video */}
+      <video
+        autoPlay
+        muted
+        loop
+        playsInline
+        preload="auto"
         className="
           absolute
           inset-0
@@ -13,7 +16,12 @@ export const Hero = () => {
           object-cover
           object-center
         "
-      />
+      >
+        <source
+          src="/Home.mp4"
+          type="video/mp4"
+        />
+      </video>
 
       {/* Subtle Dark Overlay */}
       <div

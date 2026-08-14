@@ -20,7 +20,7 @@ export default function Home() {
     <div className="">
      
       <Header setIsContactOpen={setIsContactOpen} />
-      <Hero setIsBookTrailOpen={setIsBookTrailOpen} />
+      <Hero />
       
       <About />
       <Pricing />

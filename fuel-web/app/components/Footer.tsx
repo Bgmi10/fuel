@@ -126,12 +126,11 @@ export default function Footer() {
                 md:text-xs
                 leading-5
                 text-neutral-500
+                lowercase
               "
             >
-              Fuel is the spark that ignites
-              your potential — the power that
-              drives you to move, grow and
-              conquer limits.
+             WE CREATE THE FIRE THAT MOVES YOU.
+             WE TURN EVERY SPARK INTO STRENGTH, EVERY STEP INTO PROGRESS.
             </p>
           </div>
 
@@ -368,62 +367,334 @@ export default function Footer() {
           {/* FOLLOW US */}
           {/* ===================================== */}
 
-          <div>
-            <h3
-              className="
-                text-base
-                md:text-lg
-                font-medium
-                uppercase
-                tracking-wide
-                text-white
-              "
-            >
-              Follow Us
-            </h3>
+        {/* ===================================== */}
+{/* FOLLOW US */}
+{/* ===================================== */}
 
-            <div
-              className="
-                mt-5
-                flex
-                flex-wrap
-                gap-3
-                max-w-[120px]
-              "
-            >
-              {/* YOUTUBE */}
+<div>
+  <h3
+    className="
+      text-base
+      md:text-lg
+      font-medium
+      uppercase
+      tracking-wide
+      text-white
+    "
+  >
+    Follow Us
+  </h3>
 
-              <Link
-                href="https://www.youtube.com/@fuelgym"
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label="Fuel Gym YouTube"
-                className="
-                  w-12
-                  h-12
-                  rounded-full
-                  bg-white
-                  text-black
-                  flex
-                  items-center
-                  justify-center
-                  hover:bg-lime-400
-                  hover:scale-105
-                  transition-all
-                  duration-300
-                "
-              >
-                <img
-                  src="https://imgs.search.brave.com/TlENU9LrIKC8jpubywPxOQ6YCqw0OFGlktf0mHl2RZA/rs:fit:32:32:1:0/g:ce/aHR0cDovL2Zhdmlj/b25zLnNlYXJjaC5i/cmF2ZS5jb20vaWNv/bnMvYzY2MGJiOWU5/YjRiMjI5YWQyMDQz/NDk5OGZiZDAxNzE4/OGYwNDcxMGQ5Mjli/YWZmZDNmNjQ1YTFl/NjQyODE4OS9icmFu/ZC55b3V0dWJlLw"
-                  alt="YouTube"
-                  className="
-                    w-6
-                    h-6
-                  "
-                />
-              </Link>
-            </div>
-          </div>
+  <div
+    className="
+      mt-5
+      flex
+      flex-wrap
+      gap-3
+      max-w-[180px]
+    "
+  >
+    {/* INSTAGRAM */}
+
+    <Link
+      href="https://www.instagram.com/fuelgym.in"
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label="Fuel Gym Instagram"
+      className="
+        w-12
+        h-12
+        rounded-full
+
+        border
+        border-white/10
+
+        bg-neutral-900
+
+        flex
+        items-center
+        justify-center
+
+        text-neutral-300
+
+        hover:bg-white
+        hover:text-black
+        hover:scale-105
+
+        transition-all
+        duration-300
+      "
+    >
+      <svg
+        viewBox="0 0 24 24"
+        className="w-5 h-5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      >
+        <rect
+          x="3"
+          y="3"
+          width="18"
+          height="18"
+          rx="5"
+        />
+
+        <circle
+          cx="12"
+          cy="12"
+          r="4"
+        />
+
+        <circle
+          cx="17.5"
+          cy="6.5"
+          r="1"
+          fill="currentColor"
+          stroke="none"
+        />
+      </svg>
+    </Link>
+
+    {/* FACEBOOK */}
+
+    <Link
+      href="https://www.facebook.com/p/Fuel-Gym-Yoga-100084722037975/"
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label="Fuel Gym Facebook"
+      className="
+        w-12
+        h-12
+        rounded-full
+
+        border
+        border-white/10
+
+        bg-neutral-900
+
+        flex
+        items-center
+        justify-center
+
+        text-neutral-300
+
+        hover:bg-white
+        hover:text-black
+        hover:scale-105
+
+        transition-all
+        duration-300
+      "
+    >
+      <svg
+        viewBox="0 0 24 24"
+        className="w-5 h-5"
+        fill="currentColor"
+      >
+        <path
+          d="
+            M13.5 22
+            v-9
+            h3
+            l.5-3.5
+            h-3.5
+            V7.2
+            c0-1
+            .3-1.7
+            1.8-1.7
+            H17V2.3
+            c-.8-.1-1.8-.3-3-.3
+            -3 0-5 1.8-5 5.1
+            v2.4
+            H6
+            V13
+            h3
+            v9
+            h4.5
+            Z
+          "
+        />
+      </svg>
+    </Link>
+
+    {/* THREADS */}
+
+    <Link
+      href="https://www.threads.com/@fuelgym.in"
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label="Fuel Gym Threads"
+      className="
+        w-12
+        h-12
+        rounded-full
+
+        border
+        border-white/10
+
+        bg-neutral-900
+
+        flex
+        items-center
+        justify-center
+
+        text-neutral-300
+
+        hover:bg-white
+        hover:text-black
+        hover:scale-105
+
+        transition-all
+        duration-300
+      "
+    >
+      <span
+        className="
+          text-[21px]
+          font-black
+          leading-none
+        "
+      >
+        @
+      </span>
+    </Link>
+
+    {/* YOUTUBE - KEEPING EXISTING ICON */}
+
+   {/* YOUTUBE */}
+
+<Link
+  href="https://www.youtube.com/@fuelgym"
+  target="_blank"
+  rel="noopener noreferrer"
+  aria-label="Fuel Gym YouTube"
+  className="
+    w-12
+    h-12
+    rounded-full
+
+    border
+    border-white/10
+
+    bg-neutral-900
+
+    flex
+    items-center
+    justify-center
+
+    text-neutral-300
+
+    hover:bg-white
+    hover:text-black
+    hover:scale-105
+
+    transition-all
+    duration-300
+  "
+>
+  <svg
+    viewBox="0 0 24 24"
+    className="w-5 h-5"
+    fill="currentColor"
+  >
+    <path
+      d="
+        M23 12
+        c0-2.2-.2-4.2-.5-5.4
+        -.3-1.1-1.2-2-2.3-2.3
+        C18.4 3.8 12 3.8 12 3.8
+        s-6.4 0-8.2.5
+        C2.7 4.6 1.8 5.5 1.5 6.6
+        1.2 7.8 1 9.8 1 12
+        s.2 4.2.5 5.4
+        c.3 1.1 1.2 2 2.3 2.3
+        1.8.5 8.2.5 8.2.5
+        s6.4 0 8.2-.5
+        c1.1-.3 2-1.2 2.3-2.3
+        .3-1.2.5-3.2.5-5.4
+        Z
+
+        M9.8 15.5
+        v-7
+        l6 3.5
+        -6 3.5
+        Z
+      "
+    />
+  </svg>
+</Link>
+
+    {/* LINKEDIN */}
+
+    <Link
+      href="https://in.linkedin.com/company/fuel-gymandyoga"
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label="Fuel Gym LinkedIn"
+      className="
+        w-12
+        h-12
+        rounded-full
+
+        border
+        border-white/10
+
+        bg-neutral-900
+
+        flex
+        items-center
+        justify-center
+
+        text-neutral-300
+
+        hover:bg-white
+        hover:text-black
+        hover:scale-105
+
+        transition-all
+        duration-300
+      "
+    >
+      <svg
+        viewBox="0 0 24 24"
+        className="w-5 h-5"
+        fill="currentColor"
+      >
+        <path
+          d="
+            M6.5 8.5
+            H3V21
+            h3.5
+            V8.5ZM4.75 3
+            A2.05 2.05 0 1 0 4.75 7.1
+            A2.05 2.05 0 0 0 4.75 3ZM9 8.5
+            V21
+            h3.5
+            v-6.2
+            c0-1.7
+            .3-3.4
+            2.5-3.4
+            2.2 0
+            2.2 2
+            2.2 3.5
+            V21
+            H21
+            v-6.8
+            c0-3.4
+            -.7-6
+            -4.7-6
+            -1.9 0
+            -3.2 1
+            -3.8 2
+            v-1.7
+            H9Z
+          "
+        />
+      </svg>
+    </Link>
+  </div>
+</div>
         </div>
 
         {/* ===================================== */}

@@ -24,6 +24,7 @@ export const Header = ({
   setIsContactOpen,
 }: HeaderProps) => {
   const router = useRouter();
+
   const pathname = usePathname();
 
   const [open, setOpen] =
@@ -55,7 +56,6 @@ export const Header = ({
       return;
     }
 
-    // If user is on another page
     router.push("/#pricing");
   };
 
@@ -111,6 +111,7 @@ export const Header = ({
       "
     >
       {/* HEADER GRADIENT */}
+
       <div
         className="
           absolute
@@ -118,65 +119,60 @@ export const Header = ({
 
           bg-gradient-to-b
           from-black/90
-          via-black/30
+          via-black/35
           to-transparent
 
           pointer-events-none
         "
       />
 
+      {/* ===================================== */}
+      {/* HEADER INNER */}
+      {/* ===================================== */}
+
       <div
         className="
           relative
 
+          max-w-[1500px]
+          mx-auto
+
+          h-[82px]
+
+          px-5
+          sm:px-6
+          md:px-8
+          lg:px-7
+
           flex
           items-center
-
-          px-6
-          md:pl-8
-          md:pr-5
-
-          py-4
         "
       >
-        {/* -------------------------------- */}
-        {/* LEFT */}
-        {/* -------------------------------- */}
-
-        <div
-          className="
-            shrink-0
-            flex
-            items-center
-          "
-        >
-          {/*
-          <img
-            src="/logo.png"
-            alt="Fuel Gym"
-            className="h-14 w-auto"
-          />
-          */}
-        </div>
-
-        {/* -------------------------------- */}
+        {/* ===================================== */}
         {/* CENTER NAVIGATION */}
-        {/* -------------------------------- */}
+        {/* ===================================== */}
 
         <nav
           className="
             hidden
-            md:flex
+            lg:flex
 
-            flex-1
+            absolute
+
+            left-[585px]
+            top-1/2
+
+            -translate-x-1/2
+            -translate-y-1/2
 
             items-center
-            justify-center
 
-            gap-7
-            lg:gap-9
+            gap-6
+            xl:gap-8
 
-            text-[15px]
+            text-[14px]
+            xl:text-[15px]
+
             tracking-wide
           "
         >
@@ -232,306 +228,331 @@ export const Header = ({
           )}
         </nav>
 
-        {/* -------------------------------- */}
+        {/* ===================================== */}
         {/* RIGHT SIDE */}
-        {/* -------------------------------- */}
+        {/* ===================================== */}
 
-        <div
+        {/* ===================================== */}
+{/* RIGHT SIDE */}
+{/* ===================================== */}
+
+<div
+  className="
+    ml-auto
+
+    flex
+    items-center
+
+    gap-3
+  "
+>
+  {/* ================================= */}
+  {/* BRANCH SELECTOR */}
+  {/* ================================= */}
+
+  <div
+    className="
+      relative
+
+      hidden
+      md:block
+    "
+  >
+    <button
+      type="button"
+      onClick={() =>
+        setOpen(!open)
+      }
+      className="
+        w-[210px]
+        lg:w-[160px]
+
+        h-11
+
+        px-3
+
+        rounded-xl
+
+        border
+        border-white/10
+
+        bg-white/[0.05]
+        backdrop-blur-xl
+
+        flex
+        items-center
+
+        gap-2
+
+        cursor-pointer
+
+        hover:bg-white/10
+        hover:border-white/20
+
+        transition-all
+        duration-300
+      "
+    >
+      {/* LOCATION */}
+
+      <div
+        className="
+          w-8
+          h-8
+
+          shrink-0
+
+          rounded-full
+
+          bg-lime-400/10
+
+          flex
+          items-center
+          justify-center
+        "
+      >
+        <MapPin
+          size={15}
           className="
-            ml-auto
+            text-lime-400
+          "
+        />
+      </div>
 
-            flex
-            items-center
+      {/* BRANCH NAME */}
 
-            gap-3
+      <div
+        className="
+          flex-1
+
+          min-w-0
+
+          text-left
+        "
+      >
+        <p
+          className="
+            text-[9px]
+            text-neutral-500
+
+            leading-none
           "
         >
-          {/* ------------------------------ */}
-          {/* BRANCH SELECTOR */}
-          {/* ------------------------------ */}
+          Selected Branch
+        </p>
 
-          <div
-            className="
-              relative
+        <p
+          className="
+            mt-1
 
-              hidden
-              md:block
-            "
-          >
-            <button
-              type="button"
-              onClick={() =>
-                setOpen(!open)
-              }
-              className="
-                h-11
+            text-[12px]
+            lg:text-[13px]
 
-                px-4
+            text-white
 
-                rounded-xl
+            font-medium
 
-                border
-                border-white/10
+            truncate
+          "
+        >
+          {loading
+            ? "Loading..."
+            : selectedBranch?.name ||
+              "Select Branch"}
+        </p>
+      </div>
 
-                bg-white/5
-                backdrop-blur-xl
+      {/* CHEVRON */}
 
-                flex
-                items-center
-                gap-3
+      <ChevronDown
+        size={15}
+        className={`
+          shrink-0
 
-                cursor-pointer
+          text-neutral-400
 
-                hover:bg-white/10
+          transition-transform
+          duration-300
 
-                transition-all
-                duration-300
-              "
-            >
-              {/* LOCATION ICON */}
+          ${
+            open
+              ? "rotate-180"
+              : ""
+          }
+        `}
+      />
+    </button>
 
-              <div
-                className="
-                  w-8
-                  h-8
+    {/* ================================= */}
+    {/* BRANCH DROPDOWN */}
+    {/* ================================= */}
 
-                  rounded-full
+    {open && (
+      <div
+        className="
+          absolute
 
-                  bg-lime-400/15
+          top-[calc(100%+10px)]
+          right-0
 
-                  flex
-                  items-center
-                  justify-center
-                "
-              >
-                <MapPin
-                  size={16}
-                  className="
-                    text-lime-400
-                  "
-                />
-              </div>
+          w-[300px]
 
-              {/* BRANCH */}
+          bg-neutral-950/95
+          backdrop-blur-2xl
 
-              <div className="text-left">
-                <p
-                  className="
-                    text-[11px]
-                    text-neutral-500
-                    leading-none
-                  "
-                >
-                  Selected Branch
-                </p>
+          border
+          border-white/10
 
-                <p
-                  className="
-                    mt-1
+          rounded-2xl
 
-                    text-sm
-                    text-white
-                    font-medium
+          overflow-hidden
 
-                    max-w-[170px]
+          shadow-2xl
+        "
+      >
+        <div className="p-2">
+          {branches.map(
+            (branch) => {
+              const active =
+                selectedBranch?.id ===
+                branch.id;
 
-                    truncate
-                  "
-                >
-                  {loading
-                    ? "Loading..."
-                    : selectedBranch
-                        ?.name ||
-                      "Select Branch"}
-                </p>
-              </div>
+              return (
+                <button
+                  key={branch.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedBranch(
+                      branch
+                    );
 
-              {/* CHEVRON */}
+                    setOpen(false);
+                  }}
+                  className={`
+                    w-full
 
-              <ChevronDown
-                size={16}
-                className={`
-                  text-neutral-400
+                    text-left
 
-                  transition-transform
-                  duration-300
+                    px-4
+                    py-3.5
 
-                  ${
-                    open
-                      ? "rotate-180"
-                      : ""
-                  }
-                `}
-              />
-            </button>
+                    mb-1
 
-            {/* ------------------------------ */}
-            {/* BRANCH DROPDOWN */}
-            {/* ------------------------------ */}
+                    rounded-xl
 
-            {open && (
-              <div
-                className="
-                  absolute
+                    border
 
-                  top-[120%]
-                  right-0
+                    cursor-pointer
 
-                  w-[320px]
+                    transition-all
+                    duration-300
 
-                  bg-neutral-950/95
-                  backdrop-blur-2xl
-
-                  border
-                  border-white/10
-
-                  rounded-2xl
-
-                  overflow-hidden
-
-                  shadow-2xl
-                "
-              >
-                <div className="p-2">
-                  {branches.map(
-                    (branch) => {
-                      const active =
-                        selectedBranch?.id ===
-                        branch.id;
-
-                      return (
-                        <button
-                          key={
-                            branch.id
-                          }
-                          type="button"
-                          onClick={() => {
-                            setSelectedBranch(
-                              branch
-                            );
-
-                            setOpen(
-                              false
-                            );
-                          }}
-                          className={`
-                            w-full
-
-                            text-left
-
-                            p-4
-                            mb-1
-
-                            rounded-xl
-
-                            border
-
-                            cursor-pointer
-
-                            transition-all
-                            duration-300
-
-                            ${
-                              active
-                                ? `
-                                  bg-lime-400/10
-                                  border-lime-400/20
-                                `
-                                : `
-                                  border-transparent
-                                  hover:bg-white/5
-                                `
-                            }
-                          `}
-                        >
-                          <div
-                            className="
-                              flex
-                              items-center
-                              gap-3
-                            "
-                          >
-                            <div
-                              className={`
-                                w-2
-                                h-2
-
-                                rounded-full
-
-                                ${
-                                  active
-                                    ? "bg-lime-400"
-                                    : "bg-neutral-600"
-                                }
-                              `}
-                            />
-
-                            <p
-                              className={`
-                                font-medium
-
-                                ${
-                                  active
-                                    ? "text-lime-400"
-                                    : "text-white"
-                                }
-                              `}
-                            >
-                              {
-                                branch.name
-                              }
-                            </p>
-                          </div>
-                        </button>
-                      );
+                    ${
+                      active
+                        ? `
+                            bg-lime-400/10
+                            border-lime-400/20
+                          `
+                        : `
+                            border-transparent
+                            hover:bg-white/5
+                          `
                     }
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
+                  `}
+                >
+                  <div
+                    className="
+                      flex
+                      items-center
 
-          {/* ------------------------------ */}
-          {/* BOOK TRIAL */}
-          {/* ------------------------------ */}
+                      gap-3
+                    "
+                  >
+                    <div
+                      className={`
+                        w-2
+                        h-2
 
-          <button
-            type="button"
-            onClick={goToPricing}
-            className="
-              bg-lime-400
-              text-black
+                        shrink-0
 
-              font-semibold
+                        rounded-full
 
-              px-7
-              lg:px-8
-              py-2.5
+                        ${
+                          active
+                            ? "bg-lime-400"
+                            : "bg-neutral-600"
+                        }
+                      `}
+                    />
 
-              rounded-xl
+                    <p
+                      className={`
+                        text-sm
+                        font-medium
 
-              tracking-wide
-
-              whitespace-nowrap
-
-              cursor-pointer
-
-              shadow-[0_0_25px_rgba(198,255,0,0.30)]
-
-              hover:
-              shadow-[0_0_40px_rgba(198,255,0,0.55)]
-
-              hover:bg-lime-300
-
-              hover:scale-[1.03]
-
-              transition-all
-              duration-300
-            "
-          >
-            Book Trial
-          </button>
+                        ${
+                          active
+                            ? "text-lime-400"
+                            : "text-white"
+                        }
+                      `}
+                    >
+                      {branch.name}
+                    </p>
+                  </div>
+                </button>
+              );
+            }
+          )}
         </div>
+      </div>
+    )}
+  </div>
+
+  {/* ================================= */}
+  {/* BOOK TRIAL */}
+  {/* ================================= */}
+
+  <button
+    type="button"
+    onClick={goToPricing}
+    className="
+      w-[210px]
+      lg:w-[160px]
+
+      h-11
+
+      flex
+      items-center
+      justify-center
+
+      rounded-xl
+
+      bg-lime-400
+      text-black
+
+      text-sm
+      font-semibold
+
+      tracking-wide
+
+      whitespace-nowrap
+
+      cursor-pointer
+
+      shadow-[0_0_25px_rgba(198,255,0,0.25)]
+
+      hover:bg-lime-300
+
+      hover:shadow-[0_0_35px_rgba(198,255,0,0.45)]
+
+      transition-all
+      duration-300
+    "
+  >
+    Book Trial
+  </button>
+</div>
       </div>
     </header>
   );

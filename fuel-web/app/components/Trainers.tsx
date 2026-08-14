@@ -73,25 +73,38 @@ export const Trainers = () => {
       >
         {/* HEADING */}
 
-        <div className="text-center mb-8 md:mb-10">
-          <p className="text-[12px] tracking-[0.6em] text-neutral-600 mb-2">
-            TRAINERS
-          </p>
+       {/* HEADING */}
 
-          <h2
-            className="
-              text-3xl
-              md:text-4xl
-              lg:text-5xl
-              font-black
-              uppercase
-              tracking-tight
-              text-white
-            "
-          >
-            Meet Your Coaches
-          </h2>
-        </div>
+<div className="text-center mb-8 md:mb-10">
+  <p
+    className="
+      text-[12px]
+      tracking-[0.6em]
+      text-lime-400
+      font-semibold
+      mb-2
+    "
+  >
+    TRAINERS
+  </p>
+
+  <h2
+    className="
+      text-3xl
+      md:text-4xl
+      lg:text-5xl
+      font-black
+      uppercase
+      tracking-tight
+      text-white
+    "
+  >
+    <span className="text-lime-400">
+      THE MINDS
+    </span>{" "}
+    BEHIND YOUR MOVEMENT
+  </h2>
+</div>
 
         {/* TRAINERS */}
 
@@ -242,33 +255,19 @@ export const Trainers = () => {
                         md:px-6
                       "
                     >
-                      <p
-                        className="
-                          text-[8px]
-                          sm:text-[9px]
-                          md:text-[10px]
-                          tracking-[0.28em]
-                          uppercase
-                          text-white/40
-                          mb-1
-                        "
-                      >
-                        Coach Profile
-                      </p>
-
-                      <h3
-                        className="
-                          text-base
-                          sm:text-lg
-                          md:text-xl
-                          font-black
-                          uppercase
-                          text-white
-                          leading-tight
-                        "
-                      >
-                        {trainer.name}
-                      </h3>
+                     <h3
+  className="
+    text-base
+    sm:text-lg
+    md:text-xl
+    font-black
+    uppercase
+    text-lime-400
+    leading-tight
+  "
+>
+  {trainer.name}
+</h3>
 
                       <p
                         className="

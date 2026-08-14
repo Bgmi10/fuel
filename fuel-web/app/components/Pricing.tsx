@@ -265,117 +265,100 @@ export const Pricing = () => {
       {/* HEADER */}
       {/* ====================================== */}
 
-      <div
-        className="
-          relative
-          text-center
-          max-w-4xl
-          mx-auto
-        "
-      >
-        {/* SMALL DIVIDER */}
+     {/* ====================================== */}
+{/* HEADER */}
+{/* ====================================== */}
 
-        <div
-          className="
-            flex
-            items-center
-            justify-center
-            gap-4
-            mb-3
-          "
-        >
-          <div
-            className="
-              w-14
-              h-px
-              bg-white/40
-            "
-          />
+<div
+  className="
+    relative
+    text-center
+    max-w-4xl
+    mx-auto
+  "
+>
+  {/* SMALL LABEL */}
 
-          <p
-            className="
-              text-sm
-              md:text-base
+  <div
+    className="
+      flex
+      items-center
+      justify-center
+      gap-4
+      mb-3
+    "
+  >
+    <div
+      className="
+        w-14
+        h-px
+        bg-lime-400/40
+      "
+    />
 
-              uppercase
-              tracking-[0.08em]
+    <p
+      className="
+        text-sm
+        md:text-base
 
-              text-neutral-300
-            "
-          >
-            Services
-          </p>
+        uppercase
+        tracking-[0.08em]
 
-          <div
-            className="
-              w-14
-              h-px
-              bg-white/40
-            "
-          />
-        </div>
+        font-semibold
 
-        <h2
-          className="
-            text-3xl
-            md:text-4xl
-            lg:text-5xl
+        text-lime-400
+      "
+    >
+      Services
+    </p>
 
-            font-black
+    <div
+      className="
+        w-14
+        h-px
+        bg-lime-400/40
+      "
+    />
+  </div>
 
-            uppercase
-            tracking-tight
+  {/* WORLD OF FUEL */}
 
-            text-white
-          "
-        >
-          What You Get At Fuel
-        </h2>
+  <h2
+    className="
+      text-3xl
+      md:text-4xl
+      lg:text-5xl
 
-        {/* SELECTED BRANCH */}
+      font-black
 
-        {selectedBranch && (
-          <div
-            className="
-              mt-5
+      uppercase
+      tracking-tight
 
-              inline-flex
-              items-center
-              gap-2
+      text-white
+    "
+  >
+    World Of{" "}
+    <span className="text-lime-400">
+      Fuel
+    </span>
+  </h2>
 
-              px-4
-              py-2
+  {/* SMALL BRAND ACCENT */}
 
-              rounded-full
+  <div
+    className="
+      mt-4
+      mx-auto
 
-              border
-              border-white/10
+      w-12
+      h-[3px]
 
-              bg-white/[0.04]
-            "
-          >
-            <div
-              className="
-                w-1.5
-                h-1.5
+      rounded-full
 
-                rounded-full
-
-                bg-lime-400
-              "
-            />
-
-            <span
-              className="
-                text-xs
-                text-neutral-400
-              "
-            >
-              {selectedBranch.name}
-            </span>
-          </div>
-        )}
-      </div>
+      bg-lime-400
+    "
+  />
+</div>
 
       {/* ====================================== */}
       {/* LOADING */}
@@ -521,38 +504,6 @@ xl:h-[330px]
 
             {/* BRANCH */}
 
-            <div
-              className="
-                absolute
-                top-4
-                left-4
-              "
-            >
-              <span
-                className="
-                  inline-flex
-
-                  px-3
-                  py-1.5
-
-                  rounded-full
-
-                  bg-black/50
-                  backdrop-blur-lg
-
-                  border
-                  border-white/10
-
-                  text-[9px]
-                  uppercase
-                  tracking-[0.16em]
-
-                  text-neutral-300
-                "
-              >
-                {selectedBranch?.name}
-              </span>
-            </div>
 
             {/* CONTENT */}
 
