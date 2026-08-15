@@ -159,18 +159,21 @@ const About = () => {
               {/* MAIN HEADING */}
 
               <h2
-                className="
-                  text-3xl
-                  md:text-4xl
-                  lg:text-5xl
-                  font-black
-                  uppercase
-                  tracking-tight
-                  text-white
-                "
-              >
-                Why Choose Fuel
-              </h2>
+  className="
+    text-3xl
+    md:text-4xl
+    lg:text-5xl
+    font-black
+    uppercase
+    tracking-tight
+    text-white
+  "
+>
+  Why Choose{" "}
+  <span className="text-lime-400">
+    Fuel
+  </span>
+</h2>
 
               {/* CONTENT */}
 
