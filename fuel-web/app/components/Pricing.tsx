@@ -1,11 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import {
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { useBranch } from "../contexts/BranchContext";
@@ -17,356 +13,259 @@ import {
   ServicePackage,
 } from "@prisma/client";
 
-type PackageWithCoupons =
-  ServicePackage & {
-    coupons: Coupon[];
-  };
+type PackageWithCoupons = ServicePackage & {
+  coupons: Coupon[];
+};
 
 type ServiceWithBranches = Service & {
   branches: Branch[];
   packages: PackageWithCoupons[];
 };
 
-type LaunchServiceConfig = {
-  key: string;
-  match: string[];
-  image: string;
-};
-
-const LAUNCH_SERVICES: LaunchServiceConfig[] =
-  [
-    {
-      key: "functional-training",
-      match: [
-        "functional training",
-        "functional",
-      ],
-      image:
-        "/functional-training.webp",
-    },
-
-    {
-      key: "yoga",
-      match: ["yoga"],
-      image: "/yoga.webp",
-    },
-
-    {
-      key: "zumba",
-      match: ["zumba"],
-      image: "/zumba.webp",
-    },
-
-    {
-      key: "hyrox",
-      match: ["hyrox"],
-      image: "/hyrox.webp",
-    },
-
-    {
-      key: "nutrition-coaching",
-      match: [
-        "nutrition coaching",
-        "nutrition",
-      ],
-      image:
-        "/nutrition-coaching.png",
-    },
-  ];
-
 export const Pricing = () => {
   const router = useRouter();
 
-  const { selectedBranch } =
-    useBranch();
+  const { selectedBranch } = useBranch();
 
-  const [services, setServices] =
-    useState<
-      ServiceWithBranches[]
-    >([]);
+  const [services, setServices] = useState<ServiceWithBranches[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const [loading, setLoading] =
-    useState(true);
-
-  // -----------------------------------------
+  // =========================================================
   // FETCH SERVICES
-  // -----------------------------------------
+  // =========================================================
 
   useEffect(() => {
-    const fetchServices =
-      async () => {
-        if (!selectedBranch?.id) {
-          setServices([]);
-          setLoading(false);
-          return;
+    const fetchServices = async () => {
+      if (!selectedBranch?.id) {
+        setServices([]);
+        setLoading(false);
+        return;
+      }
+
+      try {
+        setLoading(true);
+
+        const res = await fetch(
+          `/api/services?branchId=${selectedBranch.id}`
+        );
+
+        if (!res.ok) {
+          throw new Error("Unable to fetch services");
         }
 
-        try {
-          setLoading(true);
+        const data = await res.json();
 
-          const res = await fetch(
-            `/api/services?branchId=${selectedBranch.id}`
-          );
-
-          if (!res.ok) {
-            throw new Error(
-              "Unable to fetch services"
-            );
-          }
-
-          const data =
-            await res.json();
-
-          setServices(
-            data.services || []
-          );
-        } catch (error) {
-          console.error(
-            "Error fetching services:",
-            error
-          );
-
-          setServices([]);
-        } finally {
-          setLoading(false);
-        }
-      };
+        setServices(data.services || []);
+      } catch (error) {
+        console.error("Error fetching services:", error);
+        setServices([]);
+      } finally {
+        setLoading(false);
+      }
+    };
 
     fetchServices();
   }, [selectedBranch?.id]);
 
-  // -----------------------------------------
-  // FILTER SERVICES BY BRANCH
-  // -----------------------------------------
+  // =========================================================
+  // FILTER SERVICES BY SELECTED BRANCH
+  // =========================================================
 
-  const branchServices =
-    useMemo(() => {
-      if (!selectedBranch) {
-        return [];
-      }
+  const branchServices = useMemo(() => {
+    if (!selectedBranch) {
+      return [];
+    }
 
-      return services.filter(
-        (service) =>
-          service.branches?.some(
-            (branch) =>
-              branch.id ===
-              selectedBranch.id
-          )
-      );
-    }, [
-      services,
-      selectedBranch,
-    ]);
+    return services.filter((service) =>
+      service.branches?.some(
+        (branch) => branch.id === selectedBranch.id
+      )
+    );
+  }, [services, selectedBranch]);
 
-  // -----------------------------------------
-  // ONLY LAUNCH SERVICES
-  // -----------------------------------------
+  // =========================================================
+  // OPEN SERVICE DETAILS
+  // =========================================================
 
-  const launchServices =
-    useMemo(() => {
-      return LAUNCH_SERVICES.flatMap(
-        (config) => {
-          const service =
-            branchServices.find(
-              (service) => {
-                const serviceName =
-                  service.name
-                    ?.trim()
-                    .toLowerCase() ||
-                  "";
-
-                return config.match.some(
-                  (keyword) =>
-                    serviceName.includes(
-                      keyword.toLowerCase()
-                    )
-                );
-              }
-            );
-
-          if (!service) {
-            return [];
-          }
-
-          return [
-            {
-              service,
-              config,
-            },
-          ];
-        }
-      );
-    }, [branchServices]);
-
-  // -----------------------------------------
-  // OPEN SERVICE
-  // -----------------------------------------
-
-  const openService = (
-    service: ServiceWithBranches
-  ) => {
+  const openService = (service: ServiceWithBranches) => {
     if (!selectedBranch?.id) {
       return;
     }
 
-    const params =
-      new URLSearchParams();
+    const params = new URLSearchParams();
 
-    params.set(
-      "name",
-      service.name
-    );
-
-    params.set(
-      "branchId",
-      selectedBranch.id
-    );
+    params.set("name", service.name);
+    params.set("branchId", selectedBranch.id);
 
     router.push(
       `/services/${service.id}?${params.toString()}`
     );
   };
 
+  // =========================================================
+  // RENDER
+  // =========================================================
+
   return (
     <section
       id="pricing"
       className="
         relative
-        bg-black
-        py-16
-        md:py-20
-        px-5
-        md:px-6
         overflow-hidden
+        bg-black
+        px-5
+        py-16
+        md:px-6
+        md:py-20
       "
     >
-      {/* BACKGROUND GLOW */}
+      {/* =====================================================
+          BACKGROUND GLOW
+      ===================================================== */}
 
       <div
         className="
+          pointer-events-none
           absolute
-          top-0
           left-1/2
-          -translate-x-1/2
-
-          w-[700px]
+          top-0
           h-[500px]
-
+          w-[700px]
+          -translate-x-1/2
+          rounded-full
           bg-lime-400/[0.035]
           blur-[140px]
-
-          rounded-full
-
-          pointer-events-none
         "
       />
 
-      {/* ====================================== */}
-      {/* HEADER */}
-      {/* ====================================== */}
+      {/* =====================================================
+          HEADER
+      ===================================================== */}
 
-     {/* ====================================== */}
-{/* HEADER */}
-{/* ====================================== */}
+      <div
+        className="
+          relative
+          mx-auto
+          max-w-4xl
+          text-center
+        "
+      >
+        {/* SMALL LABEL */}
 
-<div
-  className="
-    relative
-    text-center
-    max-w-4xl
-    mx-auto
-  "
->
-  {/* SMALL LABEL */}
+        <div
+          className="
+            mb-3
+            flex
+            items-center
+            justify-center
+            gap-4
+          "
+        >
+          <div
+            className="
+              h-px
+              w-14
+              bg-lime-400/40
+            "
+          />
 
-  <div
-    className="
-      flex
-      items-center
-      justify-center
-      gap-4
-      mb-3
-    "
-  >
-    <div
-      className="
-        w-14
-        h-px
-        bg-lime-400/40
-      "
-    />
+          <p
+            className="
+              text-sm
+              font-semibold
+              uppercase
+              tracking-[0.08em]
+              text-lime-400
+              md:text-base
+            "
+          >
+            Services
+          </p>
 
-    <p
-      className="
-        text-sm
-        md:text-base
+          <div
+            className="
+              h-px
+              w-14
+              bg-lime-400/40
+            "
+          />
+        </div>
 
-        uppercase
-        tracking-[0.08em]
+        {/* TITLE */}
 
-        font-semibold
+        <h2
+          className="
+            text-3xl
+            font-black
+            uppercase
+            tracking-tight
+            text-white
+            md:text-4xl
+            lg:text-5xl
+          "
+        >
+          World Of{" "}
+          <span className="text-lime-400">
+            Fuel
+          </span>
+        </h2>
 
-        text-lime-400
-      "
-    >
-      Services
-    </p>
+        {/* ACCENT */}
 
-    <div
-      className="
-        w-14
-        h-px
-        bg-lime-400/40
-      "
-    />
-  </div>
+        <div
+          className="
+            mx-auto
+            mt-4
+            h-[3px]
+            w-12
+            rounded-full
+            bg-lime-400
+          "
+        />
+      </div>
 
-  {/* WORLD OF FUEL */}
+      {/* =====================================================
+          NO BRANCH SELECTED
+      ===================================================== */}
 
-  <h2
-    className="
-      text-3xl
-      md:text-4xl
-      lg:text-5xl
+      {!selectedBranch && !loading && (
+        <div
+          className="
+            relative
+            mt-16
+            text-center
+          "
+        >
+          <h3
+            className="
+              text-xl
+              font-bold
+              text-white
+            "
+          >
+            Select a Branch
+          </h3>
 
-      font-black
+          <p
+            className="
+              mt-2
+              text-sm
+              text-neutral-500
+            "
+          >
+            Select a branch to view available programs.
+          </p>
+        </div>
+      )}
 
-      uppercase
-      tracking-tight
-
-      text-white
-    "
-  >
-    World Of{" "}
-    <span className="text-lime-400">
-      Fuel
-    </span>
-  </h2>
-
-  {/* SMALL BRAND ACCENT */}
-
-  <div
-    className="
-      mt-4
-      mx-auto
-
-      w-12
-      h-[3px]
-
-      rounded-full
-
-      bg-lime-400
-    "
-  />
-</div>
-
-      {/* ====================================== */}
-      {/* LOADING */}
-      {/* ====================================== */}
+      {/* =====================================================
+          LOADING
+      ===================================================== */}
 
       {loading && (
         <div
           className="
+            relative
             mt-14
             flex
             justify-center
@@ -374,246 +273,227 @@ export const Pricing = () => {
         >
           <div
             className="
-              w-9
               h-9
-
+              w-9
+              animate-spin
               rounded-full
-
               border-2
               border-lime-400
               border-t-transparent
-
-              animate-spin
             "
           />
         </div>
       )}
 
-      {/* ====================================== */}
-      {/* SERVICE CARDS */}
-      {/* ====================================== */}
+      {/* =====================================================
+          SERVICE CARDS
+      ===================================================== */}
 
-      {/* ====================================== */}
-{/* SERVICE CARDS */}
-{/* ====================================== */}
-
-{!loading &&
-  launchServices.length > 0 && (
-    <div
-      className="
-        relative
-        max-w-[1300px]
-        mx-auto
-        mt-10
-
-        grid
-        grid-cols-1
-        sm:grid-cols-2
-        lg:grid-cols-5
-
-        gap-4
-        md:gap-5
-      "
-    >
-      {launchServices.map(
-        ({ service, config }) => (
-          <button
-            key={service.id}
-            type="button"
-            onClick={() =>
-              openService(service)
-            }
-            className="
-              group
-              relative
-
-             h-[280px]
-sm:h-[295px]
-md:h-[305px]
-lg:h-[320px]
-xl:h-[330px]
-
-              rounded-2xl
-              overflow-hidden
-
-              text-left
-
-              border
-              border-white/[0.08]
-
-              bg-neutral-950
-
-              cursor-pointer
-
-              transition-all
-              duration-500
-
-              hover:border-neutral-600
-              hover:-translate-y-1
-
-              hover:shadow-[0_18px_45px_rgba(0,0,0,0.45)]
-            "
-          >
-            {/* IMAGE */}
-
-            <Image
-              src={config.image}
-              alt={service.name}
-              fill
+      {!loading && branchServices.length > 0 && (
+        <div
+          className="
+            relative
+            mx-auto
+            mt-10
+            grid
+            max-w-[1300px]
+            grid-cols-1
+            gap-4
+            sm:grid-cols-2
+            md:gap-5
+            lg:grid-cols-3
+            xl:grid-cols-4
+          "
+        >
+          {branchServices.map((service) => (
+            <button
+              key={service.id}
+              type="button"
+              onClick={() => openService(service)}
+              aria-label={`Explore ${service.name}`}
               className="
-                object-cover
-
+                group
+                relative
+                h-[280px]
+                cursor-pointer
+                overflow-hidden
+                rounded-2xl
+                border
+                border-white/[0.08]
+                bg-neutral-950
+                text-left
                 transition-all
-                duration-700
-
-                group-hover:scale-[1.03]
-                group-hover:grayscale-[35%]
-                group-hover:brightness-[0.75]
-              "
-            />
-
-            {/* DARK GRADIENT */}
-
-            <div
-              className="
-                absolute
-                inset-0
-
-                bg-gradient-to-t
-
-                from-black
-                via-black/30
-                to-black/5
-              "
-            />
-
-            {/* PREMIUM GRAY HOVER */}
-
-            <div
-              className="
-                absolute
-                inset-0
-
-                bg-white/0
-                group-hover:bg-white/[0.045]
-
-                transition-colors
                 duration-500
-              "
-            />
-
-            {/* BRANCH */}
-
-
-            {/* CONTENT */}
-
-            <div
-              className="
-                absolute
-                inset-x-0
-                bottom-0
-
-                p-4
-                md:p-5
+                hover:-translate-y-1
+                hover:border-neutral-600
+                hover:shadow-[0_18px_45px_rgba(0,0,0,0.45)]
+                sm:h-[295px]
+                md:h-[305px]
+                lg:h-[320px]
+                xl:h-[330px]
               "
             >
-              {/* SERVICE NAME */}
+              {/* =================================================
+                  THUMBNAIL IMAGE FROM DATABASE
+              ================================================= */}
 
-              <h3
-                className="
-                  text-lg
-                  lg:text-xl
-                  xl:text-[22px]
+              {service.thumbnailImage ? (
+                <Image
+                  src={service.thumbnailImage}
+                  alt={service.name}
+                  fill
+                  sizes="
+                    (max-width: 640px) 100vw,
+                    (max-width: 1024px) 50vw,
+                    (max-width: 1280px) 33vw,
+                    25vw
+                  "
+                  className="
+                    object-cover
+                    transition-all
+                    duration-700
+                    group-hover:scale-[1.03]
+                    group-hover:brightness-[0.75]
+                    group-hover:grayscale-[35%]
+                  "
+                />
+              ) : (
+                <div
+                  className="
+                    absolute
+                    inset-0
+                    bg-gradient-to-br
+                    from-neutral-800
+                    via-neutral-950
+                    to-black
+                  "
+                />
+              )}
 
-                  font-black
-
-                  uppercase
-
-                  text-white
-
-                  leading-tight
-                "
-              >
-                {service.name}
-              </h3>
-
-              {/* CTA */}
+              {/* =================================================
+                  DARK GRADIENT
+              ================================================= */}
 
               <div
                 className="
-                  mt-3
+                  absolute
+                  inset-0
+                  bg-gradient-to-t
+                  from-black
+                  via-black/30
+                  to-black/5
+                "
+              />
 
-                  flex
-                  items-center
-                  justify-between
+              {/* =================================================
+                  HOVER OVERLAY
+              ================================================= */}
+
+              <div
+                className="
+                  absolute
+                  inset-0
+                  bg-white/0
+                  transition-colors
+                  duration-500
+                  group-hover:bg-white/[0.045]
+                "
+              />
+
+              {/* =================================================
+                  CONTENT
+              ================================================= */}
+
+              <div
+                className="
+                  absolute
+                  inset-x-0
+                  bottom-0
+                  p-4
+                  md:p-5
                 "
               >
-                <span
+                {/* SERVICE NAME */}
+
+                <h3
                   className="
-                    text-[11px]
-                    md:text-xs
-
-                    text-neutral-400
-
-                    group-hover:text-neutral-200
-
-                    transition-colors
-                    duration-300
+                    text-lg
+                    font-black
+                    uppercase
+                    leading-tight
+                    text-white
+                    lg:text-xl
+                    xl:text-[22px]
                   "
                 >
-                  Explore Program
-                </span>
+                  {service.name}
+                </h3>
 
-                {/* ARROW */}
+                {/* CTA */}
 
                 <div
                   className="
-                    w-9
-                    h-9
-
-                    rounded-full
-
-                    bg-transparent
-
-                    border
-                    border-neutral-600
-
-                    text-neutral-300
-
+                    mt-3
                     flex
                     items-center
-                    justify-center
-
-                    text-lg
-
-                    transition-all
-                    duration-300
-
-                    group-hover:border-neutral-400
-                    group-hover:bg-white/[0.06]
-                    group-hover:text-white
-                    group-hover:translate-x-1
+                    justify-between
                   "
                 >
-                  →
+                  <span
+                    className="
+                      text-[11px]
+                      text-neutral-400
+                      transition-colors
+                      duration-300
+                      group-hover:text-neutral-200
+                      md:text-xs
+                    "
+                  >
+                    Explore Program
+                  </span>
+
+                  {/* ARROW */}
+
+                  <div
+                    className="
+                      flex
+                      h-9
+                      w-9
+                      items-center
+                      justify-center
+                      rounded-full
+                      border
+                      border-neutral-600
+                      bg-transparent
+                      text-lg
+                      text-neutral-300
+                      transition-all
+                      duration-300
+                      group-hover:translate-x-1
+                      group-hover:border-neutral-400
+                      group-hover:bg-white/[0.06]
+                      group-hover:text-white
+                    "
+                  >
+                    →
+                  </div>
                 </div>
               </div>
-            </div>
-          </button>
-        )
+            </button>
+          ))}
+        </div>
       )}
-    </div>
-  )}
 
-      {/* ====================================== */}
-      {/* EMPTY */}
-      {/* ====================================== */}
+      {/* =====================================================
+          EMPTY STATE
+      ===================================================== */}
 
       {!loading &&
-        launchServices.length ===
-          0 && (
+        selectedBranch &&
+        branchServices.length === 0 && (
           <div
             className="
+              relative
               mt-16
               text-center
             "
@@ -625,21 +505,18 @@ xl:h-[330px]
                 text-white
               "
             >
-              Programs Coming
-              Soon
+              Programs Coming Soon
             </h3>
 
             <p
               className="
-                text-neutral-500
                 mt-2
                 text-sm
+                text-neutral-500
               "
             >
-              Training programs
-              are currently
-              unavailable for this
-              branch.
+              Training programs are currently
+              unavailable for this branch.
             </p>
           </div>
         )}
