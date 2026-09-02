@@ -9,8 +9,8 @@ const About = () => {
       className="
         relative
         bg-black
-        py-20
         md:py-24
+        sm: -mt-[90px]
         overflow-hidden
       "
     >
