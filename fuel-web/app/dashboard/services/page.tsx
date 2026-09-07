@@ -6,6 +6,8 @@ import type {
 } from "@prisma/client";
 
 import {
+  ChevronDown,
+  ChevronUp,
   Edit,
   Image as ImageIcon,
   Plus,
@@ -109,6 +111,84 @@ const Page = () => {
   /* =========================
      FETCH BRANCHES
   ========================= */
+
+  const moveService = async (
+    serviceId: string,
+    direction: "up" | "down"
+  ) => {
+    const currentIndex = services.findIndex(
+      (service) => service.id === serviceId
+    );
+  
+    if (currentIndex === -1) {
+      return;
+    }
+  
+    const targetIndex =
+      direction === "up"
+        ? currentIndex - 1
+        : currentIndex + 1;
+  
+    if (
+      targetIndex < 0 ||
+      targetIndex >= services.length
+    ) {
+      return;
+    }
+  
+    const reorderedServices = [...services];
+  
+    const [movedService] = reorderedServices.splice(
+      currentIndex,
+      1
+    );
+  
+    reorderedServices.splice(
+      targetIndex,
+      0,
+      movedService
+    );
+  
+    // Optimistic UI update
+    setServices(reorderedServices);
+  
+    try {
+      const response = await fetch(
+        "/api/services/reorder",
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            serviceIds: reorderedServices.map(
+              (service) => service.id
+            ),
+          }),
+        }
+      );
+  
+      const data = await response.json();
+  
+      if (!response.ok || !data.success) {
+        throw new Error(
+          data.message ||
+            "Failed to update service order."
+        );
+      }
+    } catch (error) {
+      console.error(error);
+  
+      // Roll back UI if API fails
+      await fetchServices();
+  
+      alert(
+        error instanceof Error
+          ? error.message
+          : "Failed to update service order."
+      );
+    }
+  };
 
   const fetchBranches = async () => {
     try {
@@ -596,7 +676,7 @@ const Page = () => {
         ) : (
           <div className="divide-y divide-neutral-800">
             {services.map(
-              (service) => (
+              (service, index) => (
                 <div
                   key={
                     service.id
@@ -680,6 +760,38 @@ const Page = () => {
                   {/* ACTIONS */}
 
                   <div className="flex shrink-0 flex-wrap gap-2">
+
+                  <div className="flex items-center gap-1">
+  <button
+    type="button"
+    disabled={index === 0}
+    onClick={() =>
+      moveService(service.id, "up")
+    }
+    className="flex h-8 w-8 items-center justify-center rounded-lg border border-neutral-800 bg-neutral-900 text-neutral-400 transition hover:border-lime-400 hover:text-lime-400 disabled:cursor-not-allowed disabled:opacity-30"
+    title="Move up"
+  >
+    <ChevronUp size={15} />
+  </button>
+
+  <button
+    type="button"
+    disabled={
+      index === services.length - 1
+    }
+    onClick={() =>
+      moveService(service.id, "down")
+    }
+    className="flex h-8 w-8 items-center justify-center rounded-lg border border-neutral-800 bg-neutral-900 text-neutral-400 transition hover:border-lime-400 hover:text-lime-400 disabled:cursor-not-allowed disabled:opacity-30"
+    title="Move down"
+  >
+    <ChevronDown size={15} />
+  </button>
+
+  <div className="flex h-7 min-w-7 items-center justify-center rounded-lg bg-neutral-800 px-2 text-xs font-semibold text-neutral-400">
+  {index + 1}
+</div>
+</div>
                     <button
                       type="button"
                       onClick={() =>
@@ -790,6 +902,8 @@ const Page = () => {
                 {/* =========================
                     THUMBNAIL
                 ========================= */}
+
+                
 
                 <div>
                   <label className="mb-2 block text-sm text-neutral-400">

@@ -47,63 +47,27 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const lastService = await prisma.service.findFirst({
+      orderBy: {
+        sortOrder: "desc",
+      },
+      select: {
+        sortOrder: true,
+      },
+    });
+    
+    const nextSortOrder = (lastService?.sortOrder ?? -1) + 1;
+    
     const service = await prisma.service.create({
       data: {
         name,
         thumbnailImage,
         coverImage,
-
+        sortOrder: nextSortOrder,
         branches: {
           connect: branchIds.map((id: string) => ({
             id,
           })),
-        },
-      },
-
-      include: {
-        branches: true,
-
-        websiteContent: true,
-
-        subCategories: {
-          orderBy: {
-            sortOrder: "asc",
-          },
-          include: {
-            schedules: {
-              orderBy: {
-                sortOrder: "asc",
-              },
-            },
-          },
-        },
-
-        packages: {
-          include: {
-            coupons: {
-              where: {
-                isPrivate: false,
-                isActive: true,
-                OR: [
-                  {
-                    expiresAt: null,
-                  },
-                  {
-                    expiresAt: {
-                      gte: new Date(),
-                    },
-                  },
-                ],
-              },
-            },
-          },
-        },
-
-        _count: {
-          select: {
-            packages: true,
-            subCategories: true,
-          },
         },
       },
     });
@@ -199,9 +163,14 @@ export async function GET(req: NextRequest) {
         },
       },
 
-      orderBy: {
-        createdAt: "desc",
-      },
+      orderBy: [
+        {
+          sortOrder: "asc",
+        },
+        {
+          createdAt: "asc",
+        },
+      ],
     });
 
     return NextResponse.json({
