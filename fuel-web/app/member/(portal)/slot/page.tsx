@@ -38,6 +38,57 @@ const Page = () => {
     fetchData();
   }, []);
 
+
+  const handleCancelBooking = async () => {
+    if (!upcomingBooking?.id) return;
+  
+    const confirmed = window.confirm(
+      "Are you sure you want to cancel this booking?"
+    );
+  
+    if (!confirmed) return;
+  
+    try {
+      setLoading(true);
+  
+      const response = await fetch(
+        "/api/member/slot/cancel",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            bookingId: upcomingBooking.id,
+          }),
+        }
+      );
+  
+      const data = await response.json();
+  
+      if (!response.ok || !data.success) {
+        alert(data.message || "Failed to cancel booking");
+        return;
+      }
+  
+      // Remove the upcoming booking immediately
+      setUpcomingBooking(null);
+  
+      // Refresh recent bookings
+      const res = await fetch("/api/member/slot");
+      const refreshedData = await res.json();
+  
+      setUpcomingBooking(refreshedData.upcomingBooking);
+      setRecentBookings(refreshedData.recentBookings || []);
+  
+    } catch (error) {
+      console.error("Cancel booking error:", error);
+      alert("Something went wrong while cancelling the booking");
+    } finally {
+      setLoading(false);
+    }
+  };
+  
   return (
     <div className="space-y-6 text-white">
       {/* Header */}
@@ -100,13 +151,47 @@ const Page = () => {
             </div>
           </div>
 
-          <button
-              onClick={() => setSelectedBooking(upcomingBooking)}
-            className="mt-5 px-3 text-xs flex items-center justify-center gap-2 bg-lime-400 text-black font-semibold py-3 rounded-xl hover:bg-lime-300 transition"
-          >
-            <QrCode size={18} />
-            Session Pass
-          </button>
+          <div className="flex items-center gap-2 pt-4 flex-1">
+  <button
+    onClick={() => setSelectedBooking(upcomingBooking)}
+    className="
+      flex-1
+      px-3 py-3
+      text-xs
+      flex items-center justify-center gap-2
+      bg-lime-400
+      text-black
+      font-semibold
+      rounded-xl
+      hover:bg-lime-300
+      transition
+    "
+  >
+    <QrCode size={18} />
+    Session Pass
+  </button>
+
+  <button
+    onClick={handleCancelBooking}
+    disabled={loading}
+    className="
+      px-4 py-3
+      text-xs
+      font-semibold
+      rounded-xl
+      border border-red-500/30
+      bg-red-500/10
+      text-red-400
+      hover:bg-red-500/20
+      hover:border-red-500/50
+      transition
+      disabled:opacity-50
+      disabled:cursor-not-allowed
+    "
+  >
+    {loading ? "Cancelling..." : "Cancel"}
+  </button>
+</div>
         </div>
       ) : (
         <div className="bg-white/[0.03] backdrop-blur border border-white/10 rounded-2xl p-6 text-center">

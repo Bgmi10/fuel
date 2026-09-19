@@ -177,10 +177,11 @@ const invoiceTotal =
   Math.round(
     finalAmount + totalTax
   );
-
-const balanceAmount =
-  invoiceTotal - paidAmount;
-
+  const balanceAmount = Math.max(
+    invoiceTotal - paidAmount,
+    0
+  );
+  
 // if (paidAmount > invoiceTotal) {
 //   return NextResponse.json({
 //     success: false,

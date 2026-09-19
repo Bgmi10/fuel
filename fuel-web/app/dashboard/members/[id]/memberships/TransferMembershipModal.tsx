@@ -9,6 +9,7 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 
 type MemberSearchResult = {
   id: string;
@@ -60,6 +61,7 @@ export function TransferMembershipModal({
   const [step, setStep] = useState<"SEARCH" | "CONFIRM">(
     "SEARCH"
   );
+  const router = useRouter();
 
   const [query, setQuery] = useState("");
   const [members, setMembers] = useState<
@@ -88,6 +90,7 @@ const [transferQuoteError, setTransferQuoteError] =
     useState("");
 
 
+    
     const fetchTransferQuote = async () => {
       try {
         setLoadingTransferQuote(true);
@@ -230,66 +233,31 @@ setLoadingTransferQuote(false);
     void fetchTransferQuote();
   };
 
-  const confirmTransfer = async () => {
-    if (!selectedMember) return;
-
-    const normalizedReason = reason.trim();
-    
-    if (!normalizedReason) {
-      setTransferError(
-        "Please enter the reason for the transfer."
-      );
+  const confirmTransfer = () => {
+    if (!selectedMember) {
+      setTransferError("Please select the member to transfer to.");
       return;
     }
-    
+  
+    if (!reason.trim()) {
+      setTransferError("Please enter the reason for the transfer.");
+      return;
+    }
+  
     if (!transferQuote) {
-      setTransferError(
-        "The transfer fee has not been calculated."
-      );
+      setTransferError("The transfer fee has not been calculated.");
       return;
     }
-
-
-    try {
-      setTransferring(true);
-      setTransferError("");
-
-      const response = await fetch(
-        `/api/subscriptions/${subscriptionId}/transfer`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            toMemberId: selectedMember.id,
-            reason: normalizedReason,
-          }),
-        }
-      );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          data.message ||
-            "Unable to transfer the membership."
-        );
-      }
-
-      resetModal();
-      onSuccess();
-    } catch (error) {
-      setTransferError(
-        error instanceof Error
-          ? error.message
-          : "Unable to transfer the membership."
-      );
-    } finally {
-      setTransferring(false);
-    }
+  
+    const params = new URLSearchParams({
+      toMemberId: selectedMember.id,
+      reason: reason.trim(),
+    });
+  
+    router.push(
+      `/dashboard/members/${currentMemberId}/memberships/${subscriptionId}/transfer-billing?${params.toString()}`
+    );
   };
-
   if (!open) return null;
 
   return (

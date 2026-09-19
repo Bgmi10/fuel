@@ -181,7 +181,7 @@ export const GET = async (
               },
             },
         
-            membershipTransfers: {
+            outgoingMembershipTransfers: {
               where: {
                 toMemberId: id,
               },

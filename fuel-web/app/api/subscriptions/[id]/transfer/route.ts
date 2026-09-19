@@ -21,6 +21,9 @@ class TransferError extends Error {
 
 type RequestBody = {
   toMemberId?: string;
+  paymentMode?: string;
+  paidAmount?: number;
+  notes?: string;
   reason?: string;
 };
 
@@ -72,6 +75,9 @@ export async function POST(
 
     const body =
       (await request.json()) as RequestBody;
+
+
+    console.log(body.paidAmount, typeof body.paidAmount);
 
     const toMemberId =
       body.toMemberId?.trim();
@@ -280,6 +286,10 @@ export async function POST(
               subscriptionId,
 
               fromMemberId,
+              amountCollected: body?.paidAmount,
+              notes: body?.notes,
+              paymentMode: body?.paymentMode,
+
 
               toMemberId:
                 receivingMember.id,

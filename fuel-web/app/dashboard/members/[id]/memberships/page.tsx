@@ -10,7 +10,6 @@ import {
   Infinity as InfinityIcon,
 } from "lucide-react";
 
-import { TransferMembershipModal } from "./TransferMembershipModal";
 import { FreezeModal } from "../Freezemodal";
 
 const BUSINESS_TIMEZONE = "Asia/Kolkata";
@@ -86,15 +85,7 @@ export default function MembershipsPage() {
 
   const [openFreezeModal, setOpenFreezeModal] = useState(false);
   const [selectedSubscriptionId, setSelectedSubscriptionId] = useState<string | null>(null);
-  const [
-    openTransferModal,
-    setOpenTransferModal,
-  ] = useState(false);
   
-  const [
-    selectedTransferSubscription,
-    setSelectedTransferSubscription,
-  ] = useState<any | null>(null);
 
   const fetchMember = async () => {
     try {
@@ -337,19 +328,13 @@ onClick={() => {
   Billing History
 </button>
 
-<button
-  className="h-8 px-4 rounded-xl bg-neutral-800 border border-neutral-700 text-neutral-300 hover:bg-neutral-700 transition-colors"
->
-  Download Invoice
-</button>
-
-{(sub.status === "ACTIVE" ||
-  sub.status === "FROZEN") && (
+{(sub.status === "ACTIVE" || sub.status === "FROZEN") && (
   <button
     type="button"
     onClick={() => {
-      setSelectedTransferSubscription(sub);
-      setOpenTransferModal(true);
+      router.push(
+        `/dashboard/members/${member.id}/memberships/${sub.id}/transfer-billing`
+      );
     }}
     className="flex h-8 items-center gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 font-medium text-rose-400 transition-colors hover:bg-rose-500/20"
   >
@@ -762,32 +747,6 @@ onClick={() => {
             }}
           />
         )}
-
-
-{openTransferModal &&
-  selectedTransferSubscription && (
-    <TransferMembershipModal
-      open={openTransferModal}
-      subscriptionId={
-        selectedTransferSubscription.id
-      }
-      currentMemberId={member.id}
-      currentMemberName={member.name}
-      packageName={
-        selectedTransferSubscription.package?.name
-      }
-      onClose={() => {
-        setOpenTransferModal(false);
-        setSelectedTransferSubscription(null);
-      }}
-      onSuccess={() => {
-        setOpenTransferModal(false);
-        setSelectedTransferSubscription(null);
-        fetchMember();
-      }}
-    />
-  )}
-
       </div>
     </div>
   );

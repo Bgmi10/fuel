@@ -6,9 +6,9 @@ import type {
   Service,
   SlotWeekday,
 } from "@prisma/client";
-import { useRouter } from "next/navigation";  
-
+import { useRouter } from "next/navigation";
 import { formatTime } from "@/app/utils/date";
+
 type Slot = {
   id: string;
   name: string;
@@ -16,19 +16,16 @@ type Slot = {
   endTime: string;
   capacity: number;
   isActive: boolean;
-
   daysOfWeek: SlotWeekday[];
-
   branchId: string;
   serviceId: string;
-
   branch?: Branch;
   service?: Service;
-
   _count?: {
     bookings: number;
   };
 };
+
 const WEEKDAYS: {
   value: SlotWeekday;
   label: string;
@@ -74,13 +71,8 @@ const WEEKDAYS: {
 const ALL_WEEKDAYS: SlotWeekday[] =
   WEEKDAYS.map((day) => day.value);
 
-function formatSlotDays(
-  daysOfWeek: SlotWeekday[]
-) {
-  if (
-    !daysOfWeek ||
-    daysOfWeek.length === 7
-  ) {
+function formatSlotDays(daysOfWeek: SlotWeekday[]) {
+  if (!daysOfWeek || daysOfWeek.length === 7) {
     return "Every day";
   }
 
@@ -99,7 +91,6 @@ type SessionForm = {
 
 type CreateForm = {
   branchId: string;
-
   daysOfWeek: SlotWeekday[];
   serviceId: string;
   sessionCount: string;
@@ -109,9 +100,7 @@ type CreateForm = {
 type EditForm = {
   name: string;
   startTime: string;
-
   daysOfWeek: SlotWeekday[];
-  
   endTime: string;
   capacity: string;
   branchId: string;
@@ -128,7 +117,7 @@ const initialCreateForm = (): CreateForm => ({
   branchId: "",
   serviceId: "",
   sessionCount: "1",
-    daysOfWeek: [...ALL_WEEKDAYS],
+  daysOfWeek: [...ALL_WEEKDAYS],
   sessions: [createEmptySession()],
 });
 
@@ -136,7 +125,6 @@ const initialEditForm = (): EditForm => ({
   name: "",
   startTime: "",
   endTime: "",
-
   daysOfWeek: [...ALL_WEEKDAYS],
   capacity: "",
   branchId: "",
@@ -155,10 +143,26 @@ export default function Page() {
 
   const [createModal, setCreateModal] = useState(false);
   const [editModal, setEditModal] = useState(false);
-  const [editingSlotId, setEditingSlotId] = useState<string | null>(
-    null
-  );
 
+  const [editingSlotId, setEditingSlotId] =
+    useState<string | null>(null);
+
+  const [createForm, setCreateForm] =
+    useState<CreateForm>(initialCreateForm);
+
+  const [editForm, setEditForm] =
+    useState<EditForm>(initialEditForm);
+
+  const selectedService = useMemo(() => {
+    return services.find(
+      (service) =>
+        service.id === createForm.serviceId
+    );
+  }, [services, createForm.serviceId]);
+
+  // -------------------------------------------------------
+  // WEEKDAY HELPERS
+  // -------------------------------------------------------
 
   const toggleCreateWeekday = (
     weekday: SlotWeekday
@@ -166,10 +170,9 @@ export default function Page() {
     setCreateForm((current) => {
       const selected =
         current.daysOfWeek.includes(weekday);
-  
+
       return {
         ...current,
-  
         daysOfWeek: selected
           ? current.daysOfWeek.filter(
               (day) => day !== weekday
@@ -178,17 +181,16 @@ export default function Page() {
       };
     });
   };
-  
+
   const toggleEditWeekday = (
     weekday: SlotWeekday
   ) => {
     setEditForm((current) => {
       const selected =
         current.daysOfWeek.includes(weekday);
-  
+
       return {
         ...current,
-  
         daysOfWeek: selected
           ? current.daysOfWeek.filter(
               (day) => day !== weekday
@@ -197,20 +199,6 @@ export default function Page() {
       };
     });
   };
-
-  const [createForm, setCreateForm] = useState<CreateForm>(
-    initialCreateForm
-  );
-
-  const [editForm, setEditForm] = useState<EditForm>(
-    initialEditForm
-  );
-
-  const selectedService = useMemo(() => {
-    return services.find(
-      (service) => service.id === createForm.serviceId
-    );
-  }, [services, createForm.serviceId]);
 
   // -------------------------------------------------------
   // FETCH SLOTS
@@ -226,7 +214,11 @@ export default function Page() {
 
       const data = await res.json();
 
-      setSlots(Array.isArray(data) ? data : data.slots || []);
+      setSlots(
+        Array.isArray(data)
+          ? data
+          : data.slots || []
+      );
     } catch (error) {
       console.error(error);
     } finally {
@@ -243,7 +235,9 @@ export default function Page() {
       const res = await fetch("/api/branches");
 
       if (!res.ok) {
-        throw new Error("Failed to fetch branches");
+        throw new Error(
+          "Failed to fetch branches"
+        );
       }
 
       const data = await res.json();
@@ -263,7 +257,9 @@ export default function Page() {
       const res = await fetch("/api/services");
 
       if (!res.ok) {
-        throw new Error("Failed to fetch services");
+        throw new Error(
+          "Failed to fetch services"
+        );
       }
 
       const data = await res.json();
@@ -286,19 +282,21 @@ export default function Page() {
   // CREATE FORM HELPERS
   // -------------------------------------------------------
 
-  const updateSessionCount = (value: string) => {
-    // Always preserve the raw input so the field can be cleared.
+  const updateSessionCount = (
+    value: string
+  ) => {
     setCreateForm((current) => ({
       ...current,
       sessionCount: value,
     }));
-  
+
     if (value.trim() === "") {
       return;
     }
-  
-    const parsedCount = Number.parseInt(value, 10);
-  
+
+    const parsedCount =
+      Number.parseInt(value, 10);
+
     if (
       !Number.isInteger(parsedCount) ||
       parsedCount < 1 ||
@@ -306,15 +304,15 @@ export default function Page() {
     ) {
       return;
     }
-  
+
     setCreateForm((current) => ({
       ...current,
       sessionCount: value,
-  
       sessions: Array.from(
         { length: parsedCount },
         (_, index) =>
-          current.sessions[index] || createEmptySession()
+          current.sessions[index] ||
+          createEmptySession()
       ),
     }));
   };
@@ -326,13 +324,14 @@ export default function Page() {
   ) => {
     setCreateForm((current) => ({
       ...current,
-      sessions: current.sessions.map((session, sessionIndex) =>
-        sessionIndex === index
-          ? {
-              ...session,
-              [field]: value,
-            }
-          : session
+      sessions: current.sessions.map(
+        (session, sessionIndex) =>
+          sessionIndex === index
+            ? {
+                ...session,
+                [field]: value,
+              }
+            : session
       ),
     }));
   };
@@ -368,13 +367,14 @@ export default function Page() {
       return;
     }
 
-    const hasInvalidSession = createForm.sessions.some(
-      (session) =>
-        !session.startTime ||
-        !session.endTime ||
-        !session.capacity ||
-        Number(session.capacity) <= 0
-    );
+    const hasInvalidSession =
+      createForm.sessions.some(
+        (session) =>
+          !session.startTime ||
+          !session.endTime ||
+          !session.capacity ||
+          Number(session.capacity) <= 0
+      );
 
     if (hasInvalidSession) {
       alert(
@@ -383,33 +383,44 @@ export default function Page() {
       return;
     }
 
+    const sessionCount =
+      Number.parseInt(
+        createForm.sessionCount,
+        10
+      );
 
-    const sessionCount = Number.parseInt(
-      createForm.sessionCount,
-      10
-    );
-    
     if (
       !Number.isInteger(sessionCount) ||
       sessionCount < 1 ||
       sessionCount > 20
     ) {
-      alert("Number of sessions must be between 1 and 20");
-      return;
-    }
-    
-    if (createForm.sessions.length !== sessionCount) {
-      alert("Session configuration is incomplete");
+      alert(
+        "Number of sessions must be between 1 and 20"
+      );
       return;
     }
 
+    if (
+      createForm.sessions.length !==
+      sessionCount
+    ) {
+      alert(
+        "Session configuration is incomplete"
+      );
+      return;
+    }
 
-    const hasInvalidTime = createForm.sessions.some(
-      (session) => session.startTime >= session.endTime
-    );
+    const hasInvalidTime =
+      createForm.sessions.some(
+        (session) =>
+          session.startTime >=
+          session.endTime
+      );
 
     if (hasInvalidTime) {
-      alert("Session end time must be after its start time");
+      alert(
+        "Session end time must be after its start time"
+      );
       return;
     }
 
@@ -419,28 +430,34 @@ export default function Page() {
       const serviceName =
         selectedService?.name || "Service";
 
-     const payload = {
-  branchId: createForm.branchId,
-  serviceId: createForm.serviceId,
-  daysOfWeek:
-    createForm.daysOfWeek,
-  sessionCount: Number.parseInt(
-    createForm.sessionCount,
-    10
-  ),
-
-  sessions: createForm.sessions.map(
-    (session, index) => ({
-      name: `${serviceName} - Session ${index + 1}`,
-      startTime: session.startTime,
-      endTime: session.endTime,
-      capacity: Number.parseInt(
-        session.capacity,
-        10
-      ),
-    })
-  ),
-};
+      const payload = {
+        branchId: createForm.branchId,
+        serviceId: createForm.serviceId,
+        daysOfWeek:
+          createForm.daysOfWeek,
+        sessionCount:
+          Number.parseInt(
+            createForm.sessionCount,
+            10
+          ),
+        sessions:
+          createForm.sessions.map(
+            (session, index) => ({
+              name: `${serviceName} - Session ${
+                index + 1
+              }`,
+              startTime:
+                session.startTime,
+              endTime:
+                session.endTime,
+              capacity:
+                Number.parseInt(
+                  session.capacity,
+                  10
+                ),
+            })
+          ),
+      };
 
       const res = await fetch("/api/slot", {
         method: "POST",
@@ -454,11 +471,13 @@ export default function Page() {
 
       if (!res.ok) {
         throw new Error(
-          data.message || "Failed to create sessions"
+          data.message ||
+            "Failed to create sessions"
         );
       }
 
       closeCreateModal();
+
       await fetchSlots();
     } catch (error) {
       console.error(error);
@@ -479,7 +498,7 @@ export default function Page() {
 
   const openEditModal = (slot: Slot) => {
     setEditingSlotId(slot.id);
-  
+
     setEditForm({
       name: slot.name,
       startTime: slot.startTime,
@@ -487,13 +506,12 @@ export default function Page() {
       capacity: String(slot.capacity),
       branchId: slot.branchId,
       serviceId: slot.serviceId,
-  
       daysOfWeek:
         slot.daysOfWeek?.length > 0
           ? [...slot.daysOfWeek]
           : [...ALL_WEEKDAYS],
     });
-  
+
     setEditModal(true);
   };
 
@@ -507,7 +525,6 @@ export default function Page() {
     if (!editingSlotId) {
       return;
     }
-
 
     if (editForm.daysOfWeek.length === 0) {
       alert(
@@ -528,13 +545,18 @@ export default function Page() {
       return;
     }
 
-    if (editForm.startTime >= editForm.endTime) {
+    if (
+      editForm.startTime >=
+      editForm.endTime
+    ) {
       alert("End time must be after start time");
       return;
     }
 
     if (Number(editForm.capacity) <= 0) {
-      alert("Capacity must be greater than zero");
+      alert(
+        "Capacity must be greater than zero"
+      );
       return;
     }
 
@@ -546,14 +568,17 @@ export default function Page() {
         {
           method: "PUT",
           headers: {
-            "Content-Type": "application/json",
+            "Content-Type":
+              "application/json",
           },
           body: JSON.stringify({
             ...editForm,
             name: editForm.name.trim(),
-            capacity: Number(editForm.capacity),
-
-  daysOfWeek: editForm.daysOfWeek,
+            capacity: Number(
+              editForm.capacity
+            ),
+            daysOfWeek:
+              editForm.daysOfWeek,
           }),
         }
       );
@@ -562,11 +587,13 @@ export default function Page() {
 
       if (!res.ok) {
         throw new Error(
-          data.message || "Failed to update slot"
+          data.message ||
+            "Failed to update slot"
         );
       }
 
       closeEditModal();
+
       await fetchSlots();
     } catch (error) {
       console.error(error);
@@ -595,15 +622,19 @@ export default function Page() {
     }
 
     try {
-      const res = await fetch(`/api/slot/${id}`, {
-        method: "DELETE",
-      });
+      const res = await fetch(
+        `/api/slot/${id}`,
+        {
+          method: "DELETE",
+        }
+      );
 
       if (!res.ok) {
         const data = await res.json();
 
         throw new Error(
-          data.message || "Failed to disable slot"
+          data.message ||
+            "Failed to disable slot"
         );
       }
 
@@ -621,8 +652,8 @@ export default function Page() {
 
   return (
     <div className="p-6">
-      {/* HEADER */}
 
+      {/* HEADER */}
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white">
@@ -630,13 +661,16 @@ export default function Page() {
           </h1>
 
           <p className="mt-1 text-sm text-neutral-500">
-            Manage service sessions and booking capacity
+            Manage service sessions and booking
+            capacity
           </p>
         </div>
 
         <button
           type="button"
-          onClick={() => setCreateModal(true)}
+          onClick={() =>
+            setCreateModal(true)
+          }
           className="rounded-lg bg-lime-400 px-4 py-2 text-sm font-semibold text-black transition hover:opacity-90"
         >
           + Create New Slot
@@ -644,7 +678,6 @@ export default function Page() {
       </div>
 
       {/* SLOT LIST */}
-
       <div className="overflow-hidden rounded-2xl border border-neutral-800 bg-neutral-900">
         {loading ? (
           <div className="p-6 text-neutral-500">
@@ -659,36 +692,76 @@ export default function Page() {
             {slots.map((slot) => (
               <div
                 key={slot.id}
-                className="flex flex-col gap-4 p-5 transition hover:bg-neutral-900/80 lg:flex-row lg:items-center lg:justify-between"
+                className="flex flex-col gap-5 p-6 transition hover:bg-neutral-900/80 lg:flex-row lg:items-center lg:justify-between"
               >
-                <div>
-                  <h2 className="font-semibold text-white">
+                {/* ================================================= */}
+                {/* SESSION INFORMATION */}
+                {/* ================================================= */}
+
+                <div className="min-w-0">
+
+                  {/* SESSION NAME */}
+                  <h2 className="text-lg font-bold tracking-tight text-white sm:text-xl">
                     {slot.name}
                   </h2>
 
-                  <p className="mt-1 text-sm text-neutral-400">
-  {formatTime(slot.startTime)} - {formatTime(slot.endTime)}
-  {" • "}
-  Capacity: {slot.capacity}
-</p>
+                  {/* SESSION TIMING */}
+                  <div className="mt-2 flex items-center gap-2">
+                    <span className="text-lg font-bold text-lime-400 sm:text-xl">
+                      {formatTime(
+                        slot.startTime
+                      )}
+                    </span>
 
-<p className="mt-1 text-xs text-neutral-500">
-  Runs on:{" "}
-  <span className="font-medium text-neutral-300">
-    {formatSlotDays(
-      slot.daysOfWeek || ALL_WEEKDAYS
-    )}
-  </span>
-</p>
+                    <span className="text-sm text-neutral-600">
+                      →
+                    </span>
 
-                  <p className="mt-2 text-xs text-lime-400">
-                    {slot.service?.name || "Service unavailable"}
+                    <span className="text-lg font-bold text-lime-400 sm:text-xl">
+                      {formatTime(
+                        slot.endTime
+                      )}
+                    </span>
+                  </div>
+
+                  {/* CAPACITY + DAYS */}
+                  <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+                    <span className="text-neutral-400">
+                      Capacity:{" "}
+                      <span className="font-semibold text-neutral-200">
+                        {slot.capacity}
+                      </span>
+                    </span>
+
+                    <span className="hidden text-neutral-700 sm:inline">
+                      •
+                    </span>
+
+                    <span className="text-neutral-400">
+                      Runs on:{" "}
+                      <span className="font-medium text-neutral-300">
+                        {formatSlotDays(
+                          slot.daysOfWeek ||
+                            ALL_WEEKDAYS
+                        )}
+                      </span>
+                    </span>
+                  </div>
+
+                  {/* SERVICE + BRANCH */}
+                  <p className="mt-2 text-xs font-medium text-lime-400">
+                    {slot.service?.name ||
+                      "Service unavailable"}
+
                     {" • "}
-                    {slot.branch?.name || "Branch unavailable"}
+
+                    {slot.branch?.name ||
+                      "Branch unavailable"}
                   </p>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2">
+                {/* ACTIONS */}
+                <div className="flex flex-wrap items-center gap-2 lg:shrink-0">
                   <button
                     type="button"
                     onClick={() =>
@@ -699,24 +772,22 @@ export default function Page() {
                     className="rounded-lg border border-blue-500/20 bg-blue-500/10 px-3 py-1.5 text-xs text-blue-400 transition hover:bg-blue-500/20"
                   >
                     View bookings (
-                    {slot._count?.bookings ?? 0})
+                    {slot._count?.bookings ??
+                      0}
+                    )
                   </button>
 
                   <button
                     type="button"
-                    onClick={() => openEditModal(slot)}
+                    onClick={() =>
+                      openEditModal(slot)
+                    }
                     className="rounded-lg border border-blue-500/20 bg-blue-500/10 px-3 py-1.5 text-xs text-blue-400 transition hover:bg-blue-500/20"
                   >
                     Edit
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={() => deleteSlot(slot.id)}
-                    className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-1.5 text-xs text-red-400 transition hover:bg-red-500/20"
-                  >
-                    Disable
-                  </button>
+                 
                 </div>
               </div>
             ))}
@@ -724,24 +795,28 @@ export default function Page() {
         )}
       </div>
 
+      {/* ===================================================== */}
       {/* CREATE MODAL */}
+      {/* ===================================================== */}
 
       {createModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
           <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-neutral-800 bg-neutral-950 p-6">
+
             <div className="mb-6">
               <h2 className="text-xl font-bold text-white">
                 Create New Slot
               </h2>
 
               <p className="mt-1 text-sm text-neutral-500">
-                Select a service and configure each session
+                Select a service and configure
+                each session
               </p>
             </div>
 
-            {/* BRANCH AND SERVICE */}
-
+            {/* BRANCH + SERVICE */}
             <div className="grid gap-4 md:grid-cols-2">
+
               <div>
                 <label className="mb-2 block text-sm font-medium text-neutral-300">
                   Branch
@@ -750,23 +825,31 @@ export default function Page() {
                 <select
                   value={createForm.branchId}
                   onChange={(event) =>
-                    setCreateForm((current) => ({
-                      ...current,
-                      branchId: event.target.value,
-                    }))
+                    setCreateForm(
+                      (current) => ({
+                        ...current,
+                        branchId:
+                          event.target
+                            .value,
+                      })
+                    )
                   }
                   className="h-11 w-full rounded-xl border border-neutral-800 bg-neutral-900 px-4 text-white outline-none"
                 >
-                  <option value="">Select Branch</option>
+                  <option value="">
+                    Select Branch
+                  </option>
 
-                  {branches.map((branch) => (
-                    <option
-                      key={branch.id}
-                      value={branch.id}
-                    >
-                      {branch.name}
-                    </option>
-                  ))}
+                  {branches.map(
+                    (branch) => (
+                      <option
+                        key={branch.id}
+                        value={branch.id}
+                      >
+                        {branch.name}
+                      </option>
+                    )
+                  )}
                 </select>
               </div>
 
@@ -776,155 +859,187 @@ export default function Page() {
                 </label>
 
                 <select
-                  value={createForm.serviceId}
+                  value={
+                    createForm.serviceId
+                  }
                   onChange={(event) =>
-                    setCreateForm((current) => ({
-                      ...current,
-                      serviceId: event.target.value,
-                    }))
+                    setCreateForm(
+                      (current) => ({
+                        ...current,
+                        serviceId:
+                          event.target
+                            .value,
+                      })
+                    )
                   }
                   className="h-11 w-full rounded-xl border border-neutral-800 bg-neutral-900 px-4 text-white outline-none"
                 >
-                  <option value="">Select Service</option>
+                  <option value="">
+                    Select Service
+                  </option>
 
-                  {services.map((service) => (
-                    <option
-                      key={service.id}
-                      value={service.id}
-                    >
-                      {service.name}
-                    </option>
-                  ))}
+                  {services.map(
+                    (service) => (
+                      <option
+                        key={service.id}
+                        value={service.id}
+                      >
+                        {service.name}
+                      </option>
+                    )
+                  )}
                 </select>
-
-
-              
-
               </div>
             </div>
 
-            {/* SESSION COUNT */}
+            {/* OPERATING DAYS */}
             <div className="mt-5">
-  <div className="flex flex-wrap items-center justify-between gap-3">
-    <div>
-      <label className="block text-sm font-medium text-neutral-300">
-        Operating Days
-      </label>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-neutral-300">
+                    Operating Days
+                  </label>
 
-      <p className="mt-1 text-xs text-neutral-500">
-        Select the days on which these
-        sessions will be available.
-      </p>
-    </div>
+                  <p className="mt-1 text-xs text-neutral-500">
+                    Select the days on which
+                    these sessions will be
+                    available.
+                  </p>
+                </div>
 
-    <div className="flex gap-2">
-      <button
-        type="button"
-        onClick={() =>
-          setCreateForm((current) => ({
-            ...current,
-            daysOfWeek: [...ALL_WEEKDAYS],
-          }))
-        }
-        className="text-xs font-medium text-lime-400"
-      >
-        Select all
-      </button>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setCreateForm(
+                        (current) => ({
+                          ...current,
+                          daysOfWeek: [
+                            ...ALL_WEEKDAYS,
+                          ],
+                        })
+                      )
+                    }
+                    className="text-xs font-medium text-lime-400"
+                  >
+                    Select all
+                  </button>
 
-      <button
-        type="button"
-        onClick={() =>
-          setCreateForm((current) => ({
-            ...current,
-            daysOfWeek: [],
-          }))
-        }
-        className="text-xs font-medium text-neutral-500"
-      >
-        Clear
-      </button>
-    </div>
-  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setCreateForm(
+                        (current) => ({
+                          ...current,
+                          daysOfWeek: [],
+                        })
+                      )
+                    }
+                    className="text-xs font-medium text-neutral-500"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
 
-  <div className="mt-3 grid grid-cols-4 gap-2 sm:grid-cols-7">
-    {WEEKDAYS.map((day) => {
-      const selected =
-        createForm.daysOfWeek.includes(
-          day.value
-        );
+              <div className="mt-3 grid grid-cols-4 gap-2 sm:grid-cols-7">
+                {WEEKDAYS.map((day) => {
+                  const selected =
+                    createForm.daysOfWeek.includes(
+                      day.value
+                    );
 
-      return (
-        <button
-          key={day.value}
-          type="button"
-          onClick={() =>
-            toggleCreateWeekday(day.value)
-          }
-          className={`rounded-xl border px-2 py-3 text-xs font-semibold transition-colors ${
-            selected
-              ? "border-lime-400 bg-lime-400 text-black"
-              : "border-neutral-800 bg-neutral-900 text-neutral-400 hover:border-neutral-700 hover:text-white"
-          }`}
-        >
-          <span className="sm:hidden">
-            {day.shortLabel}
-          </span>
+                  return (
+                    <button
+                      key={day.value}
+                      type="button"
+                      onClick={() =>
+                        toggleCreateWeekday(
+                          day.value
+                        )
+                      }
+                      className={`rounded-xl border px-2 py-3 text-xs font-semibold transition-colors ${
+                        selected
+                          ? "border-lime-400 bg-lime-400 text-black"
+                          : "border-neutral-800 bg-neutral-900 text-neutral-400 hover:border-neutral-700 hover:text-white"
+                      }`}
+                    >
+                      <span className="sm:hidden">
+                        {
+                          day.shortLabel
+                        }
+                      </span>
 
-          <span className="hidden sm:inline">
-            {day.label.slice(0, 3)}
-          </span>
-        </button>
-      );
-    })}
-  </div>
+                      <span className="hidden sm:inline">
+                        {day.label.slice(
+                          0,
+                          3
+                        )}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
 
-  {createForm.daysOfWeek.length > 0 && (
-    <p className="mt-3 text-xs text-lime-400">
-      Sessions will run on{" "}
-      {formatSlotDays(
-        createForm.daysOfWeek
-      )}
-      .
-    </p>
-  )}
-</div>
+              {createForm.daysOfWeek
+                .length > 0 && (
+                <p className="mt-3 text-xs text-lime-400">
+                  Sessions will run on{" "}
+                  {formatSlotDays(
+                    createForm.daysOfWeek
+                  )}
+                  .
+                </p>
+              )}
+            </div>
+
+            {/* SESSION COUNT */}
             <div className="mt-4">
-  <label className="mb-2 block text-sm font-medium text-neutral-300">
-    Number of Sessions
-  </label>
+              <label className="mb-2 block text-sm font-medium text-neutral-300">
+                Number of Sessions
+              </label>
 
-  <input
-    type="number"
-    min={1}
-    max={20}
-    value={createForm.sessionCount}
-    onChange={(event) =>
-      updateSessionCount(event.target.value)
-    }
-    onBlur={() => {
-      const count = Number.parseInt(
-        createForm.sessionCount,
-        10
-      );
+              <input
+                type="number"
+                min={1}
+                max={20}
+                value={
+                  createForm.sessionCount
+                }
+                onChange={(event) =>
+                  updateSessionCount(
+                    event.target.value
+                  )
+                }
+                onBlur={() => {
+                  const count =
+                    Number.parseInt(
+                      createForm.sessionCount,
+                      10
+                    );
 
-      if (
-        !Number.isInteger(count) ||
-        count < 1 ||
-        count > 20
-      ) {
-        updateSessionCount("1");
-      }
-    }}
-    className="h-11 w-full rounded-xl border border-neutral-800 bg-neutral-900 px-4 text-white outline-none"
-  />
+                  if (
+                    !Number.isInteger(
+                      count
+                    ) ||
+                    count < 1 ||
+                    count > 20
+                  ) {
+                    updateSessionCount(
+                      "1"
+                    );
+                  }
+                }}
+                className="h-11 w-full rounded-xl border border-neutral-800 bg-neutral-900 px-4 text-white outline-none"
+              />
 
-  <p className="mt-1 text-xs text-neutral-500">
-    You can configure up to 20 sessions at once.
-  </p>
-</div>
+              <p className="mt-1 text-xs text-neutral-500">
+                You can configure up to 20
+                sessions at once.
+              </p>
+            </div>
 
             {/* SESSION CONFIGURATION */}
-
             <div className="mt-6 space-y-4">
               {createForm.sessions.map(
                 (session, index) => (
@@ -935,12 +1050,16 @@ export default function Page() {
                     <div className="mb-4 flex items-center justify-between">
                       <div>
                         <h3 className="font-semibold text-white">
-                          Session {index + 1}
+                          Session{" "}
+                          {index + 1}
                         </h3>
 
                         {selectedService && (
                           <p className="mt-1 text-xs text-neutral-500">
-                            {selectedService.name} - Session{" "}
+                            {
+                              selectedService.name
+                            }{" "}
+                            - Session{" "}
                             {index + 1}
                           </p>
                         )}
@@ -948,6 +1067,7 @@ export default function Page() {
                     </div>
 
                     <div className="grid gap-3 md:grid-cols-3">
+
                       <div>
                         <label className="mb-2 block text-xs font-medium text-neutral-400">
                           Start Time
@@ -955,16 +1075,20 @@ export default function Page() {
 
                         <input
                           type="time"
-                          value={session.startTime}
+                          value={
+                            session.startTime
+                          }
                           onChange={(event) =>
                             updateSession(
                               index,
                               "startTime",
-                              event.target.value
+                              event.target
+                                .value
                             )
                           }
                           style={{
-                            colorScheme: "dark",
+                            colorScheme:
+                              "dark",
                           }}
                           className="h-11 w-full rounded-xl border border-neutral-800 bg-neutral-950 px-4 text-white outline-none"
                         />
@@ -977,16 +1101,19 @@ export default function Page() {
 
                         <input
                           type="time"
-                          
                           style={{
-                            colorScheme: "dark",
+                            colorScheme:
+                              "dark",
                           }}
-                          value={session.endTime}
+                          value={
+                            session.endTime
+                          }
                           onChange={(event) =>
                             updateSession(
                               index,
                               "endTime",
-                              event.target.value
+                              event.target
+                                .value
                             )
                           }
                           className="h-11 w-full rounded-xl border border-neutral-800 bg-neutral-950 px-4 text-white outline-none"
@@ -1001,18 +1128,22 @@ export default function Page() {
                         <input
                           type="number"
                           min={1}
-                          value={session.capacity}
+                          value={
+                            session.capacity
+                          }
                           onChange={(event) =>
                             updateSession(
                               index,
                               "capacity",
-                              event.target.value
+                              event.target
+                                .value
                             )
                           }
                           placeholder="Example: 20"
                           className="h-11 w-full rounded-xl border border-neutral-800 bg-neutral-950 px-4 text-white outline-none"
                         />
                       </div>
+
                     </div>
                   </div>
                 )
@@ -1020,12 +1151,15 @@ export default function Page() {
             </div>
 
             {/* CREATE ACTIONS */}
-
             <div className="mt-6 flex justify-end gap-3">
               <button
                 type="button"
-                onClick={closeCreateModal}
-                disabled={actionLoading}
+                onClick={
+                  closeCreateModal
+                }
+                disabled={
+                  actionLoading
+                }
                 className="rounded-xl border border-neutral-700 px-4 py-2 text-neutral-300 disabled:opacity-50"
               >
                 Cancel
@@ -1034,290 +1168,377 @@ export default function Page() {
               <button
                 type="button"
                 onClick={createSlots}
-                disabled={actionLoading}
+                disabled={
+                  actionLoading
+                }
                 className="rounded-xl bg-lime-400 px-5 py-2 font-semibold text-black disabled:opacity-50"
               >
                 {actionLoading
-  ? "Creating..."
-  : `Create ${
-      createForm.sessions.length
-    } ${
-      createForm.sessions.length === 1
-        ? "Session"
-        : "Sessions"
-    }`}
-
+                  ? "Creating..."
+                  : `Create ${
+                      createForm
+                        .sessions
+                        .length
+                    } ${
+                      createForm
+                        .sessions
+                        .length ===
+                      1
+                        ? "Session"
+                        : "Sessions"
+                    }`}
               </button>
             </div>
           </div>
         </div>
       )}
 
+      {/* ===================================================== */}
       {/* EDIT MODAL */}
+      {/* ===================================================== */}
 
       {editModal && (
-  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-    <div className="flex max-h-[90dvh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-neutral-800 bg-neutral-950 shadow-2xl">
-      {/* Fixed Header */}
-      <div className="shrink-0 border-b border-neutral-800 px-6 py-5">
-        <h2 className="text-xl font-bold text-white">
-          Edit Slot
-        </h2>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+          <div className="flex max-h-[90dvh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-neutral-800 bg-neutral-950 shadow-2xl">
 
-        <p className="mt-1 text-sm text-neutral-500">
-          Update slot details and operating days.
-        </p>
-      </div>
+            {/* HEADER */}
+            <div className="shrink-0 border-b border-neutral-800 px-6 py-5">
+              <h2 className="text-xl font-bold text-white">
+                Edit Slot
+              </h2>
 
-      {/* Scrollable Content */}
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-5">
-        <div>
-          <label className="mb-2 block text-sm text-neutral-400">
-            Slot Name
-          </label>
-
-          <input
-            value={editForm.name}
-            onChange={(event) =>
-              setEditForm((current) => ({
-                ...current,
-                name: event.target.value,
-              }))
-            }
-            className="h-11 w-full rounded-xl border border-neutral-800 bg-neutral-900 px-4 text-white outline-none focus:border-lime-400"
-          />
-        </div>
-
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div>
-            <label className="mb-2 block text-sm text-neutral-400">
-              Start Time
-            </label>
-
-            <input
-              type="time"
-              value={editForm.startTime}
-              onChange={(event) =>
-                setEditForm((current) => ({
-                  ...current,
-                  startTime: event.target.value,
-                }))
-              }
-              style={{
-                colorScheme: "dark",
-              }}
-              className="h-11 w-full rounded-xl border border-neutral-800 bg-neutral-900 px-4 text-white outline-none focus:border-lime-400"
-            />
-          </div>
-
-          <div>
-            <label className="mb-2 block text-sm text-neutral-400">
-              End Time
-            </label>
-
-            <input
-              type="time"
-              value={editForm.endTime}
-              onChange={(event) =>
-                setEditForm((current) => ({
-                  ...current,
-                  endTime: event.target.value,
-                }))
-              }
-              style={{
-                colorScheme: "dark",
-              }}
-              className="h-11 w-full rounded-xl border border-neutral-800 bg-neutral-900 px-4 text-white outline-none focus:border-lime-400"
-            />
-          </div>
-        </div>
-
-        <div>
-          <label className="mb-2 block text-sm text-neutral-400">
-            Maximum Bookings
-          </label>
-
-          <input
-            type="number"
-            min={1}
-            value={editForm.capacity}
-            onChange={(event) =>
-              setEditForm((current) => ({
-                ...current,
-                capacity: event.target.value,
-              }))
-            }
-            className="h-11 w-full rounded-xl border border-neutral-800 bg-neutral-900 px-4 text-white outline-none focus:border-lime-400"
-          />
-        </div>
-
-        <div>
-          <label className="mb-2 block text-sm text-neutral-400">
-            Branch
-          </label>
-
-          <select
-            value={editForm.branchId}
-            onChange={(event) =>
-              setEditForm((current) => ({
-                ...current,
-                branchId: event.target.value,
-              }))
-            }
-            className="h-11 w-full rounded-xl border border-neutral-800 bg-neutral-900 px-4 text-white outline-none focus:border-lime-400"
-          >
-            <option value="">
-              Select Branch
-            </option>
-
-            {branches.map((branch) => (
-              <option
-                key={branch.id}
-                value={branch.id}
-              >
-                {branch.name}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className="mb-2 block text-sm text-neutral-400">
-            Service
-          </label>
-
-          <select
-            value={editForm.serviceId}
-            onChange={(event) =>
-              setEditForm((current) => ({
-                ...current,
-                serviceId: event.target.value,
-              }))
-            }
-            className="h-11 w-full rounded-xl border border-neutral-800 bg-neutral-900 px-4 text-white outline-none focus:border-lime-400"
-          >
-            <option value="">
-              Select Service
-            </option>
-
-            {services.map((service) => (
-              <option
-                key={service.id}
-                value={service.id}
-              >
-                {service.name}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-4">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <label className="block text-sm font-medium text-neutral-300">
-                Operating Days
-              </label>
-
-              <p className="mt-1 text-xs text-neutral-500">
-                Select when this slot is available.
+              <p className="mt-1 text-sm text-neutral-500">
+                Update slot details and
+                operating days.
               </p>
             </div>
 
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() =>
-                  setEditForm((current) => ({
-                    ...current,
-                    daysOfWeek: [
-                      ...ALL_WEEKDAYS,
-                    ],
-                  }))
-                }
-                className="text-xs font-medium text-lime-400"
-              >
-                Select all
-              </button>
+            {/* CONTENT */}
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-5">
 
-              <button
-                type="button"
-                onClick={() =>
-                  setEditForm((current) => ({
-                    ...current,
-                    daysOfWeek: [],
-                  }))
-                }
-                className="text-xs font-medium text-neutral-500"
-              >
-                Clear
-              </button>
-            </div>
-          </div>
+              {/* SLOT NAME */}
+              <div>
+                <label className="mb-2 block text-sm text-neutral-400">
+                  Slot Name
+                </label>
 
-          <div className="mt-4 grid grid-cols-4 gap-2 sm:grid-cols-7">
-            {WEEKDAYS.map((day) => {
-              const selected =
-                editForm.daysOfWeek.includes(
-                  day.value
-                );
-
-              return (
-                <button
-                  key={day.value}
-                  type="button"
-                  onClick={() =>
-                    toggleEditWeekday(
-                      day.value
+                <input
+                  value={editForm.name}
+                  onChange={(event) =>
+                    setEditForm(
+                      (current) => ({
+                        ...current,
+                        name: event.target
+                          .value,
+                      })
                     )
                   }
-                  className={`rounded-lg border px-2 py-2.5 text-xs font-semibold transition ${
-                    selected
-                      ? "border-lime-400 bg-lime-400 text-black"
-                      : "border-neutral-800 bg-neutral-950 text-neutral-400 hover:border-neutral-700 hover:text-white"
-                  }`}
+                  className="h-11 w-full rounded-xl border border-neutral-800 bg-neutral-900 px-4 text-white outline-none focus:border-lime-400"
+                />
+              </div>
+
+              {/* TIME */}
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+
+                <div>
+                  <label className="mb-2 block text-sm text-neutral-400">
+                    Start Time
+                  </label>
+
+                  <input
+                    type="time"
+                    value={
+                      editForm.startTime
+                    }
+                    onChange={(event) =>
+                      setEditForm(
+                        (current) => ({
+                          ...current,
+                          startTime:
+                            event.target
+                              .value,
+                        })
+                      )
+                    }
+                    style={{
+                      colorScheme: "dark",
+                    }}
+                    className="h-11 w-full rounded-xl border border-neutral-800 bg-neutral-900 px-4 text-white outline-none focus:border-lime-400"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm text-neutral-400">
+                    End Time
+                  </label>
+
+                  <input
+                    type="time"
+                    value={
+                      editForm.endTime
+                    }
+                    onChange={(event) =>
+                      setEditForm(
+                        (current) => ({
+                          ...current,
+                          endTime:
+                            event.target
+                              .value,
+                        })
+                      )
+                    }
+                    style={{
+                      colorScheme: "dark",
+                    }}
+                    className="h-11 w-full rounded-xl border border-neutral-800 bg-neutral-900 px-4 text-white outline-none focus:border-lime-400"
+                  />
+                </div>
+
+              </div>
+
+              {/* CAPACITY */}
+              <div>
+                <label className="mb-2 block text-sm text-neutral-400">
+                  Maximum Bookings
+                </label>
+
+                <input
+                  type="number"
+                  min={1}
+                  value={
+                    editForm.capacity
+                  }
+                  onChange={(event) =>
+                    setEditForm(
+                      (current) => ({
+                        ...current,
+                        capacity:
+                          event.target
+                            .value,
+                      })
+                    )
+                  }
+                  className="h-11 w-full rounded-xl border border-neutral-800 bg-neutral-900 px-4 text-white outline-none focus:border-lime-400"
+                />
+              </div>
+
+              {/* BRANCH */}
+              <div>
+                <label className="mb-2 block text-sm text-neutral-400">
+                  Branch
+                </label>
+
+                <select
+                  value={
+                    editForm.branchId
+                  }
+                  onChange={(event) =>
+                    setEditForm(
+                      (current) => ({
+                        ...current,
+                        branchId:
+                          event.target
+                            .value,
+                      })
+                    )
+                  }
+                  className="h-11 w-full rounded-xl border border-neutral-800 bg-neutral-900 px-4 text-white outline-none focus:border-lime-400"
                 >
-                  {day.shortLabel}
-                </button>
-              );
-            })}
+                  <option value="">
+                    Select Branch
+                  </option>
+
+                  {branches.map(
+                    (branch) => (
+                      <option
+                        key={branch.id}
+                        value={branch.id}
+                      >
+                        {branch.name}
+                      </option>
+                    )
+                  )}
+                </select>
+              </div>
+
+              {/* SERVICE */}
+              <div>
+                <label className="mb-2 block text-sm text-neutral-400">
+                  Service
+                </label>
+
+                <select
+                  value={
+                    editForm.serviceId
+                  }
+                  onChange={(event) =>
+                    setEditForm(
+                      (current) => ({
+                        ...current,
+                        serviceId:
+                          event.target
+                            .value,
+                      })
+                    )
+                  }
+                  className="h-11 w-full rounded-xl border border-neutral-800 bg-neutral-900 px-4 text-white outline-none focus:border-lime-400"
+                >
+                  <option value="">
+                    Select Service
+                  </option>
+
+                  {services.map(
+                    (service) => (
+                      <option
+                        key={service.id}
+                        value={service.id}
+                      >
+                        {service.name}
+                      </option>
+                    )
+                  )}
+                </select>
+              </div>
+
+              {/* OPERATING DAYS */}
+              <div className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-4">
+
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-neutral-300">
+                      Operating Days
+                    </label>
+
+                    <p className="mt-1 text-xs text-neutral-500">
+                      Select when this slot
+                      is available.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setEditForm(
+                          (current) => ({
+                            ...current,
+                            daysOfWeek:
+                              [
+                                ...ALL_WEEKDAYS,
+                              ],
+                          })
+                        )
+                      }
+                      className="text-xs font-medium text-lime-400"
+                    >
+                      Select all
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setEditForm(
+                          (current) => ({
+                            ...current,
+                            daysOfWeek: [],
+                          })
+                        )
+                      }
+                      className="text-xs font-medium text-neutral-500"
+                    >
+                      Clear
+                    </button>
+
+                  </div>
+                </div>
+
+                <div className="mt-4 grid grid-cols-4 gap-2 sm:grid-cols-7">
+                  {WEEKDAYS.map((day) => {
+                    const selected =
+                      editForm.daysOfWeek.includes(
+                        day.value
+                      );
+
+                    return (
+                      <button
+                        key={day.value}
+                        type="button"
+                        onClick={() =>
+                          toggleEditWeekday(
+                            day.value
+                          )
+                        }
+                        className={`rounded-lg border px-2 py-2.5 text-xs font-semibold transition ${
+                          selected
+                            ? "border-lime-400 bg-lime-400 text-black"
+                            : "border-neutral-800 bg-neutral-950 text-neutral-400 hover:border-neutral-700 hover:text-white"
+                        }`}
+                      >
+                        {
+                          day.shortLabel
+                        }
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {editForm.daysOfWeek
+                  .length === 0 && (
+                  <p className="mt-3 text-xs text-red-400">
+                    Select at least one
+                    operating day.
+                  </p>
+                )}
+
+              </div>
+            </div>
+
+            {/* FOOTER */}
+            <div className="flex shrink-0 justify-end gap-3 border-t border-neutral-800 bg-neutral-950 px-6 py-4">
+
+              <button
+                type="button"
+                onClick={
+                  closeEditModal
+                }
+                disabled={
+                  actionLoading
+                }
+                className="rounded-xl border border-neutral-700 px-4 py-2 text-neutral-300 transition hover:bg-neutral-900 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+
+              <button
+                    type="button"
+                    onClick={() =>
+                      deleteSlot(editingSlotId ?? '')
+                    }
+                    className="rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-1.5 text-x font-semibold  text-red-400 transition hover:bg-red-500/20"
+                  >
+                    Delete Slot
+                  </button>
+
+              <button
+                type="button"
+                onClick={updateSlot}
+                disabled={
+                  actionLoading ||
+                  editForm.daysOfWeek
+                    .length === 0
+                }
+                className="rounded-xl bg-blue-500 px-5 py-2 font-semibold text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {actionLoading
+                  ? "Updating..."
+                  : "Update Slot"}
+              </button>
+
+            </div>
           </div>
-
-          {editForm.daysOfWeek.length === 0 && (
-            <p className="mt-3 text-xs text-red-400">
-              Select at least one operating day.
-            </p>
-          )}
         </div>
-      </div>
-
-      {/* Fixed Footer */}
-      <div className="flex shrink-0 justify-end gap-3 border-t border-neutral-800 bg-neutral-950 px-6 py-4">
-        <button
-          type="button"
-          onClick={closeEditModal}
-          disabled={actionLoading}
-          className="rounded-xl border border-neutral-700 px-4 py-2 text-neutral-300 transition hover:bg-neutral-900 disabled:opacity-50"
-        >
-          Cancel
-        </button>
-
-        <button
-          type="button"
-          onClick={updateSlot}
-          disabled={
-            actionLoading ||
-            editForm.daysOfWeek.length === 0
-          }
-          className="rounded-xl bg-blue-500 px-5 py-2 font-semibold text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {actionLoading
-            ? "Updating..."
-            : "Update Slot"}
-        </button>
-      </div>
-    </div>
-  </div>
-)}
+      )}
     </div>
   );
 }

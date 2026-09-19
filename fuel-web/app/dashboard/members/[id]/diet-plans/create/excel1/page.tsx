@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import * as XLSX from "xlsx";
-import DietPlanForm from "../manual/page";
+import DietPlanForm from "../manual1/page";
 import { useRouter } from "next/navigation";
 
 export default function ExcelDietPlanPage() {

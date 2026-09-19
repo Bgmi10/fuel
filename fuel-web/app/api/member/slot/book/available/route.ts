@@ -4,7 +4,10 @@ import {
   NextRequest,
   NextResponse,
 } from "next/server";
-import { SlotBookingEnum } from "@prisma/client";
+import {
+  SlotBookingEnum,
+  SlotWeekday,
+} from "@prisma/client";
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -90,6 +93,28 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    const bookingDateObject = new Date(
+      `${bookingDay}T12:00:00.000Z`
+    );
+    
+    const javascriptDay = bookingDateObject.getUTCDay();
+    
+    const JAVASCRIPT_DAY_TO_SLOT_DAY: Record<
+      number,
+      SlotWeekday
+    > = {
+      0: SlotWeekday.SUNDAY,
+      1: SlotWeekday.MONDAY,
+      2: SlotWeekday.TUESDAY,
+      3: SlotWeekday.WEDNESDAY,
+      4: SlotWeekday.THURSDAY,
+      5: SlotWeekday.FRIDAY,
+      6: SlotWeekday.SATURDAY,
+    };
+    
+    const bookingWeekday =
+      JAVASCRIPT_DAY_TO_SLOT_DAY[javascriptDay];
+
     /*
      * Verify that:
      * - subscription belongs to member
@@ -142,39 +167,37 @@ export async function GET(req: NextRequest) {
      * - subscription branch
      * - subscription package's service
      */
-    const slots =
-      await prisma.slot.findMany({
-        where: {
-          branchId:
-            subscription.branchId,
+   const slots = await prisma.slot.findMany({
+  where: {
+    branchId: subscription.branchId,
+    serviceId: subscription.package.serviceId,
+    isActive: true,
 
-          serviceId:
-            subscription.package
-              .serviceId,
+    // IMPORTANT:
+    daysOfWeek: {
+      has: bookingWeekday,
+    },
+  },
 
-          isActive: true,
-        },
+  include: {
+    branch: {
+      select: {
+        id: true,
+        name: true,
+      },
+    },
+    service: {
+      select: {
+        id: true,
+        name: true,
+      },
+    },
+  },
 
-        include: {
-          branch: {
-            select: {
-              id: true,
-              name: true,
-            },
-          },
-
-          service: {
-            select: {
-              id: true,
-              name: true,
-            },
-          },
-        },
-
-        orderBy: {
-          startTime: "asc",
-        },
-      });
+  orderBy: {
+    startTime: "asc",
+  },
+});
 
     if (slots.length === 0) {
       return NextResponse.json([]);

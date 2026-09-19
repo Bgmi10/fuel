@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import DietPlanForm from "../../create/manual/page";
+import DietPlanForm from "../../create/manual1/page";
 import { DietPlanMeal, DietPlanMealItem } from "@prisma/client";
 
 export default function EditDietPlanPage() {

@@ -32,30 +32,30 @@ export const Login = () => {
     return "";
   }, [identifier, isPhone]);
 
-  // 🔥 WEB OTP API
-  useEffect(() => {
-    if (step !== "OTP") return;
+  // // 🔥 WEB OTP API
+  // useEffect(() => {
+  //   if (step !== "OTP") return;
 
-    if ("OTPCredential" in window) {
-      const ac = new AbortController();
+  //   if ("OTPCredential" in window) {
+  //     const ac = new AbortController();
 
-      navigator.credentials
-        .get({
-          otp: {
-            transport: ["sms"],
-          },
-          signal: ac.signal,
-        } as any)
-        .then((otp: any) => {
-          if (otp?.code) {
-            setOtp(otp.code);
-          }
-        })
-        .catch(console.log);
+  //     navigator.credentials
+  //       .get({
+  //         otp: {
+  //           transport: ["sms"],
+  //         },
+  //         signal: ac.signal,
+  //       } as any)
+  //       .then((otp: any) => {
+  //         if (otp?.code) {
+  //           setOtp(otp.code);
+  //         }
+  //       })
+  //       .catch(console.log);
 
-      return () => ac.abort();
-    }
-  }, [step]);
+  //     return () => ac.abort();
+  //   }
+  // }, [step]);
 
   // 🔥 validate
   const validate = () => {
@@ -91,15 +91,15 @@ export const Login = () => {
   // 🔥 SEND OTP
   const handleContinue = async () => {
     const validationError = validate();
-
+  
     if (validationError) {
       setError(validationError);
       return;
     }
-
+  
     setError("");
     setLoading(true);
-
+  
     try {
       const payload = {
         type: isPhone ? "PHONE" : "EMAIL",
@@ -107,28 +107,68 @@ export const Login = () => {
           ? formattedPhone
           : identifier.toLowerCase(),
       };
-
+  
       const response = await fetch("/api/member/send-otp", {
         method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify(payload),
       });
-
-      const data = await response.json();
-
-      if (!data.success) {
-        setError(data.message);
+  
+      // Read as text first so we can see exactly
+      // what the server/browser returned.
+      const responseText = await response.text();
+  
+      console.log("OTP API status:", response.status);
+      console.log("OTP API response:", responseText);
+  
+      let data: any;
+  
+      try {
+        data = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error(
+          "Failed to parse OTP API response:",
+          parseError
+        );
+  
+        setError(
+          `Server returned an invalid response (${response.status})`
+        );
+  
         return;
       }
-
+  
+      if (!response.ok) {
+        setError(
+          data?.message ||
+            `Request failed (${response.status})`
+        );
+  
+        return;
+      }
+  
+      if (!data?.success) {
+        setError(
+          data?.message || "Failed to send OTP"
+        );
+  
+        return;
+      }
+  
+      // SUCCESS
       setStep("OTP");
-
+  
       setTimeout(() => {
         otpRef.current?.focus();
       }, 150);
-
-    } catch (e) {
-      console.log(e);
-      setError("Something went wrong");
+    } catch (error) {
+      console.error("SEND OTP FRONTEND ERROR:", error);
+  
+      setError(
+        "Unable to connect to the server. Please try again."
+      );
     } finally {
       setLoading(false);
     }

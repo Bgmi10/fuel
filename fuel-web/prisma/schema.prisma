@@ -120,19 +120,22 @@ model Branch {
   supportEmail String?
   supportPhone String?
 
-  members       Member[]
-  services      Service[]
-  subscriptions Subscription[]
-  invoices      Invoice[]
-  users         User[]
-  slots         Slot[]
-  slotBookings  SlotBooking[]
-
-  tvDevices                 TvDevice[]
-  workoutProgramAssignments WorkoutProgramAssignment[]
+  members           Member[]
+  services          Service[]
+  subscriptions     Subscription[]
+  invoices          Invoice[]
+  users             User[]
+  slots             Slot[]
+  slotBookings      SlotBooking[]
+  tvDevices         TvDevice[]
+  workoutBroadcasts WorkoutBroadcast[]
 
   createdAt DateTime @default(now())
 }
+
+// ============================================================
+// WORKOUT VIDEO LIBRARY
+// ============================================================
 
 model WorkoutVideo {
   id String @id @default(cuid())
@@ -147,61 +150,462 @@ model WorkoutVideo {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  programItems WorkoutProgramItem[]
+  programItems       WorkoutProgramItem[]
+  scheduleExercises  WorkoutScheduleExercise[]
+  broadcastExercises WorkoutBroadcastExercise[]
+
+  @@index([name])
+  @@index([isActive])
 }
+
+// ============================================================
+// CENTRAL PROGRAMS
+// ============================================================
 
 model WorkoutProgram {
   id String @id @default(cuid())
 
-  name        String
-  description String?
-  isActive    Boolean @default(true)
+  title          String
+  subtitle       String?
+  description    String?
+  intensityLevel WorkoutIntensityLevel?
+
+  isActive Boolean @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  items       WorkoutProgramItem[]
-  assignments WorkoutProgramAssignment[]
+  items      WorkoutProgramItem[]
+  schedules  WorkoutSchedule[]
+  broadcasts WorkoutBroadcast[]
+
+  @@index([title])
+  @@index([isActive])
 }
+
+// ============================================================
+// PROGRAM → LIBRARY VIDEOS
+// ============================================================
 
 model WorkoutProgramItem {
   id String @id @default(cuid())
 
   programId String
   videoId   String
+
   sortOrder Int
 
   program WorkoutProgram @relation(fields: [programId], references: [id], onDelete: Cascade)
 
-  video WorkoutVideo @relation(fields: [videoId], references: [id])
+  video WorkoutVideo @relation(fields: [videoId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
 
   @@unique([programId, sortOrder])
   @@index([programId])
   @@index([videoId])
 }
 
-model WorkoutProgramAssignment {
+// ============================================================
+// CENTRAL SCHEDULE
+// ============================================================
+
+model WorkoutSchedule {
   id String @id @default(cuid())
 
   programId String
-  branchId  String
 
-  scheduledAt DateTime
+  scheduledDate DateTime
 
-  status WorkoutProgramAssignmentStatus @default(SCHEDULED)
+  status WorkoutScheduleStatus @default(DRAFT)
+
+  // ----------------------------------------------------------
+  // Timer configuration
+  // ----------------------------------------------------------
+
+  demonstrationSeconds Int?
+  warmupSeconds        Int?
+  prepareSeconds       Int?
+  workSeconds          Int?
+  restSeconds          Int?
+
+  sets   Int?
+  cycles Int?
+
+  restBetweenCycleSeconds Int?
+
+  coolDownSeconds Int?
+
+  nextSessionStartsAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  program WorkoutProgram @relation(fields: [programId], references: [id], onDelete: Cascade)
+  program WorkoutProgram @relation(fields: [programId], references: [id], onDelete: Restrict)
+
+  exercises WorkoutScheduleExercise[]
+
+  broadcasts WorkoutBroadcast[]
+
+  @@index([scheduledDate])
+  @@index([programId])
+  @@index([status])
+}
+
+// ============================================================
+// SCHEDULE EXERCISES
+// ============================================================
+
+model WorkoutScheduleExercise {
+  id String @id @default(cuid())
+
+  scheduleId String
+
+  // NULL when manually entered exercise
+  videoId String?
+
+  // Always store the display name.
+  // This allows the name to remain stable even if
+  // the Library video is later renamed.
+  exerciseName String
+
+  sortOrder Int
+
+  schedule WorkoutSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+
+  video WorkoutVideo? @relation(fields: [videoId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@unique([scheduleId, sortOrder])
+  @@index([scheduleId])
+  @@index([videoId])
+}
+
+// ============================================================
+// BRANCH BROADCAST
+// ============================================================
+
+model WorkoutBroadcast {
+  id String @id @default(cuid())
+
+  branchId String
+
+  // NULL for TIMER_ONLY broadcasts
+  scheduleId String?
+
+  // NULL for TIMER_ONLY broadcasts
+  programId String?
+
+  type WorkoutBroadcastType
+
+  status WorkoutBroadcastStatus @default(DRAFT)
+
+  broadcastDate DateTime
+
+  // ----------------------------------------------------------
+  // PROGRAM SNAPSHOT
+  // ----------------------------------------------------------
+  //
+  // These values are copied from the central Program when
+  // creating a broadcast.
+  //
+  // Editing these values affects ONLY this broadcast.
+  // ----------------------------------------------------------
+
+  programTitle       String?
+  programSubtitle    String?
+  programDescription String?
+  intensityLevel     WorkoutIntensityLevel?
+
+  // ----------------------------------------------------------
+  // TIMER SNAPSHOT
+  // ----------------------------------------------------------
+
+  demonstrationSeconds Int?
+  warmupSeconds        Int?
+  prepareSeconds       Int?
+  workSeconds          Int?
+  restSeconds          Int?
+
+  sets   Int?
+  cycles Int?
+
+  restBetweenCycleSeconds Int?
+
+  coolDownSeconds Int?
+
+  nextSessionStartsAt DateTime?
+
+  // ----------------------------------------------------------
+  // BROADCAST LIFECYCLE
+  // ----------------------------------------------------------
+
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
-  @@index([branchId, scheduledAt])
+  schedule WorkoutSchedule? @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+
+  program WorkoutProgram? @relation(fields: [programId], references: [id], onDelete: SetNull)
+
+  exercises WorkoutBroadcastExercise[]
+
+  tvs WorkoutBroadcastTv[]
+
+  events WorkoutBroadcastEvent[]
+
+  @@index([branchId, broadcastDate])
+  @@index([scheduleId])
   @@index([programId])
+  @@index([status])
+  @@index([type])
 }
 
-enum WorkoutProgramAssignmentStatus {
+// ============================================================
+// BROADCAST EXERCISES
+// ============================================================
+//
+// IMPORTANT:
+//
+// These are COPIES of Schedule exercises.
+//
+// Editing these does NOT modify the central Schedule.
+//
+// This is what allows the branch to replace/remove/add
+// exercises specifically for one broadcast.
+// ============================================================
+
+model WorkoutBroadcastExercise {
+  id String @id @default(cuid())
+
+  broadcastId String
+
+  // NULL for manually entered exercises
+  videoId String?
+
+  exerciseName String
+
+  sortOrder Int
+
+  broadcast WorkoutBroadcast @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
+
+  video WorkoutVideo? @relation(fields: [videoId], references: [id], onDelete: SetNull)
+
+  tvExercises WorkoutBroadcastTvExercise[]
+
+  createdAt DateTime @default(now())
+
+  @@unique([broadcastId, sortOrder])
+  @@index([broadcastId])
+  @@index([videoId])
+}
+
+// ============================================================
+// TV DEVICE
+// ============================================================
+
+model TvDevice {
+  id String @id @default(cuid())
+
+  name String
+
+  // Unique token generated for the physical TV/device
+  deviceToken String @unique
+
+  branchId String
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  isOnline Boolean @default(false)
+
+  lastSeenAt DateTime?
+
+  pairedAt DateTime @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  broadcasts WorkoutBroadcastTv[]
+
+  pairingSessions TvPairingSession[]
+
+  events WorkoutBroadcastEvent[]
+
+  @@index([branchId])
+  @@index([branchId, isOnline])
+}
+
+// ============================================================
+// BROADCAST → TV
+// ============================================================
+//
+// One broadcast can target multiple TVs.
+//
+// Example:
+//
+// Broadcast #100
+//   ├── TV 1
+//   ├── TV 2
+//   └── TV 3
+// ============================================================
+
+model WorkoutBroadcastTv {
+  id String @id @default(cuid())
+
+  broadcastId String
+  tvDeviceId  String
+
+  status WorkoutBroadcastTvStatus @default(PENDING)
+
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  broadcast WorkoutBroadcast @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
+
+  tvDevice TvDevice @relation(fields: [tvDeviceId], references: [id], onDelete: Cascade)
+
+  exercises WorkoutBroadcastTvExercise[]
+
+  @@unique([broadcastId, tvDeviceId])
+  @@index([broadcastId])
+  @@index([tvDeviceId])
+  @@index([status])
+}
+
+// ============================================================
+// TV-SPECIFIC EXERCISES
+// ============================================================
+//
+// Allows different TVs to show different exercises.
+//
+// Broadcast:
+//   Exercise A
+//   Exercise B
+//   Exercise C
+//
+// TV 1:
+//   A, B
+//
+// TV 2:
+//   B, C
+//
+// TV 3:
+//   A, C
+// ============================================================
+
+model WorkoutBroadcastTvExercise {
+  id String @id @default(cuid())
+
+  broadcastTvId String
+
+  exerciseId String
+
+  sortOrder Int
+
+  broadcastTv WorkoutBroadcastTv @relation(fields: [broadcastTvId], references: [id], onDelete: Cascade)
+
+  exercise WorkoutBroadcastExercise @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
+
+  @@unique([broadcastTvId, exerciseId])
+  @@unique([broadcastTvId, sortOrder])
+  @@index([broadcastTvId])
+  @@index([exerciseId])
+}
+
+// ============================================================
+// TV PAIRING
+// ============================================================
+
+model TvPairingSession {
+  id String @id @default(cuid())
+
+  pairingCode String @unique
+
+  socketId String?
+
+  status TvPairingStatus @default(WAITING)
+
+  expiresAt DateTime
+
+  deviceId String?
+
+  device TvDevice? @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([status])
+  @@index([expiresAt])
+  @@index([deviceId])
+}
+
+// ============================================================
+// BROADCAST EVENTS / LOGGING
+// ============================================================
+//
+// Useful for debugging real-time broadcasting.
+//
+// Example:
+//
+// TV_CONNECTED
+// TV_DISCONNECTED
+// BROADCAST_STARTED
+// EXERCISE_STARTED
+// TV_FAILED
+// ============================================================
+
+model WorkoutBroadcastEvent {
+  id String @id @default(cuid())
+
+  broadcastId String
+
+  tvDeviceId String?
+
+  eventType WorkoutBroadcastEventType
+
+  payload Json?
+
+  createdAt DateTime @default(now())
+
+  broadcast WorkoutBroadcast @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
+
+  tvDevice TvDevice? @relation(fields: [tvDeviceId], references: [id], onDelete: SetNull)
+
+  @@index([broadcastId, createdAt])
+  @@index([tvDeviceId, createdAt])
+  @@index([eventType])
+}
+
+// ============================================================
+// ENUMS
+// ============================================================
+
+enum WorkoutIntensityLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+}
+
+enum WorkoutScheduleStatus {
+  DRAFT
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+}
+
+enum WorkoutBroadcastType {
+  SCHEDULE
+  TIMER_ONLY
+}
+
+enum WorkoutBroadcastStatus {
   DRAFT
   SCHEDULED
   LIVE
@@ -209,29 +613,13 @@ enum WorkoutProgramAssignmentStatus {
   CANCELLED
 }
 
-model TvDevice {
-  id          String @id @default(cuid())
-  name        String
-  deviceToken String @unique
-  branchId    String
-  branch      Branch @relation(fields: [branchId], references: [id])
-
-  isOnline   Boolean   @default(false)
-  lastSeenAt DateTime?
-  pairedAt   DateTime  @default(now())
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
-}
-
-model TvPairingSession {
-  id          String          @id @default(cuid())
-  pairingCode String          @unique
-  socketId    String?
-  status      TvPairingStatus @default(WAITING)
-  expiresAt   DateTime
-  createdAt   DateTime        @default(now())
-
-  deviceId String?
+enum WorkoutBroadcastTvStatus {
+  PENDING
+  CONNECTING
+  LIVE
+  COMPLETED
+  FAILED
+  STOPPED
 }
 
 enum TvPairingStatus {
@@ -241,20 +629,35 @@ enum TvPairingStatus {
   CANCELLED
 }
 
+enum WorkoutBroadcastEventType {
+  CREATED
+  UPDATED
+  STARTED
+  STOPPED
+  COMPLETED
+
+  TV_CONNECTED
+  TV_DISCONNECTED
+  TV_FAILED
+
+  EXERCISE_STARTED
+  EXERCISE_COMPLETED
+}
+
 model Service {
-  id String @id @default(cuid())
-  sortOrder Int @default(0)
-  name String
+  id        String @id @default(cuid())
+  sortOrder Int    @default(0)
+  name      String
 
   thumbnailImage String?
-  coverImage String?
+  coverImage     String?
 
   branches Branch[]
   packages ServicePackage[]
-  slots Slot[]
+  slots    Slot[]
 
   websiteContent ServiceWebsiteContent?
-  subCategories ServiceSubCategory[]
+  subCategories  ServiceSubCategory[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -263,10 +666,10 @@ model Service {
 model ServiceWebsiteContent {
   id String @id @default(cuid())
 
-  serviceId String @unique
-  service Service @relation(fields: [serviceId],references: [id],onDelete: Cascade)
+  serviceId String  @unique
+  service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
 
-  eyebrow String?
+  eyebrow   String?
   heroTitle String?
 
   intro Json?
@@ -285,15 +688,15 @@ model ServiceSubCategory {
   id String @id @default(cuid())
 
   serviceId String
-  service Service @relation(fields: [serviceId], references: [id],onDelete: Cascade)
+  service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
 
-  name String
+  name        String
   description String?
 
   image String?
 
-  sortOrder Int @default(0)
-  isActive Boolean @default(true)
+  sortOrder Int     @default(0)
+  isActive  Boolean @default(true)
 
   schedules ServiceSchedule[]
 
@@ -308,7 +711,7 @@ model ServiceSchedule {
 
   subCategoryId String
 
-  subCategory ServiceSubCategory @relation(fields: [subCategoryId],references: [id],onDelete: Cascade)
+  subCategory ServiceSubCategory @relation(fields: [subCategoryId], references: [id], onDelete: Cascade)
 
   label String
   times Json
@@ -321,23 +724,22 @@ model ServiceSchedule {
   @@index([subCategoryId])
 }
 
-
 model Slot {
   id       String @id @default(cuid())
   branchId String
   branch   Branch @relation(fields: [branchId], references: [id])
 
-  serviceId String
-  service   Service       @relation(fields: [serviceId], references: [id])
-  name      String
-  startTime String
-  endTime   String
-  capacity  Int
-  isActive  Boolean       @default(true)
-  daysOfWeek SlotWeekday[] @default([MONDAY,TUESDAY,WEDNESDAY,THURSDAY,FRIDAY,SATURDAY,SUNDAY])
-  createdAt DateTime      @default(now())
-  bookings  SlotBooking[]
-  updatedAt DateTime      @updatedAt
+  serviceId  String
+  service    Service       @relation(fields: [serviceId], references: [id])
+  name       String
+  startTime  String
+  endTime    String
+  capacity   Int
+  isActive   Boolean       @default(true)
+  daysOfWeek SlotWeekday[] @default([MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY, SATURDAY, SUNDAY])
+  createdAt  DateTime      @default(now())
+  bookings   SlotBooking[]
+  updatedAt  DateTime      @updatedAt
 }
 
 enum SlotWeekday {
@@ -377,6 +779,7 @@ model SlotBooking {
 enum SlotBookingEnum {
   BOOKED
   ATTENDED
+  CANCELLED
 }
 
 model ServicePackage {
@@ -777,59 +1180,59 @@ model WorkoutExercise {
   createdAt DateTime @default(now())
 }
 
-  model Subscription {
-    id String @id @default(cuid())
+model Subscription {
+  id String @id @default(cuid())
 
-    memberId String
-    member   Member @relation(fields: [memberId], references: [id])
+  memberId String
+  member   Member @relation(fields: [memberId], references: [id])
 
-    branchId String
-    branch   Branch @relation(fields: [branchId], references: [id])
+  branchId String
+  branch   Branch @relation(fields: [branchId], references: [id])
 
-    packageId String
-    package   ServicePackage @relation(fields: [packageId], references: [id])
+  packageId String
+  package   ServicePackage @relation(fields: [packageId], references: [id])
 
-    invoiceId String?  @unique
-    invoice   Invoice? @relation(fields: [invoiceId], references: [id])
+  invoiceId String?  @unique
+  invoice   Invoice? @relation(fields: [invoiceId], references: [id])
 
-    serviceName String
-    packageName String
+  serviceName           String
+  packageName           String
+  packageDurationInDays Int
+  originalPrice         Int?
+  finalPrice            Int
+  branchName            String
 
-    packageDurationInDays Int
+  usageType         MembershipUsageType @default(DURATION_BASED)
+  totalSessions     Int?
+  remainingSessions Int?
 
-    originalPrice Int?
-    finalPrice    Int
+  startDate   DateTime
+  endDate     DateTime
+  freezeStart DateTime?
+  freezeEnd   DateTime?
 
-    branchName String
+  status SubscriptionStatus @default(ACTIVE)
 
-    usageType MembershipUsageType @default(DURATION_BASED)
+  slotBookings SlotBooking[]
 
-    totalSessions Int?
+  // Membership transfer relationships
+  outgoingMembershipTransfers MembershipTransfer[] @relation("MembershipTransferSource")
 
-    remainingSessions Int?
+  incomingTransfer MembershipTransfer? @relation("TransferDestination")
 
-    startDate DateTime
-    endDate   DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-    freezeStart DateTime?
-    freezeEnd   DateTime?
-
-    status              SubscriptionStatus   @default(ACTIVE)
-    slotBookings        SlotBooking[]
-    membershipTransfers MembershipTransfer[]
-
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
-
-    @@index([memberId, status])
-    @@index([usageType, remainingSessions])
-  }
+  @@index([memberId, status])
+  @@index([usageType, remainingSessions])
+}
 
 enum SubscriptionStatus {
   ACTIVE
   EXPIRED
   CANCELLED
   FROZEN
+  TRANSFERRED
 }
 
 model Invoice {
@@ -873,7 +1276,8 @@ model Invoice {
 
   discountAmount Int @default(0)
 
-  finalAmount Int
+  finalAmount        Int
+  membershipTransfer MembershipTransfer? @relation("MembershipTransferInvoice")
 
   paidAmount Int @default(0)
 
@@ -902,6 +1306,7 @@ enum InvoiceIntent {
   NEW
   EXTEND
   UPGRADE
+  TRANSFER_FEE
 }
 
 model Coupon {
@@ -971,6 +1376,7 @@ model Payment {
 enum PaymentType {
   INITIAL
   BALANCE
+  TRANSFER
 }
 
 enum InvoicePaymentStatus {
@@ -1156,7 +1562,7 @@ model MembershipTransfer {
   id String @id @default(cuid())
 
   subscriptionId String
-  subscription   Subscription @relation(fields: [subscriptionId], references: [id])
+  subscription   Subscription @relation("MembershipTransferSource", fields: [subscriptionId], references: [id])
 
   fromMemberId String
   fromMember   Member @relation("MembershipTransferFrom", fields: [fromMemberId], references: [id])
@@ -1166,8 +1572,12 @@ model MembershipTransfer {
 
   reason String?
 
-  // Remaining membership days when transferred
-  remainingDays Int?
+  // Remaining membership days when transferre
+  remainingDays   Int?
+  // Todo => need to add the user notes, payment mode, amount collected,  
+  notes           String?
+  amountCollected Int?
+  paymentMode     String?
 
   // Applied configured slab snapshot
   feeSlabId      String?
@@ -1185,12 +1595,16 @@ model MembershipTransfer {
   sgstAmount     Float?
 
   // Final transfer fee including GST
-  transferFee Int @default(0)
+  transferInvoiceId String?  @unique
+  transferInvoice   Invoice? @relation("MembershipTransferInvoice", fields: [transferInvoiceId], references: [id])
+  transferFee       Int      @default(0)
 
   transferredById String
   transferredBy   User   @relation(fields: [transferredById], references: [id])
 
-  createdAt DateTime @default(now())
+  toSubscriptionId String?       @unique
+  toSubscription   Subscription? @relation("TransferDestination", fields: [toSubscriptionId], references: [id])
+  createdAt        DateTime      @default(now())
 
   @@index([subscriptionId])
   @@index([fromMemberId])

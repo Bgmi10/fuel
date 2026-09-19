@@ -65,9 +65,9 @@ const Page = () => {
 
     <div className="w-20 h-20 rounded-full overflow-hidden border border-neutral-800 bg-neutral-950">
 
-      {member.profileImage ? (
+      {member?.profileImage ? (
         <img
-          src={member.profileImage}
+          src={member?.profileImage}
           alt={member.name}
           className="w-full h-full object-cover"
         />

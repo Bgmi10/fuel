@@ -34,7 +34,7 @@ export default function CreateDietPlanPage() {
           <button
             onClick={() =>
               router.push(
-                `/dashboard/members/${id}/diet-plans/create/excel`
+                `/dashboard/members/${id}/diet-plans/create/excel1`
               )
             }
             className="
@@ -76,7 +76,7 @@ export default function CreateDietPlanPage() {
           <button
             onClick={() =>
               router.push(
-                `/dashboard/members/${id}/diet-plans/create/manual`
+                `/dashboard/members/${id}/diet-plans/create/manual1`
               )
             }
             className="

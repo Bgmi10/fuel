@@ -20,6 +20,8 @@ import {
     try {
       const { id: subscriptionId } =
         await params;
+
+        console.log(subscriptionId)
   
       if (!subscriptionId) {
         return NextResponse.json(
