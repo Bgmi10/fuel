@@ -2,86 +2,115 @@ import { prisma } from "@/prisma";
 import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 
-export const PUT = async (req: NextRequest, { params }: { params: Promise<{ id: string }>}) => {
-   const { name, email, phone, branchId, status, gender, dob, address, emergencyContact, profileImage, height, weight, age, onBoardingForm, onBoardCompleted } = await req.json();
-   const { id } = await params;
+export const PUT = async (
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) => {
+  const {
+    name,
+    email,
+    phone,
+    branchId,
+    status,
+    gender,
+    dob,
+    address,
+    emergencyContact,
+    profileImage,
+    height,
+    weight,
+    age,
+    onBoardingForm,
+    onBoardCompleted,
+  } = await req.json();
 
-   const updateData: Prisma.MemberUpdateInput = {};
+  const { id } = await params;
 
-   if (gender !== undefined) {
+  const updateData: Prisma.MemberUpdateInput = {};
+
+  if (gender !== undefined) {
     updateData.gender = gender;
-   }
+  }
 
-   if (onBoardCompleted !== undefined) {
+  if (onBoardCompleted !== undefined) {
     updateData.onBoardCompleted = onBoardCompleted;
-   }
+  }
 
-   if (onBoardingForm !== undefined) {
+  if (onBoardingForm !== undefined) {
     updateData.onBoardingForm = onBoardingForm;
-   }
+  }
 
-   
-   if (weight !== undefined) {
+  if (weight !== undefined) {
     updateData.weight = parseFloat(weight);
-   }
-   
-   if (height !== undefined) {
+  }
+
+  if (height !== undefined) {
     updateData.height = parseFloat(height);
-   }
-   
-   if (age !== undefined) {
+  }
+
+  if (age !== undefined) {
     updateData.age = Number(age);
-   }
-   if (dob !== undefined) {
+  }
+
+  if (dob !== undefined) {
     updateData.dob = dob;
-   }
+  }
 
-   if (address !== undefined) {
-    updateData.address = address
-   }
+  if (address !== undefined) {
+    updateData.address = address;
+  }
 
-   if (emergencyContact !== undefined) {
+  if (emergencyContact !== undefined) {
     updateData.emergencyContact = emergencyContact;
-   }
+  }
 
-   if (profileImage !== undefined) {
+  if (profileImage !== undefined) {
     updateData.profileImage = profileImage;
-   }
+  }
 
-   if (name !== undefined) {
+  if (name !== undefined) {
     updateData.name = name;
-   };
+  }
 
-   if (email !== undefined) {
-     updateData.email = email;
-   }
+  if (email !== undefined) {
+    updateData.email = email;
+  }
 
-   if (phone !== undefined) {
+  if (phone !== undefined) {
     updateData.phone = phone;
-   }
+  }
 
-   if (branchId !== undefined) {
+  if (branchId !== undefined) {
     updateData.branch = branchId
       ? { connect: { id: branchId } }
       : { disconnect: true };
   }
 
-   if (status !== undefined) {
+  if (status !== undefined) {
     updateData.status = status;
-   }
+  }
 
-   try {
-     await prisma.member.update({
-        where: { id },
-        data: updateData
-     })
+  try {
+    await prisma.member.update({
+      where: { id },
+      data: updateData,
+    });
 
-     return NextResponse.json({ success: true });
-   } catch (e) {
-    console.log(e)
-     return NextResponse.json({ success: false });
-   }
-}
+    return NextResponse.json({
+      success: true,
+    });
+  } catch (e) {
+    console.log(e);
+
+    return NextResponse.json(
+      {
+        success: false,
+        message: "Failed to update member",
+      },
+      { status: 500 }
+    );
+  }
+};
 
 export const GET = async (
   req: NextRequest,
@@ -96,12 +125,19 @@ export const GET = async (
       include: {
         referrals: {
           include: {
-            referredMember: true
-          }
+            referredMember: true,
+          },
         },
+
         branch: true,
+
         fitnessAssessments: true,
-        // 🔥 INVOICES
+
+        /*
+         * ============================================================
+         * INVOICES
+         * ============================================================
+         */
         invoices: {
           orderBy: {
             createdAt: "desc",
@@ -136,7 +172,11 @@ export const GET = async (
           },
         },
 
-        // 🔥 PAYMENTS
+        /*
+         * ============================================================
+         * PAYMENTS
+         * ============================================================
+         */
         payments: {
           orderBy: {
             createdAt: "desc",
@@ -154,23 +194,40 @@ export const GET = async (
             },
           },
         },
-        
 
-        // 🔥 SUBSCRIPTIONS
+        /*
+         * ============================================================
+         * SUBSCRIPTIONS
+         *
+         * These are ONLY the subscriptions actually owned by this
+         * member.
+         *
+         * For transferred memberships:
+         *
+         * OLD MEMBER
+         *   subscription.status = TRANSFERRED
+         *
+         * NEW MEMBER
+         *   subscription.status = ACTIVE
+         *
+         * The relationship between them comes from
+         * MembershipTransfer.
+         * ============================================================
+         */
         subscriptions: {
           orderBy: {
             createdAt: "desc",
           },
-        
+
           include: {
             branch: true,
-        
+
             package: {
               include: {
                 service: true,
               },
             },
-        
+
             invoice: {
               include: {
                 payments: {
@@ -180,63 +237,166 @@ export const GET = async (
                 },
               },
             },
-        
-            outgoingMembershipTransfers: {
-              where: {
-                toMemberId: id,
-              },
-        
-              orderBy: {
-                createdAt: "desc",
-              },
-        
-              take: 1,
-        
+          },
+        },
+
+        /*
+         * ============================================================
+         * OUTGOING TRANSFERS
+         *
+         * This member was the ORIGINAL owner.
+         *
+         * subscriptionId
+         *      ↓
+         * original/old subscription
+         *
+         * toSubscriptionId
+         *      ↓
+         * newly created subscription
+         *
+         * toMember
+         *      ↓
+         * receiving member
+         * ============================================================
+         */
+        outgoingMembershipTransfers: {
+          orderBy: {
+            createdAt: "desc",
+          },
+
+          include: {
+            toMember: {
               select: {
                 id: true,
-        
-                subscriptionId: true,
-        
-                fromMemberId: true,
-                toMemberId: true,
-        
-                reason: true,
-        
-                remainingDays: true,
-        
-                feeSlabId: true,
-                feeSlabLabel: true,
-                feeSlabMinDays: true,
-                feeSlabMaxDays: true,
-        
-                baseTransferFee: true,
-        
-                cgstPercentage: true,
-                sgstPercentage: true,
-        
-                cgstAmount: true,
-                sgstAmount: true,
-        
-                transferFee: true,
-        
-                transferredById: true,
-                createdAt: true,
-        
-                fromMember: {
-                  select: {
-                    id: true,
-                    name: true,
-                    phone: true,
-                    email: true,
+                name: true,
+                phone: true,
+                email: true,
+              },
+            },
+
+            fromMember: {
+              select: {
+                id: true,
+                name: true,
+                phone: true,
+                email: true,
+              },
+            },
+
+            transferredBy: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                role: true,
+              },
+            },
+
+            /*
+             * This is the NEW subscription created during transfer.
+             */
+            toSubscription: {
+              include: {
+                branch: true,
+
+                package: {
+                  include: {
+                    service: true,
                   },
                 },
-        
-                transferredBy: {
-                  select: {
-                    id: true,
-                    name: true,
-                    email: true,
-                    role: true,
+              },
+            },
+
+            /*
+             * This is the OLD subscription.
+             */
+            subscription: {
+              include: {
+                branch: true,
+
+                package: {
+                  include: {
+                    service: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+
+        /*
+         * ============================================================
+         * INCOMING TRANSFERS
+         *
+         * This member is the RECEIVING member.
+         *
+         * subscriptionId
+         *      ↓
+         * old subscription
+         *
+         * toSubscriptionId
+         *      ↓
+         * this member's new subscription
+         * ============================================================
+         */
+        incomingMembershipTransfers: {
+          orderBy: {
+            createdAt: "desc",
+          },
+
+          include: {
+            fromMember: {
+              select: {
+                id: true,
+                name: true,
+                phone: true,
+                email: true,
+              },
+            },
+
+            toMember: {
+              select: {
+                id: true,
+                name: true,
+                phone: true,
+                email: true,
+              },
+            },
+
+            transferredBy: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                role: true,
+              },
+            },
+
+            /*
+             * New subscription belonging to this member.
+             */
+            toSubscription: {
+              include: {
+                branch: true,
+
+                package: {
+                  include: {
+                    service: true,
+                  },
+                },
+              },
+            },
+
+            /*
+             * Original subscription belonging to old member.
+             */
+            subscription: {
+              include: {
+                branch: true,
+
+                package: {
+                  include: {
+                    service: true,
                   },
                 },
               },
@@ -253,33 +413,51 @@ export const GET = async (
       });
     }
 
-    // 🔥 ONLY ACTIVE/FROZEN
-    const activeSubscriptions =
-      member.subscriptions.filter(
-        (s) =>
-          s.status === "ACTIVE" ||
-          s.status === "FROZEN"
-      );
+    /*
+     * ============================================================
+     * ACTIVE / FROZEN MEMBERSHIPS
+     * ============================================================
+     */
+    const activeSubscriptions = member.subscriptions.filter(
+      (subscription) =>
+        subscription.status === "ACTIVE" ||
+        subscription.status === "FROZEN"
+    );
 
-    // 🔥 TOTAL BILLING
-    const totalBilling =
-      member.invoices.reduce((acc, invoice) => {
+    /*
+     * ============================================================
+     * TOTAL BILLING
+     * ============================================================
+     */
+    const totalBilling = member.invoices.reduce(
+      (acc, invoice) => {
         return acc + invoice.finalAmount;
+      },
+      0
+    );
+
+    /*
+     * ============================================================
+     * TOTAL COLLECTED
+     * ============================================================
+     */
+    const totalCollected = member.payments
+      .filter((payment) => payment.status === "PAID")
+      .reduce((acc, payment) => {
+        return acc + payment.amount;
       }, 0);
 
-    // 🔥 TOTAL COLLECTED
-    const totalCollected =
-      member.payments
-        .filter((p) => p.status === "PAID")
-        .reduce((acc, payment) => {
-          return acc + payment.amount;
-        }, 0);
-
-    // 🔥 TOTAL PENDING
-    const totalPending =
-      member.invoices.reduce((acc, invoice) => {
+    /*
+     * ============================================================
+     * TOTAL PENDING
+     * ============================================================
+     */
+    const totalPending = member.invoices.reduce(
+      (acc, invoice) => {
         return acc + invoice.balanceAmount;
-      }, 0);
+      },
+      0
+    );
 
     return NextResponse.json({
       success: true,
@@ -289,31 +467,24 @@ export const GET = async (
       activeSubscriptions,
 
       stats: {
-        totalInvoices:
-          member.invoices.length,
-
-        totalSubscriptions:
-          member.subscriptions.length,
-
-        totalPayments:
-          member.payments.length,
-
+        totalInvoices: member.invoices.length,
+        totalSubscriptions: member.subscriptions.length,
+        totalPayments: member.payments.length,
         totalBilling,
-
         totalCollected,
-
         totalPending,
-
-        activeMemberships:
-          activeSubscriptions.length,
+        activeMemberships: activeSubscriptions.length,
       },
     });
   } catch (e) {
     console.log(e);
 
-    return NextResponse.json({
-      success: false,
-      message: "Something went wrong",
-    });
+    return NextResponse.json(
+      {
+        success: false,
+        message: "Something went wrong",
+      },
+      { status: 500 }
+    );
   }
 };
