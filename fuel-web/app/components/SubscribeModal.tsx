@@ -818,6 +818,24 @@ export const SubscribeModal = ({
     groupFinalPricePerMember +
     groupGstPerMember;
 
+    const groupOriginalGstPerMember =
+  Math.round(
+    Number(selectedPackage.price) *
+      (
+        (settings.cgstPercentage +
+          settings.sgstPercentage) /
+        100
+      )
+  );
+
+const groupOriginalInvoicePerMember =
+  Number(selectedPackage.price) +
+  groupOriginalGstPerMember;
+
+const groupOriginalInvoiceTotal =
+  groupOriginalInvoicePerMember *
+  groupMemberCount;
+
   const groupPackageSubtotal =
     Number(
       selectedPackage.price
@@ -1648,38 +1666,47 @@ const changeMemberCount = (
   
             {/* PRICE + CURRENT GROUP STATUS */}
   
-            <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2">
-              <div className="flex items-end gap-2">
-                <h3 className="text-2xl font-black text-white sm:text-3xl">
-                  ₹
-                  {formatMoney(
-                    displayedInvoiceTotal
-                  )}
-                </h3>
-  
-                <span className="mb-1 text-[11px] text-neutral-500">
-                  incl. ₹
-                  {formatMoney(
-                    displayedTotalGst
-                  )}{" "}
-                  GST
-                </span>
-              </div>
-  
-              {isGroupCheckout &&
-                matchingGroupRule && (
-                  <span className="rounded-full border border-lime-400/20 bg-lime-400/10 px-3 py-1 text-xs font-semibold text-lime-300">
-                    {memberCount}{" "}
-                    members ·{" "}
-                    {
-                      groupDiscountPercentage
-                    }
-                    % OFF
-                  </span>
-                )}
-            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-3">
+  <div className="flex items-end gap-3">
+    {isGroupCheckout ? (
+      <div className="flex flex-col">
+        <span className="text-sm font-medium text-neutral-500 line-through">
+          ₹{formatMoney(groupOriginalInvoiceTotal)}
+        </span>
+
+        <div className="flex items-end gap-2">
+          <h3 className="text-3xl font-black leading-none text-lime-400 sm:text-4xl">
+            ₹{formatMoney(displayedInvoiceTotal)}
+          </h3>
+
+          <span className="mb-0.5 text-[11px] font-medium text-neutral-500">
+            incl. GST
+          </span>
+        </div>
+      </div>
+    ) : (
+      <div className="flex items-end gap-2">
+        <h3 className="text-2xl font-black text-white sm:text-3xl">
+          ₹{formatMoney(displayedInvoiceTotal)}
+        </h3>
+
+        <span className="mb-1 text-[11px] text-neutral-500">
+          incl. ₹{formatMoney(displayedTotalGst)} GST
+        </span>
+      </div>
+    )}
+  </div>
+
+  {isGroupCheckout && matchingGroupRule && (
+    <span className="rounded-full border border-lime-400/20 bg-lime-400/10 px-3 py-1 text-xs font-semibold text-lime-300">
+      {memberCount} members · {groupDiscountPercentage}% OFF
+    </span>
+  )}
+</div>
   
             {/* GROUP PROMOTION */}
+
+            
   
             {!isGroupCheckout &&
               groupDiscountApplicable &&
@@ -1872,25 +1899,38 @@ const changeMemberCount = (
               }`}
             >
               {isGroupCheckout && (
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-sm font-semibold text-white">
-                      Member 1
-                    </h3>
-  
-                    <span className="rounded-full bg-lime-400/10 px-2 py-0.5 text-[9px] font-medium uppercase tracking-wide text-lime-400">
-                      Primary
-                    </span>
-                  </div>
-  
-                  <span className="text-xs font-semibold text-neutral-400">
-                    ₹
-                    {formatMoney(
-                      groupInvoicePerMember
-                    )}
-                  </span>
-                </div>
-              )}
+  <div className="mb-4 flex items-center justify-between gap-4 rounded-xl border border-lime-400/20 bg-lime-400/5 px-4 py-3">
+    <div className="min-w-0">
+      <div className="flex items-center gap-2">
+        <h3 className="text-sm font-bold text-white">
+          Member 1
+        </h3>
+
+        <span className="rounded-full bg-lime-400/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-lime-400">
+          Primary
+        </span>
+      </div>
+
+      <p className="mt-1 text-[11px] font-medium uppercase tracking-wide text-neutral-500">
+        Each Person Price
+      </p>
+    </div>
+
+    <div className="shrink-0 text-right">
+      <p className="text-xs font-medium text-neutral-500 line-through">
+        ₹{formatMoney(Number(selectedPackage.price))}
+      </p>
+
+      <p className="text-xl font-black leading-tight text-lime-400 sm:text-2xl">
+        ₹{formatMoney(groupInvoicePerMember)}
+      </p>
+
+      <p className="mt-0.5 text-[10px] font-medium text-neutral-500">
+        incl. GST
+      </p>
+    </div>
+  </div>
+)}
   
               <div
                 className={
@@ -2058,13 +2098,19 @@ const changeMemberCount = (
                                 memberNumber
                               }
                             </h3>
-  
-                            <span className="text-xs font-semibold text-neutral-400">
-                              ₹
-                              {formatMoney(
-                                groupInvoicePerMember
-                              )}
-                            </span>
+                            <div className="shrink-0 text-right">
+  <p className="text-[10px] font-medium uppercase tracking-wide text-neutral-500">
+    Each Person
+  </p>
+
+  <p className="text-xs font-medium text-neutral-500 line-through">
+    ₹{formatMoney(Number(selectedPackage.price))}
+  </p>
+
+  <p className="text-lg font-black leading-tight text-lime-400">
+    ₹{formatMoney(groupInvoicePerMember)}
+  </p>
+</div>
                           </div>
   
                           <div className="grid gap-3 md:grid-cols-3">

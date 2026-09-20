@@ -15,12 +15,7 @@ import {
           },
   
           include: {
-            branch: {
-              select: {
-                id: true,
-                name: true,
-              },
-            },
+          
   
             program: {
               include: {
@@ -279,13 +274,7 @@ import {
               },
   
               include: {
-                branch: {
-                  select: {
-                    id: true,
-                    name: true,
-                  },
-                },
-  
+               
                 program: {
                   include: {
                     items: {

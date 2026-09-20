@@ -75,12 +75,6 @@ export async function GET(
           },
 
           include: {
-            branch: {
-              select: {
-                id: true,
-                name: true,
-              },
-            },
 
             program: {
               include: {
@@ -176,7 +170,6 @@ export async function GET(
 
           durationSeconds,
 
-          branch: assignment.branch,
 
           program: {
             id: assignment.program.id,
