@@ -108,8 +108,10 @@ export async function GET(req: NextRequest) {
                 id: branchId,
               },
             },
+            isActive: true,
           }
         : undefined,
+
 
       include: {
         branches: true,

@@ -253,7 +253,7 @@ model Service {
   branches Branch[]
   packages ServicePackage[]
   slots    Slot[]
-
+  isActive  Boolean  @default(true)
   websiteContent ServiceWebsiteContent?
   subCategories  ServiceSubCategory[]
 

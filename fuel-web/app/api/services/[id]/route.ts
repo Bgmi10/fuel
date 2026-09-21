@@ -171,6 +171,7 @@ export async function PUT(
         : body.coverImage === null
           ? null
           : undefined;
+          
 
     const branchIds = body.branchIds;
 
@@ -246,7 +247,7 @@ export async function PUT(
         },
         data: {
           name,
-
+          isActive: body.isActive,
           ...(thumbnailImage !== undefined && {
             thumbnailImage,
           }),

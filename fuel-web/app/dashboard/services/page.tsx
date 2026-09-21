@@ -63,6 +63,7 @@ const Page = () => {
   const [thumbnailImage, setThumbnailImage] =
     useState("");
 
+  const [isActive, setIsActive] = useState(false);
   const [coverImage, setCoverImage] =
     useState("");
 
@@ -353,6 +354,8 @@ const Page = () => {
         ""
     );
 
+    setIsActive(service.isActive);
+
     setCoverImage(
       service.coverImage ||
         ""
@@ -498,6 +501,7 @@ const Page = () => {
           thumbnailImage:
             thumbnailImage.trim() ||
             null,
+            isActive: isActive,
 
           coverImage:
             coverImage.trim() ||
@@ -898,6 +902,39 @@ const Page = () => {
                     className="w-full rounded-xl border border-neutral-800 bg-black px-4 py-3 text-sm text-white outline-none transition focus:border-lime-400"
                   />
                 </div>
+
+                {/* =========================
+    STATUS
+========================= */}
+<div>
+  <label className="mb-3 block text-sm text-neutral-400">
+    Service Status
+  </label>
+
+  <label className="flex cursor-pointer items-center justify-between rounded-xl border border-neutral-800 bg-black px-4 py-3 transition hover:border-neutral-700">
+    <div>
+      <p className="text-sm font-medium text-white">
+        Active Service
+      </p>
+
+      <p className="mt-1 text-xs text-neutral-500">
+        {isActive
+          ? "This service is currently available."
+          : "This service is disabled and unavailable."}
+      </p>
+    </div>
+
+    <input
+      type="checkbox"
+      checked={isActive}
+      onChange={(event) =>
+        setIsActive(event.target.checked)
+      }
+      disabled={actionLoading}
+      className="h-5 w-5 cursor-pointer accent-lime-400 disabled:cursor-not-allowed"
+    />
+  </label>
+</div>
 
                 {/* =========================
                     THUMBNAIL

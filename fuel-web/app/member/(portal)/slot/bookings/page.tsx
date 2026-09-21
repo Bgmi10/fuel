@@ -113,6 +113,7 @@ const Page = () => {
     }
   };
 
+  
   return (
     <div className="space-y-6 text-white">
 
@@ -181,6 +182,45 @@ const Page = () => {
               booking.status === "BOOKED" &&
               !booking.checkedInAt &&
               !isPast;
+
+              const isBeforeOneHour = (() => {
+                if (
+                  !booking?.bookingDate ||
+                  !booking?.slot?.startTime
+                ) {
+                  return false;
+                }
+              
+                const bookingDate = new Date(booking.bookingDate);
+              
+                // Extract YYYY-MM-DD from booking date
+                const year = bookingDate.getFullYear();
+                const month = String(bookingDate.getMonth() + 1).padStart(2, "0");
+                const day = String(bookingDate.getDate()).padStart(2, "0");
+              
+                // slot.startTime example: "13:23"
+                const [hours, minutes] = booking.slot.startTime
+                  .split(":")
+                  .map(Number);
+              
+                // Create the exact session datetime
+                const sessionStart = new Date(
+                  year,
+                  Number(month) - 1,
+                  Number(day),
+                  hours,
+                  minutes,
+                  0,
+                  0
+                );
+              
+                // One hour before session
+                const cancellationDeadline =
+                  sessionStart.getTime() - 60 * 60 * 1000;
+              
+                // Cancel is available only BEFORE the deadline
+                return Date.now() < cancellationDeadline;
+              })();
 
             return (
               <div
@@ -282,7 +322,7 @@ const Page = () => {
 
                   {/* CANCEL */}
 
-                  {canCancel && (
+                  {isBeforeOneHour && canCancel && (
                     <button
                       onClick={() =>
                         handleCancelBooking(booking)

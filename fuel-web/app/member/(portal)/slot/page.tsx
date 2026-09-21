@@ -19,6 +19,50 @@ const Page = () => {
   const [recentBookings, setRecentBookings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedBooking, setSelectedBooking] = useState<any>(null);
+  
+  const isBeforeOneHour = (() => {
+    if (
+      !upcomingBooking?.bookingDate ||
+      !upcomingBooking?.slot?.startTime
+    ) {
+      return false;
+    }
+  
+    const bookingDate = new Date(upcomingBooking.bookingDate);
+  
+    // Extract YYYY-MM-DD from booking date
+    const year = bookingDate.getFullYear();
+    const month = String(bookingDate.getMonth() + 1).padStart(2, "0");
+    const day = String(bookingDate.getDate()).padStart(2, "0");
+  
+    // slot.startTime example: "13:23"
+    const [hours, minutes] = upcomingBooking.slot.startTime
+      .split(":")
+      .map(Number);
+  
+    // Create the exact session datetime
+    const sessionStart = new Date(
+      year,
+      Number(month) - 1,
+      Number(day),
+      hours,
+      minutes,
+      0,
+      0
+    );
+  
+    // One hour before session
+    const cancellationDeadline =
+      sessionStart.getTime() - 60 * 60 * 1000;
+  
+    // Cancel is available only BEFORE the deadline
+    return Date.now() < cancellationDeadline;
+  })();
+
+
+  //  button should be available up to **1 hour before the session**.
+  // we have the slot date and the slot start time
+  // 
 
   useEffect(() => {
     const fetchData = async () => {
@@ -171,26 +215,26 @@ const Page = () => {
     Session Pass
   </button>
 
-  <button
-    onClick={handleCancelBooking}
-    disabled={loading}
-    className="
-      px-4 py-3
-      text-xs
-      font-semibold
-      rounded-xl
-      border border-red-500/30
-      bg-red-500/10
-      text-red-400
-      hover:bg-red-500/20
-      hover:border-red-500/50
-      transition
-      disabled:opacity-50
-      disabled:cursor-not-allowed
-    "
-  >
-    {loading ? "Cancelling..." : "Cancel"}
-  </button>
+{isBeforeOneHour && <button
+  onClick={handleCancelBooking}
+  disabled={loading}
+  className="
+    px-4 py-3
+    text-xs
+    font-semibold
+    rounded-xl
+    border border-red-500/30
+    bg-red-500/10
+    text-red-400
+    hover:bg-red-500/20
+    hover:border-red-500/50
+    transition
+    disabled:opacity-50
+    disabled:cursor-not-allowed
+  "
+>
+  {loading ? "Cancelling..." : "Cancel"}
+</button>}
 </div>
         </div>
       ) : (
