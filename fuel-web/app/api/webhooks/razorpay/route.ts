@@ -27,6 +27,16 @@ import {
   nowUTC,
 } from "@/app/utils/date";
 
+/**
+ * ============================================================
+ * PAYMENT METADATA
+ * ============================================================
+ *
+ * The group-order route can store subCategoryId here.
+ *
+ * The invoice remains the primary source of truth once the
+ * invoice has already been created.
+ */
 type PaymentMetadata = {
   purchaseType?:
     | "INDIVIDUAL"
@@ -48,15 +58,26 @@ type PaymentMetadata = {
     | string
     | null;
 
+  /**
+   * Selected service sub-category.
+   *
+   * This is especially useful as a fallback for older/order
+   * creation flows where the invoice did not receive the value.
+   */
+  subCategoryId?:
+    | string
+    | null;
+
   memberIndex?: number;
+
   memberCount?: number;
 
-  groupDiscountPercentage?:
-    number;
+  groupDiscountPercentage?: number;
 };
 
 type ProcessedPayment = {
   paymentId: string;
+
   invoiceId: string;
 
   paymentType: string;
@@ -65,6 +86,12 @@ type ProcessedPayment = {
     | Date
     | null;
 };
+
+/**
+ * ============================================================
+ * HELPERS
+ * ============================================================
+ */
 
 const parsePaymentMetadata = (
   notes: unknown
@@ -87,8 +114,7 @@ const parsePaymentMetadata = (
       return {};
     }
 
-    return parsed as
-      PaymentMetadata;
+    return parsed as PaymentMetadata;
   } catch {
     return {};
   }
@@ -114,6 +140,12 @@ const parseDate = (
     : parsed;
 };
 
+/**
+ * ============================================================
+ * REFERRAL REWARD
+ * ============================================================
+ */
+
 const processReferralReward =
   async (
     invoiceId: string
@@ -122,14 +154,11 @@ const processReferralReward =
       const invoice =
         await prisma.invoice.findUnique({
           where: {
-            id:
-              invoiceId,
+            id: invoiceId,
           },
-
           select: {
             id: true,
             memberId: true,
-
             referralDiscountAmount:
               true,
           },
@@ -187,12 +216,15 @@ const processReferralReward =
           typeof setting.referralRewardType;
 
         rewardClaimed: boolean;
+
         status:
           | "JOINED"
           | "REWARDED";
 
         rewardAmount?: number;
+
         rewardPercentage?: number;
+
         rewardMembershipDays?: number;
       } = {
         rewardIssued: true,
@@ -201,8 +233,7 @@ const processReferralReward =
           new Date(),
 
         rewardType:
-          setting
-            .referralRewardType,
+          setting.referralRewardType,
 
         rewardClaimed:
           rewardAlreadyUsed,
@@ -214,64 +245,53 @@ const processReferralReward =
       };
 
       if (
-        setting
-          .referralRewardType ===
+        setting.referralRewardType ===
         "FIXED_AMOUNT"
       ) {
         updateData.rewardAmount =
           Number(
-            setting
-              .referralRewardAmount ||
+            setting.referralRewardAmount ||
               0
           );
       }
 
       if (
-        setting
-          .referralRewardType ===
+        setting.referralRewardType ===
         "PERCENTAGE_DISCOUNT"
       ) {
-        updateData
-          .rewardPercentage =
+        updateData.rewardPercentage =
           Number(
-            setting
-              .referralRewardPercentage ||
+            setting.referralRewardPercentage ||
               0
           );
       }
 
       if (
-        setting
-          .referralRewardType ===
+        setting.referralRewardType ===
         "MEMBERSHIP_DAYS"
       ) {
-        updateData
-          .rewardMembershipDays =
+        updateData.rewardMembershipDays =
           Number(
-            setting
-              .referralMembershipDays ||
+            setting.referralMembershipDays ||
               0
           );
       }
 
       await prisma.referral.update({
         where: {
-          id:
-            referral.id,
+          id: referral.id,
         },
 
-        data:
-          updateData,
+        data: updateData,
       });
 
       console.log(
         `Referral reward processed for invoice ${invoice.id}`
       );
     } catch (error) {
-      /*
-       * A referral failure must not make
-       * Razorpay retry an already completed
-       * membership transaction.
+      /**
+       * A referral failure must not make Razorpay
+       * retry an already completed membership transaction.
        */
       console.error(
         "Referral processing failed:",
@@ -281,6 +301,12 @@ const processReferralReward =
     }
   };
 
+/**
+ * ============================================================
+ * MEMBERSHIP NOTIFICATION
+ * ============================================================
+ */
+
 const sendMembershipNotification =
   async ({
     invoiceId,
@@ -288,6 +314,7 @@ const sendMembershipNotification =
     finalSubscriptionEndDate,
   }: {
     invoiceId: string;
+
     paymentId: string;
 
     finalSubscriptionEndDate:
@@ -296,8 +323,7 @@ const sendMembershipNotification =
     const freshInvoice =
       await prisma.invoice.findUnique({
         where: {
-          id:
-            invoiceId,
+          id: invoiceId,
         },
 
         include: {
@@ -311,6 +337,12 @@ const sendMembershipNotification =
             },
           },
 
+          /**
+           * IMPORTANT:
+           * Load the selected sub-category as well.
+           */
+          subCategory: true,
+
           payments: {
             orderBy: {
               createdAt:
@@ -318,7 +350,11 @@ const sendMembershipNotification =
             },
           },
 
-          subscription: true,
+          subscription: {
+            include: {
+              subCategory: true,
+            },
+          },
         },
       });
 
@@ -353,9 +389,11 @@ const sendMembershipNotification =
         finalSubscriptionEndDate
       );
 
-    // =====================================================
-    // WHATSAPP
-    // =====================================================
+    /**
+     * =======================================================
+     * WHATSAPP
+     * =======================================================
+     */
 
     try {
       await whatsapp(
@@ -366,6 +404,7 @@ const sendMembershipNotification =
         [
           {
             type: "text",
+
             text:
               freshInvoice.member
                 .name,
@@ -373,6 +412,7 @@ const sendMembershipNotification =
 
           {
             type: "text",
+
             text:
               freshInvoice
                 .packageName,
@@ -380,12 +420,14 @@ const sendMembershipNotification =
 
           {
             type: "text",
+
             text:
               formattedEndDate,
           },
 
           {
             type: "text",
+
             text:
               freshInvoice
                 .branchName,
@@ -393,6 +435,7 @@ const sendMembershipNotification =
 
           {
             type: "text",
+
             text:
               memberPortal,
           },
@@ -406,9 +449,11 @@ const sendMembershipNotification =
       );
     }
 
-    // =====================================================
-    // EMAIL
-    // =====================================================
+    /**
+     * =======================================================
+     * EMAIL
+     * =======================================================
+     */
 
     try {
       const invoiceUrl =
@@ -426,11 +471,9 @@ const sendMembershipNotification =
         Math.round(
           freshInvoice.finalAmount +
             (
-              freshInvoice
-                .totalTax ||
+              freshInvoice.totalTax ||
               Number(
-                gstBreakdown
-                  .totalTax
+                gstBreakdown.totalTax
               ) ||
               0
             )
@@ -559,11 +602,6 @@ const sendMembershipNotification =
                 0
             ),
 
-          /*
-           * Group fields are harmless for
-           * individual invoices. The email
-           * template may use them later.
-           */
           groupMemberCount:
             freshInvoice
               .groupMemberCount ||
@@ -628,6 +666,22 @@ const sendMembershipNotification =
           packageName:
             freshInvoice
               .packageName,
+
+          /**
+           * NEW:
+           * Make sub-category available to the email
+           * template if required later.
+           */
+          subCategoryId:
+            freshInvoice
+              .subCategoryId ||
+            null,
+
+          subCategoryName:
+            freshInvoice
+              .subCategory
+              ?.name ||
+            "-",
 
           startDate:
             freshInvoice
@@ -755,13 +809,21 @@ const sendMembershipNotification =
     }
   };
 
+/**
+ * ============================================================
+ * WEBHOOK
+ * ============================================================
+ */
+
 export async function POST(
   req: NextRequest
 ) {
   try {
-    // =====================================================
-    // RAW BODY + SIGNATURE
-    // =====================================================
+    /**
+     * =======================================================
+     * RAW BODY + SIGNATURE
+     * =======================================================
+     */
 
     const rawBody =
       await req.text();
@@ -775,7 +837,6 @@ export async function POST(
       crypto
         .createHmac(
           "sha256",
-
           process.env
             .RAZORPAY_WEBHOOK_SECRET!
         )
@@ -818,9 +879,11 @@ export async function POST(
       );
     }
 
-    // =====================================================
-    // EVENT
-    // =====================================================
+    /**
+     * =======================================================
+     * EVENT
+     * =======================================================
+     */
 
     const event =
       JSON.parse(rawBody);
@@ -863,8 +926,7 @@ export async function POST(
         Number(
           razorpayPayment
             .created_at
-        ) *
-          1000
+        ) * 1000
       );
 
     if (
@@ -884,20 +946,21 @@ export async function POST(
       );
     }
 
-    // =====================================================
-    // FIND ALL INTERNAL PAYMENT ALLOCATIONS
-    // =====================================================
-
-    /*
+    /**
+     * =======================================================
+     * FIND ALL INTERNAL PAYMENT ALLOCATIONS
+     * =======================================================
+     *
      * Individual checkout:
      *   paymentRecords.length === 1
      *
      * Group checkout:
      *   paymentRecords.length === N
      *
-     * Every group payment row intentionally
-     * shares the same razorpayOrderId.
+     * Every group payment row intentionally shares
+     * the same Razorpay order ID.
      */
+
     const paymentRecords =
       await prisma.payment.findMany({
         where: {
@@ -919,8 +982,17 @@ export async function POST(
                 },
               },
 
-              subscription:
-                true,
+              /**
+               * IMPORTANT:
+               * Invoice now owns the selected sub-category.
+               */
+              subCategory: true,
+
+              subscription: {
+                include: {
+                  subCategory: true,
+                },
+              },
             },
           },
         },
@@ -952,9 +1024,11 @@ export async function POST(
       );
     }
 
-    // =====================================================
-    // ORDER AMOUNT VERIFICATION
-    // =====================================================
+    /**
+     * =======================================================
+     * ORDER AMOUNT VERIFICATION
+     * =======================================================
+     */
 
     const expectedAmount =
       paymentRecords.reduce(
@@ -966,7 +1040,6 @@ export async function POST(
           Number(
             payment.amount
           ),
-
         0
       );
 
@@ -1004,6 +1077,12 @@ export async function POST(
       );
     }
 
+    /**
+     * =======================================================
+     * DUPLICATE WEBHOOK PROTECTION
+     * =======================================================
+     */
+
     const allAlreadyPaid =
       paymentRecords.every(
         (payment) =>
@@ -1022,9 +1101,34 @@ export async function POST(
       });
     }
 
-    // =====================================================
-    // TRANSACTION
-    // =====================================================
+    /**
+     * =======================================================
+     * RAZORPAY ORDER NOTES
+     * =======================================================
+     *
+     * This is only a fallback.
+     *
+     * The preferred source is invoice.subCategoryId.
+     */
+
+    const orderNotes =
+      (
+        razorpayPayment.notes &&
+        typeof razorpayPayment
+          .notes === "object"
+      )
+        ? razorpayPayment
+            .notes as Record<
+              string,
+              unknown
+            >
+        : {};
+
+    /**
+     * =======================================================
+     * TRANSACTION
+     * =======================================================
+     */
 
     const processedPayments =
       await prisma.$transaction(
@@ -1040,13 +1144,12 @@ export async function POST(
             const paymentRecord of
             paymentRecords
           ) {
-            /*
-             * Atomically claim this payment row.
-             *
-             * This is safer than relying only on
-             * the status read before the transaction
-             * when duplicate webhooks arrive together.
+            /**
+             * =================================================
+             * ATOMICALLY CLAIM PAYMENT
+             * =================================================
              */
+
             const claimed =
               await tx.payment.updateMany({
                 where: {
@@ -1083,8 +1186,96 @@ export async function POST(
               continue;
             }
 
+            /**
+             * =================================================
+             * INVOICE
+             * =================================================
+             */
+
             const invoice =
               paymentRecord.invoice;
+
+            /**
+             * =================================================
+             * PAYMENT METADATA
+             * =================================================
+             */
+
+            const metadata =
+              parsePaymentMetadata(
+                paymentRecord.notes
+              );
+
+            /**
+             * =================================================
+             * SUB-CATEGORY RESOLUTION
+             * =================================================
+             *
+             * Priority:
+             *
+             * 1. Invoice.subCategoryId
+             * 2. Payment metadata.subCategoryId
+             * 3. Razorpay order notes.subCategoryId
+             *
+             * This lets the new flow work while remaining
+             * compatible with invoices created before the
+             * schema change.
+             */
+
+            const resolvedSubCategoryId =
+              invoice.subCategoryId ||
+              (
+                typeof metadata
+                  .subCategoryId ===
+                  "string"
+                  ? metadata.subCategoryId
+                  : null
+              ) ||
+              (
+                typeof orderNotes
+                  .subCategoryId ===
+                  "string"
+                  ? String(
+                      orderNotes
+                        .subCategoryId
+                    )
+                  : null
+              ) ||
+              null;
+
+            /**
+             * If the invoice did not already have the
+             * sub-category but it is available in metadata,
+             * persist it on the invoice.
+             */
+            if (
+              !invoice.subCategoryId &&
+              resolvedSubCategoryId
+            ) {
+              await tx.invoice.update({
+                where: {
+                  id: invoice.id,
+                },
+
+                data: {
+                  subCategoryId:
+                    resolvedSubCategoryId,
+                },
+              });
+
+              /**
+               * Keep local object consistent for the rest
+               * of this transaction.
+               */
+              invoice.subCategoryId =
+                resolvedSubCategoryId;
+            }
+
+            /**
+             * =================================================
+             * INVOICE PAYMENT TOTAL
+             * =================================================
+             */
 
             const invoiceTotal =
               Math.round(
@@ -1109,7 +1300,6 @@ export async function POST(
                     paymentRecord
                       .amount
                   ),
-
                 invoiceTotal
               );
 
@@ -1117,7 +1307,6 @@ export async function POST(
               Math.max(
                 invoiceTotal -
                   updatedPaidAmount,
-
                 0
               );
 
@@ -1132,8 +1321,7 @@ export async function POST(
 
             await tx.invoice.update({
               where: {
-                id:
-                  invoice.id,
+                id: invoice.id,
               },
 
               data: {
@@ -1148,9 +1336,14 @@ export async function POST(
               },
             });
 
-            // =============================================
-            // BALANCE PAYMENT
-            // =============================================
+            /**
+             * =================================================
+             * BALANCE PAYMENT
+             * =================================================
+             *
+             * A balance payment must NOT create a new
+             * subscription.
+             */
 
             if (
               paymentRecord
@@ -1178,29 +1371,11 @@ export async function POST(
               continue;
             }
 
-            // =============================================
-            // INITIAL PAYMENT
-            // =============================================
-
-            const metadata =
-              parsePaymentMetadata(
-                paymentRecord.notes
-              );
-
-            const orderNotes =
-              (
-                razorpayPayment.notes &&
-                typeof razorpayPayment
-                  .notes ===
-                  "object"
-              )
-                ? razorpayPayment
-                    .notes as
-                    Record<
-                      string,
-                      unknown
-                    >
-                : {};
+            /**
+             * =================================================
+             * INITIAL PAYMENT
+             * =================================================
+             */
 
             const requestedStartDate =
               parseDate(
@@ -1226,10 +1401,15 @@ export async function POST(
               | Date
               | null = null;
 
-            /*
-             * Prefer the explicit subscription ID
-             * stored by the group-order endpoint.
+            /**
+             * =================================================
+             * EXTENSION SUBSCRIPTION
+             * =================================================
+             *
+             * Prefer explicit subscription ID from the
+             * group-order endpoint.
              */
+
             let extensionSubscription =
               metadata
                 .extensionSubscriptionId
@@ -1244,24 +1424,32 @@ export async function POST(
                     })
                 : null;
 
-            /*
-             * Backward compatibility for older
-             * individual invoices that may already
-             * be linked to a subscription.
+            /**
+             * Backward compatibility for invoices that are
+             * already linked to a subscription.
              */
+
             if (
               !extensionSubscription &&
               invoice.subscription
             ) {
               extensionSubscription =
-                invoice.subscription;
+                await tx
+                  .subscription
+                  .findUnique({
+                    where: {
+                      id:
+                        invoice
+                          .subscription
+                          .id,
+                    },
+                  });
             }
 
-            /*
-             * Final fallback for individual EXTEND
-             * invoices that were not connected to the
-             * active subscription during order creation.
+            /**
+             * Final fallback for individual EXTEND invoices.
              */
+
             if (
               !extensionSubscription &&
               invoice.intent ===
@@ -1295,6 +1483,12 @@ export async function POST(
                   });
             }
 
+            /**
+             * =================================================
+             * EXTEND
+             * =================================================
+             */
+
             if (
               invoice.intent ===
                 "EXTEND" &&
@@ -1322,19 +1516,26 @@ export async function POST(
                   data: {
                     endDate:
                       newEndDate,
+
+                    /**
+                     * If the extension invoice has a
+                     * sub-category and the existing
+                     * subscription does not, preserve it.
+                     *
+                     * If the existing subscription already
+                     * has one, do not overwrite it.
+                     */
+                    ...(resolvedSubCategoryId &&
+                    !extensionSubscription
+                      .subCategoryId
+                      ? {
+                          subCategoryId:
+                            resolvedSubCategoryId,
+                        }
+                      : {}),
                   },
                 });
 
-              /*
-               * Do not connect this new extension
-               * invoice to the existing subscription.
-               *
-               * In the current schema, a subscription
-               * is normally linked to its original
-               * invoice. Reconnecting it can violate a
-               * one-to-one relation or detach the
-               * original invoice.
-               */
               finalSubscriptionEndDate =
                 newEndDate;
 
@@ -1347,9 +1548,21 @@ export async function POST(
                   subscriptionId:
                     extensionSubscription
                       .id,
+
+                  subCategoryId:
+                    extensionSubscription
+                      .subCategoryId ||
+                    resolvedSubCategoryId ||
+                    null,
                 }
               );
             } else {
+              /**
+               * =================================================
+               * NEW SUBSCRIPTION
+               * =================================================
+               */
+
               const startDate =
                 requestedStartDate ||
                 nowUTC();
@@ -1363,6 +1576,12 @@ export async function POST(
                     .packageDurationInDays
                 );
 
+              /**
+               * IMPORTANT:
+               *
+               * The selected subCategoryId is now copied
+               * from the invoice into the subscription.
+               */
               const subscription =
                 await tx
                   .subscription
@@ -1380,11 +1599,27 @@ export async function POST(
                       invoiceId:
                         invoice.id,
 
+                      /**
+                       * NEW:
+                       * Preserve selected sub-category.
+                       */
+                      subCategoryId:
+                        resolvedSubCategoryId,
+
                       serviceName:
                         invoice
                           .serviceName,
-                          usageType: invoice.package.usageType,
-                          totalSessions: invoice.package.totalSessions,
+
+                      usageType:
+                        invoice
+                          .package
+                          .usageType,
+
+                      totalSessions:
+                        invoice
+                          .package
+                          .totalSessions,
+
                       packageName:
                         invoice
                           .packageName,
@@ -1406,6 +1641,7 @@ export async function POST(
                           .branchName,
 
                       startDate,
+
                       endDate,
 
                       status:
@@ -1413,21 +1649,12 @@ export async function POST(
                     },
                   });
 
-              await tx.invoice.update({
-                where: {
-                  id:
-                    invoice.id,
-                },
-
-                data: {
-                  subscription: {
-                    connect: {
-                      id:
-                        subscription.id,
-                    },
-                  },
-                },
-              });
+              /**
+               * The invoice/subscription relation is already
+               * established through invoiceId above.
+               *
+               * No need to reconnect it here.
+               */
 
               finalSubscriptionEndDate =
                 endDate;
@@ -1440,6 +1667,11 @@ export async function POST(
 
                   subscriptionId:
                     subscription.id,
+
+                  subCategoryId:
+                    subscription
+                      .subCategoryId ||
+                    null,
                 }
               );
             }
@@ -1463,15 +1695,17 @@ export async function POST(
         }
       );
 
-    // =====================================================
-    // POST-PAYMENT SIDE EFFECTS
-    // =====================================================
-
-    /*
-     * Database payment processing is already
-     * committed. Referral or notification
-     * failures must not roll it back.
+    /**
+     * =======================================================
+     * POST-PAYMENT SIDE EFFECTS
+     * =======================================================
+     *
+     * Database processing is already committed.
+     *
+     * Notification/referral failures must not roll back
+     * the completed payment transaction.
      */
+
     for (
       const processed of
       processedPayments
@@ -1512,6 +1746,12 @@ export async function POST(
         }
       }
     }
+
+    /**
+     * =======================================================
+     * SUCCESS
+     * =======================================================
+     */
 
     console.log(
       "✅ Razorpay payment processed",

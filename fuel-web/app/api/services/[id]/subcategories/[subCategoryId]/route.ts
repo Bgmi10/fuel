@@ -113,6 +113,11 @@ export async function PUT(
         ? body.name.trim()
         : "";
 
+        const tagline =
+        typeof body.tagline === "string"
+          ? body.tagline.trim()
+          : "";
+
     const description =
       typeof body.description === "string"
         ? body.description.trim()
@@ -165,6 +170,7 @@ export async function PUT(
           description: description || null,
           image: image || null,
           sortOrder,
+          tagline,
           isActive,
         },
         include: {

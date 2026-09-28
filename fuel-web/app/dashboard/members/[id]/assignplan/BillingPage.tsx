@@ -7,30 +7,38 @@ import {
   Service,
   ServicePackage,
 } from "@prisma/client";
-
 import { ArrowLeft } from "lucide-react";
-
-import {
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
-
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { addDaysUTC, nowUTC } from "@/app/utils/date";
 
-import {
-  addDaysUTC,
-  nowUTC,
-} from "@/app/utils/date";
+/*
+ * ============================================================
+ * TYPES
+ * ============================================================
+ */
+
+type SubCategoryPackage = {
+  package: ServicePackage;
+};
+
+type ServiceSubCategory = {
+  id: string;
+  name: string;
+  packages: SubCategoryPackage[];
+};
 
 type ServiceWithPackages = Service & {
   packages: ServicePackage[];
   branches: Branch[];
+  subCategories: ServiceSubCategory[];
 };
 
 type Props = {
   services: ServiceWithPackages[];
-  member: Member;
+  member: Member & {
+    referrals?: any[];
+  };
   onSuccess?: () => void;
 };
 
@@ -47,67 +55,168 @@ const BillingPage = ({
 }: Props) => {
   const router = useRouter();
 
+  /*
+   * SELECTIONS
+   * ============================================================
+   */
+
   const [selectedService, setSelectedService] =
+    useState("");
+
+
+
+  const [selectedSubCategory, setSelectedSubCategory] =
     useState("");
 
   const [selectedPackage, setSelectedPackage] =
     useState("");
 
-    const [selectedReferral, setSelectedReferral] =
-  useState<any | null>(null);
-
-  
+  const [selectedReferral, setSelectedReferral] =
+    useState<any | null>(null);
 
   const [selectedBranch, setSelectedBranch] =
     useState("");
 
+  /*
+   * ============================================================
+   * SELECTED SERVICE
+   * ============================================================
+   */
 
-    const availableReferralRewards = useMemo(() => {
-      return (
-        //@ts-ignore
-        member?.referrals?.filter(
-          (ref: any) =>
-            ref.rewardIssued &&
-            !ref.rewardClaimed &&
-            (ref.rewardType ===
-              "FIXED_AMOUNT" ||
-              ref.rewardType ===
-                "PERCENTAGE_DISCOUNT")
-        ) || []
-      );
-    }, [member]);
+  const selectedServiceObj = useMemo(() => {
+    return services.find(
+      (service) => service.id === selectedService
+    );
+  }, [selectedService, services]);
 
+  /*
+   * ============================================================
+   * SUB CATEGORIES
+   * ============================================================
+   */
 
-    
-  // ===================================================
-  // 🔥 DATE FORMATTER
-  // ===================================================
+  const subCategories =
+    selectedServiceObj?.subCategories || [];
 
-  const formatDateInput = (
-    date: Date
-  ) => {
-    return date
-      .toISOString()
-      .split("T")[0];
+  /*
+   * ============================================================
+   * SELECTED SUB CATEGORY
+   * ============================================================
+   */
+
+  const selectedSubCategoryObj = useMemo(() => {
+    return subCategories.find(
+      (subCategory) =>
+        subCategory.id === selectedSubCategory
+    );
+  }, [subCategories, selectedSubCategory]);
+
+  /*
+   * ============================================================
+   * PACKAGES
+   *
+   * If sub-category is selected:
+   *
+   * Service
+   *   ↓
+   * Sub Category
+   *   ↓
+   * Sub Category Packages
+   *
+   * If no sub-category is selected:
+   *
+   * Service
+   *   ↓
+   * Service-level Packages
+   * ============================================================
+   */
+
+  const packages = useMemo(() => {
+    if (selectedSubCategoryObj) {
+      return selectedSubCategoryObj.packages
+        .map((item) => item.package)
+        .filter((pkg) => pkg.isActive);
+    }
+
+    return (
+      selectedServiceObj?.packages?.filter(
+        (pkg) => pkg.isActive
+      ) || []
+    );
+  }, [
+    selectedSubCategoryObj,
+    selectedServiceObj,
+  ]);
+
+  /*
+   * ============================================================
+   * BRANCHES
+   * ============================================================
+   */
+
+  const branches =
+    selectedServiceObj?.branches || [];
+
+  /*
+   * ============================================================
+   * SELECTED PACKAGE
+   * ============================================================
+   */
+
+  const selectedPackageObj = useMemo(() => {
+    return packages.find(
+      (pkg) => pkg.id === selectedPackage
+    );
+  }, [packages, selectedPackage]);
+
+  /*
+   * ============================================================
+   * REFERRAL REWARDS
+   * ============================================================
+   */
+
+  const availableReferralRewards = useMemo(() => {
+    return (
+      member?.referrals?.filter(
+        (ref: any) =>
+          ref.rewardIssued &&
+          !ref.rewardClaimed &&
+          (ref.rewardType === "FIXED_AMOUNT" ||
+            ref.rewardType ===
+              "PERCENTAGE_DISCOUNT")
+      ) || []
+    );
+  }, [member]);
+
+  /*
+   * ============================================================
+   * DATE FORMATTER
+   * ============================================================
+   */
+
+  const formatDateInput = (date: Date) => {
+    return date.toISOString().split("T")[0];
   };
 
-  // ===================================================
-  // 🔥 INITIAL DATES
-  // ===================================================
+  /*
+   * ============================================================
+   * INITIAL DATES
+   * ============================================================
+   */
 
   const todayUTC = nowUTC();
 
   const [startDate, setStartDate] =
-    useState(
-      formatDateInput(todayUTC)
-    );
+    useState(formatDateInput(todayUTC));
 
   const [endDate, setEndDate] =
     useState("");
 
-  // ===================================================
-  // 🔥 PAYMENT
-  // ===================================================
+  /*
+   * ============================================================
+   * PAYMENT
+   * ============================================================
+   */
 
   const [paymentMode, setPaymentMode] =
     useState("Cash");
@@ -123,31 +232,33 @@ const BillingPage = ({
   const [
     collectionType,
     setCollectionType,
-  ] = useState<"FLAT" | "PERCENT">(
-    "FLAT"
-  );
+  ] = useState<"FLAT" | "PERCENT">("FLAT");
 
-  const [notes, setNotes] =
-    useState("");
+  const [notes, setNotes] = useState("");
 
   const [loading, setLoading] =
     useState(false);
 
-  // ===================================================
-  // 🔥 GST SETTINGS
-  // ===================================================
+  /*
+   * ============================================================
+   * GST SETTINGS
+   * ============================================================
+   */
 
-  const [gstSettings, setGstSettings] = useState<{
-    cgstPercentage: number;
-    sgstPercentage: number;
-  } | null>(null);
+  const [gstSettings, setGstSettings] =
+    useState<{
+      cgstPercentage: number;
+      sgstPercentage: number;
+    } | null>(null);
 
-  // ===================================================
-  // 🔥 COUPON
-  // ===================================================
+  /*
+   * ============================================================
+   * COUPONS
+   * ============================================================
+   */
 
   const [couponLoading, setCouponLoading] =
-    useState<string | null>(null); // Track which coupon is being validated
+    useState<string | null>(null);
 
   const [appliedCoupons, setAppliedCoupons] =
     useState<Coupon[]>([]);
@@ -158,55 +269,46 @@ const BillingPage = ({
   const [couponError, setCouponError] =
     useState("");
 
-  // ===================================================
-  // 🔥 SERVICE
-  // ===================================================
-
-  const selectedServiceObj = useMemo(() => {
-    return services.find(
-      (s) => s.id === selectedService
-    );
-  }, [selectedService, services]);
-
-  const packages =
-    selectedServiceObj?.packages || [];
-
-  const branches =
-    selectedServiceObj?.branches || [];
-
-  const selectedPackageObj = useMemo(() => {
-    return packages.find(
-      (p) => p.id === selectedPackage
-    );
-  }, [packages, selectedPackage]);
-
-  // ===================================================
-  // 🔥 FETCH GST SETTINGS & COUPONS
-  // ===================================================
-
-
-  
+  /*
+   * ============================================================
+   * FETCH SETTINGS + COUPONS
+   * ============================================================
+   */
 
   useEffect(() => {
     const fetchSettings = async () => {
       try {
-        const res = await fetch('/api/settings');
+        const res = await fetch(
+          "/api/settings"
+        );
+
         const data = await res.json();
-        if (data.success && data.setting) {
+
+        if (
+          data.success &&
+          data.setting
+        ) {
           setGstSettings({
-            cgstPercentage: data.setting.cgstPercentage || 2.5,
-            sgstPercentage: data.setting.sgstPercentage || 2.5,
+            cgstPercentage:
+              data.setting
+                .cgstPercentage || 2.5,
+
+            sgstPercentage:
+              data.setting
+                .sgstPercentage || 2.5,
           });
         } else {
-          // Default GST values
           setGstSettings({
             cgstPercentage: 2.5,
             sgstPercentage: 2.5,
           });
         }
       } catch (error) {
-        console.error('Failed to fetch GST settings:', error);
-        // Default GST values
+        console.error(
+          "Failed to fetch GST settings:",
+          error
+        );
+
         setGstSettings({
           cgstPercentage: 2.5,
           sgstPercentage: 2.5,
@@ -216,26 +318,51 @@ const BillingPage = ({
 
     const fetchCoupons = async () => {
       try {
-        const res = await fetch('/api/coupons');
+        const res = await fetch(
+          "/api/coupons"
+        );
+
         const data = await res.json();
-        if (data.success && data.coupons) {
-          // Filter out expired coupons on client side
+
+        if (
+          data.success &&
+          data.coupons
+        ) {
           const now = new Date();
-          const validCoupons = data.coupons.filter((coupon: any) => {
-            // Check if coupon is expired
-            if (coupon.expiresAt && new Date(coupon.expiresAt) < now) {
-              return false;
-            }
-            // Check if usage limit exceeded
-            if (coupon.usageLimit && coupon.usedCount >= coupon.usageLimit) {
-              return false;
-            }
-            return true;
-          });
-          setAvailableCoupons(validCoupons);
+
+          const validCoupons =
+            data.coupons.filter(
+              (coupon: any) => {
+                if (
+                  coupon.expiresAt &&
+                  new Date(
+                    coupon.expiresAt
+                  ) < now
+                ) {
+                  return false;
+                }
+
+                if (
+                  coupon.usageLimit &&
+                  coupon.usedCount >=
+                    coupon.usageLimit
+                ) {
+                  return false;
+                }
+
+                return true;
+              }
+            );
+
+          setAvailableCoupons(
+            validCoupons
+          );
         }
       } catch (error) {
-        console.error('Failed to fetch coupons:', error);
+        console.error(
+          "Failed to fetch coupons:",
+          error
+        );
       }
     };
 
@@ -243,30 +370,28 @@ const BillingPage = ({
     fetchCoupons();
   }, []);
 
-  // ===================================================
-  // 🔥 AUTO DATES
-  // ===================================================
+  /*
+   * ============================================================
+   * AUTO DATES
+   * ============================================================
+   */
 
   useEffect(() => {
     const today = nowUTC();
 
-    const formattedToday =
-      formatDateInput(today);
-
-    setStartDate(formattedToday);
+    setStartDate(
+      formatDateInput(today)
+    );
 
     if (!selectedPackageObj) {
       setEndDate("");
-
       return;
     }
 
-    // 🔥 Inclusive membership duration
     const calculatedEndDate =
       addDaysUTC(
         today,
-        selectedPackageObj.durationInDays -
-          1
+        selectedPackageObj.durationInDays - 1
       );
 
     setEndDate(
@@ -276,30 +401,74 @@ const BillingPage = ({
     );
   }, [selectedPackageObj]);
 
-  // ===================================================
-  // 🔥 RESETS
-  // ===================================================
+  /*
+   * ============================================================
+   * SERVICE RESET
+   *
+   * Service changes:
+   * - reset sub-category
+   * - reset package
+   * - reset branch
+   * - reset coupons
+   * ============================================================
+   */
 
   useEffect(() => {
+    setSelectedSubCategory("");
     setSelectedPackage("");
     setSelectedBranch("");
     setAppliedCoupons([]);
     setCouponError("");
+    setSelectedReferral(null);
   }, [selectedService]);
+
+  /*
+   * ============================================================
+   * SUB CATEGORY RESET
+   *
+   * Sub-category changes:
+   * - reset package
+   * - reset coupons
+   * ============================================================
+   */
+
+  useEffect(() => {
+    setSelectedPackage("");
+    setAppliedCoupons([]);
+    setCouponError("");
+  }, [selectedSubCategory]);
+
+  /*
+   * ============================================================
+   * PACKAGE RESET
+   * ============================================================
+   */
 
   useEffect(() => {
     setAppliedCoupons([]);
     setCouponError("");
   }, [selectedPackage]);
 
+  /*
+   * ============================================================
+   * AMOUNTS
+   * ============================================================
+   */
 
-  
   const packageAmount =
     selectedPackageObj?.price || 0;
 
+  /*
+   * ============================================================
+   * REFERRAL DISCOUNT
+   * ============================================================
+   */
+
   const referralDiscount = useMemo(() => {
-    if (!selectedReferral) return 0;
-  
+    if (!selectedReferral) {
+      return 0;
+    }
+
     if (
       selectedReferral.rewardType ===
       "FIXED_AMOUNT"
@@ -308,7 +477,7 @@ const BillingPage = ({
         selectedReferral.rewardAmount || 0
       );
     }
-  
+
     if (
       selectedReferral.rewardType ===
       "PERCENTAGE_DISCOUNT"
@@ -320,94 +489,125 @@ const BillingPage = ({
             100)
       );
     }
-  
+
     return 0;
   }, [
     selectedReferral,
     packageAmount,
   ]);
-  
-  // ===================================================
-  // 🔥 AMOUNTS
-  // ===================================================
 
+  /*
+   * ============================================================
+   * PAID INPUT
+   * ============================================================
+   */
 
   const paidInput =
     Number(paidAmount) || 0;
 
-  // ===================================================
-  // 🔥 DISCOUNT
-  // ===================================================
+  /*
+   * ============================================================
+   * COUPON DISCOUNT
+   * ============================================================
+   */
 
   const discount = useMemo(() => {
-    if (!appliedCoupons.length) return 0;
+    if (!appliedCoupons.length) {
+      return 0;
+    }
 
     let totalDiscount = 0;
     let remainingAmount = packageAmount;
 
-    // Apply coupons in order
     for (const coupon of appliedCoupons) {
       if (coupon.discountPercent) {
-        const discountAmount = Math.round(
-          (remainingAmount * coupon.discountPercent) / 100
-        );
-        totalDiscount += discountAmount;
-        remainingAmount -= discountAmount;
-      } else if (coupon.discountFlatAmount) {
-        const discountAmount = Math.min(
-          coupon.discountFlatAmount,
-          remainingAmount
-        );
-        totalDiscount += discountAmount;
-        remainingAmount -= discountAmount;
+        const discountAmount =
+          Math.round(
+            (remainingAmount *
+              coupon.discountPercent) /
+              100
+          );
+
+        totalDiscount +=
+          discountAmount;
+
+        remainingAmount -=
+          discountAmount;
+      } else if (
+        coupon.discountFlatAmount
+      ) {
+        const discountAmount =
+          Math.min(
+            coupon.discountFlatAmount,
+            remainingAmount
+          );
+
+        totalDiscount +=
+          discountAmount;
+
+        remainingAmount -=
+          discountAmount;
       }
     }
 
     return totalDiscount;
-  }, [appliedCoupons, packageAmount]);
+  }, [
+    appliedCoupons,
+    packageAmount,
+  ]);
 
-  // ===================================================
-  // 🔥 FILTER APPLICABLE COUPONS
-  // ===================================================
+  /*
+   * ============================================================
+   * APPLICABLE COUPONS
+   * ============================================================
+   */
 
   const applicableCoupons = useMemo(() => {
-    if (!selectedPackage) return [];
+    if (!selectedPackage) {
+      return [];
+    }
 
-    return availableCoupons.filter((coupon) => {
-      // Check if already applied
-      if (appliedCoupons.some(c => c.id === coupon.id)) {
-        return false;
+    return availableCoupons.filter(
+      (coupon) => {
+        if (
+          appliedCoupons.some(
+            (c) => c.id === coupon.id
+          )
+        ) {
+          return false;
+        }
+
+        if (
+          !coupon.packages ||
+          coupon.packages.length === 0
+        ) {
+          return true;
+        }
+
+        return coupon.packages.some(
+          (pkg: any) =>
+            pkg.id === selectedPackage
+        );
       }
-      
-      // For admin, show all coupons (both private and public)
-      // Check if coupon is for all packages or specific package
-      if (!coupon.packages || coupon.packages.length === 0) {
-        // Universal coupon - show all
-        return true;
-      }
-      
-      // Check if package is in coupon's package list
-      const isApplicable = coupon.packages.some(
-        (pkg: any) => pkg.id === selectedPackage
-      );
-      
-      return isApplicable;
-    });
-  }, [availableCoupons, selectedPackage, appliedCoupons]);
+    );
+  }, [
+    availableCoupons,
+    selectedPackage,
+    appliedCoupons,
+  ]);
 
-  // ===================================================
-  // 🔥 FINAL AMOUNTS
+  /*
+   * ============================================================
+   * FINAL AMOUNTS
+   * ============================================================
+   */
 
-  
   const finalAmount = Math.max(
     packageAmount -
       discount -
       referralDiscount,
     0
   );
-
-
-  // ===================================================
 
   const collectedAmount =
     collectionType === "PERCENT"
@@ -417,28 +617,37 @@ const BillingPage = ({
         )
       : paidInput * 100;
 
-  // ===================================================
-  // 🔥 GST CALCULATION
-  // ===================================================
+  /*
+   * ============================================================
+   * GST
+   * ============================================================
+   */
 
   const cgstAmount = gstSettings
     ? Math.round(
-        finalAmount * (gstSettings.cgstPercentage / 100)
+        finalAmount *
+          (gstSettings.cgstPercentage /
+            100)
       )
     : 0;
 
   const sgstAmount = gstSettings
     ? Math.round(
-        finalAmount * (gstSettings.sgstPercentage / 100)
+        finalAmount *
+          (gstSettings.sgstPercentage /
+            100)
       )
     : 0;
 
-  const totalGST = cgstAmount + sgstAmount;
+  const totalGST =
+    cgstAmount + sgstAmount;
 
-  const invoiceTotal = finalAmount + totalGST;
+  const invoiceTotal =
+    finalAmount + totalGST;
 
   const balanceAmount = Math.max(
-    invoiceTotal - collectedAmount,
+    invoiceTotal -
+      collectedAmount,
     0
   );
 
@@ -449,9 +658,11 @@ const BillingPage = ({
       ? "Fully Paid"
       : "Partial Paid";
 
-  // ===================================================
-  // 🔥 FORMAT CURRENCY
-  // ===================================================
+  /*
+   * ============================================================
+   * CURRENCY
+   * ============================================================
+   */
 
   const formatCurrency = (
     amount: number
@@ -464,75 +675,110 @@ const BillingPage = ({
     );
   };
 
-  // ===================================================
-  // 🔥 VALIDATE AND APPLY COUPON
-  // ===================================================
+  /*
+   * ============================================================
+   * APPLY COUPON
+   * ============================================================
+   */
 
-  const validateAndApplyCoupon = async (coupon: any) => {
-    if (!selectedPackage) {
-      setCouponError("Please select package first");
-      return;
-    }
-
-    // Check if already applied
-    const isApplied = appliedCoupons.some(c => c.id === coupon.id);
-    
-    if (isApplied) {
-      // Remove from applied coupons
-      setAppliedCoupons(appliedCoupons.filter(c => c.id !== coupon.id));
-      setCouponError("");
-      return;
-    }
-
-    try {
-      setCouponLoading(coupon.id);
-      setCouponError("");
-
-      const res = await fetch("/api/coupons/validate", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          code: coupon.code,
-          packageId: selectedPackage,
-        }),
-      });
-
-      const data = await res.json();
-
-      if (!data.success) {
-        setCouponError(data.message || "Invalid coupon");
+  const validateAndApplyCoupon =
+    async (coupon: any) => {
+      if (!selectedPackage) {
+        setCouponError(
+          "Please select package first"
+        );
         return;
       }
 
-      // Add to applied coupons
-      setAppliedCoupons([...appliedCoupons, data.coupon]);
-      setCouponError("");
-    } catch (err) {
-      console.error(err);
-      setCouponError("Failed to validate coupon");
-    } finally {
-      setCouponLoading(null);
-    }
+      const isApplied =
+        appliedCoupons.some(
+          (c) => c.id === coupon.id
+        );
+
+      if (isApplied) {
+        setAppliedCoupons(
+          appliedCoupons.filter(
+            (c) => c.id !== coupon.id
+          )
+        );
+
+        setCouponError("");
+        return;
+      }
+
+      try {
+        setCouponLoading(
+          coupon.id
+        );
+
+        setCouponError("");
+
+        const res = await fetch(
+          "/api/coupons/validate",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+            body: JSON.stringify({
+              code: coupon.code,
+              packageId:
+                selectedPackage,
+            }),
+          }
+        );
+
+        const data =
+          await res.json();
+
+        if (!data.success) {
+          setCouponError(
+            data.message ||
+              "Invalid coupon"
+          );
+          return;
+        }
+
+        setAppliedCoupons([
+          ...appliedCoupons,
+          data.coupon,
+        ]);
+
+        setCouponError("");
+      } catch (err) {
+        console.error(err);
+
+        setCouponError(
+          "Failed to validate coupon"
+        );
+      } finally {
+        setCouponLoading(null);
+      }
+    };
+
+  /*
+   * ============================================================
+   * REMOVE COUPON
+   * ============================================================
+   */
+
+  const removeCoupon = (
+    couponId: string
+  ) => {
+    setAppliedCoupons(
+      appliedCoupons.filter(
+        (coupon) =>
+          coupon.id !== couponId
+      )
+    );
   };
 
-  // ===================================================
-  // 🔥 REMOVE COUPON
-  // ===================================================
-
-  const removeCoupon = (couponId: string) => {
-    setAppliedCoupons(appliedCoupons.filter(c => c.id !== couponId));
-  };
-
-
-
-
-  
-
-  // ===================================================
-  // 🔥 CASH BILLING
-  // ===================================================
+  /*
+   * ============================================================
+   * CASH BILLING
+   * ============================================================
+   */
 
   const createCashBilling =
     async () => {
@@ -540,17 +786,20 @@ const BillingPage = ({
         "/api/payment/cash",
         {
           method: "POST",
-
           headers: {
             "Content-Type":
               "application/json",
           },
-
           body: JSON.stringify({
             memberId: member.id,
 
-  referralId: selectedReferral?.id ?? null,
-  referralDiscountAmount: referralDiscount,
+            referralId:
+              selectedReferral?.id ??
+              null,
+            serviceId: selectedService,
+            subCategoryId: selectedSubCategory,
+            referralDiscountAmount:
+              referralDiscount,
 
             packageId:
               selectedPackage,
@@ -558,12 +807,13 @@ const BillingPage = ({
             branchId:
               selectedBranch,
 
-            // 🔥 DATES
             startDate,
             endDate,
 
             couponCodes:
-              appliedCoupons.map(c => c.code),
+              appliedCoupons.map(
+                (c) => c.code
+              ),
 
             discountAmount:
               discount,
@@ -587,9 +837,11 @@ const BillingPage = ({
       return await res.json();
     };
 
-  // ===================================================
-  // 🔥 CREATE RAZORPAY ORDER
-  // ===================================================
+  /*
+   * ============================================================
+   * RAZORPAY ORDER
+   * ============================================================
+   */
 
   const createRazorpayOrder =
     async () => {
@@ -597,29 +849,32 @@ const BillingPage = ({
         "/api/payment/create-order",
         {
           method: "POST",
-
           headers: {
             "Content-Type":
               "application/json",
           },
-
           body: JSON.stringify({
             memberId: member.id,
+            subCategoryId: selectedSubCategory,
             ref:
-            member.referralCode,
+              member.referralCode,
+
             packageId:
               selectedPackage,
-  referralDiscountAmount: referralDiscount,
+
+            referralDiscountAmount:
+              referralDiscount,
 
             branchId:
               selectedBranch,
 
-            // 🔥 DATES
             startDate,
             endDate,
 
             couponCodes:
-              appliedCoupons.map(c => c.code),
+              appliedCoupons.map(
+                (c) => c.code
+              ),
 
             discountAmount:
               discount,
@@ -643,9 +898,11 @@ const BillingPage = ({
       return await res.json();
     };
 
-  // ===================================================
-  // 🔥 SUBMIT
-  // ===================================================
+  /*
+   * ============================================================
+   * SUBMIT
+   * ============================================================
+   */
 
   const handleSubmit = async () => {
     if (
@@ -656,7 +913,6 @@ const BillingPage = ({
       alert(
         "Please select service, package and branch"
       );
-
       return;
     }
 
@@ -664,7 +920,6 @@ const BillingPage = ({
       alert(
         "Please select start and end date"
       );
-
       return;
     }
 
@@ -675,32 +930,32 @@ const BillingPage = ({
       alert(
         "End date cannot be before start date"
       );
-
       return;
     }
 
     if (
-      collectedAmount > invoiceTotal
+      collectedAmount >
+      invoiceTotal
     ) {
       alert(
         "Collected amount cannot exceed invoice total"
       );
-
       return;
     }
 
     setLoading(true);
 
     try {
-      // ===================================================
-      // 🔥 CASH
-      // ===================================================
+      /*
+       * CASH / UPI / CARD / BANK
+       */
 
       if (
         paymentMode === "Cash" ||
         paymentMode === "UPI" ||
         paymentMode === "Card" ||
-        paymentMode === "Bank Transfer"
+        paymentMode ===
+          "Bank Transfer"
       ) {
         const data =
           await createCashBilling();
@@ -710,7 +965,6 @@ const BillingPage = ({
             data.message ||
               "Something went wrong"
           );
-
           return;
         }
 
@@ -727,9 +981,9 @@ const BillingPage = ({
         return;
       }
 
-      // ===================================================
-      // 🔥 RAZORPAY
-      // ===================================================
+      /*
+       * RAZORPAY
+       */
 
       const data =
         await createRazorpayOrder();
@@ -739,7 +993,6 @@ const BillingPage = ({
           data.message ||
             "Something went wrong"
         );
-
         return;
       }
 
@@ -770,9 +1023,7 @@ const BillingPage = ({
 
         prefill: {
           name: member.name,
-
           email: member.email,
-
           contact: member.phone,
         },
 
@@ -782,22 +1033,34 @@ const BillingPage = ({
       };
 
       const rzp =
-        new window.Razorpay(options);
+        new window.Razorpay(
+          options
+        );
 
       rzp.open();
     } catch (e) {
       console.log(e);
 
-      alert("Something went wrong");
+      alert(
+        "Something went wrong"
+      );
     } finally {
       setLoading(false);
     }
   };
 
+  /*
+   * ============================================================
+   * UI
+   * ============================================================
+   */
+
   return (
     <div className="min-h-screen bg-black text-white p-4 md:p-8">
       <div className="max-w-5xl mx-auto">
+
         {/* HEADER */}
+
         <div className="flex items-center gap-4 mb-8">
           <button
             onClick={() =>
@@ -820,21 +1083,26 @@ const BillingPage = ({
           </div>
         </div>
 
-        {/* YOUR EXISTING JSX CONTINUES SAME */}
-
         <div className="grid lg:grid-cols-3 gap-6">
+
           {/* LEFT */}
+
           <div className="lg:col-span-2 space-y-6">
+
             {/* MEMBER */}
+
             <div className="bg-neutral-900 border border-neutral-800 rounded-3xl p-6">
               <div className="flex items-center gap-4">
+
                 <div className="w-20 h-20 rounded-2xl overflow-hidden border border-neutral-800 bg-neutral-950">
                   {member.profileImage ? (
                     <img
                       src={
                         member.profileImage
                       }
-                      alt={member.name}
+                      alt={
+                        member.name
+                      }
                       className="w-full h-full object-cover"
                     />
                   ) : (
@@ -861,17 +1129,22 @@ const BillingPage = ({
                     </p>
                   )}
                 </div>
+
               </div>
             </div>
 
             {/* MEMBERSHIP */}
+
             <div className="bg-neutral-900 border border-neutral-800 rounded-3xl p-6">
+
               <h3 className="text-lg font-semibold mb-5">
                 Membership Selection
               </h3>
 
               <div className="grid md:grid-cols-2 gap-5">
+
                 {/* SERVICE */}
+
                 <div>
                   <label className="text-sm text-neutral-400 mb-2 block">
                     Service
@@ -881,10 +1154,11 @@ const BillingPage = ({
                     value={
                       selectedService
                     }
-                    onChange={(e) =>
+                    onChange={(e) =>{
+                      console.log(e.target.value)
                       setSelectedService(
                         e.target.value
-                      )
+                      )}
                     }
                     className="w-full h-12 rounded-2xl bg-neutral-950 border border-neutral-800 px-4 text-white outline-none focus:border-lime-400"
                   >
@@ -911,7 +1185,57 @@ const BillingPage = ({
                   </select>
                 </div>
 
+                {/* SUB CATEGORY */}
+
+                <div>
+                  <label className="text-sm text-neutral-400 mb-2 block">
+                    Sub Category
+                  </label>
+
+                  <select
+                    value={
+                      selectedSubCategory
+                    }
+                    disabled={
+                      !selectedService ||
+                      subCategories.length ===
+                        0
+                    }
+                    onChange={(e) =>
+                      setSelectedSubCategory(
+                        e.target.value
+                      )
+                    }
+                    className="w-full h-12 rounded-2xl bg-neutral-950 border border-neutral-800 px-4 text-white outline-none focus:border-lime-400 disabled:opacity-50"
+                  >
+                    <option value="">
+                      {subCategories.length ===
+                      0
+                        ? "No Sub Categories"
+                        : "Select Sub Category"}
+                    </option>
+
+                    {subCategories.map(
+                      (subCategory) => (
+                        <option
+                          key={
+                            subCategory.id
+                          }
+                          value={
+                            subCategory.id
+                          }
+                        >
+                          {
+                            subCategory.name
+                          }
+                        </option>
+                      )
+                    )}
+                  </select>
+                </div>
+
                 {/* PACKAGE */}
+
                 <div>
                   <label className="text-sm text-neutral-400 mb-2 block">
                     Package
@@ -922,7 +1246,10 @@ const BillingPage = ({
                       selectedPackage
                     }
                     disabled={
-                      !selectedService
+                      !selectedService ||
+                      (subCategories.length >
+                        0 &&
+                        !selectedSubCategory)
                     }
                     onChange={(e) =>
                       setSelectedPackage(
@@ -932,7 +1259,16 @@ const BillingPage = ({
                     className="w-full h-12 rounded-2xl bg-neutral-950 border border-neutral-800 px-4 text-white outline-none focus:border-lime-400 disabled:opacity-50"
                   >
                     <option value="">
-                      Select Package
+                      {!selectedService
+                        ? "Select Service First"
+                        : subCategories.length >
+                            0 &&
+                          !selectedSubCategory
+                        ? "Select Sub Category First"
+                        : packages.length ===
+                          0
+                        ? "No Packages Available"
+                        : "Select Package"}
                     </option>
 
                     {packages.map(
@@ -952,6 +1288,7 @@ const BillingPage = ({
                 </div>
 
                 {/* BRANCH */}
+
                 <div>
                   <label className="text-sm text-neutral-400 mb-2 block">
                     Branch
@@ -994,53 +1331,59 @@ const BillingPage = ({
                   </select>
                 </div>
 
-                {/* PAYMENT */}
-               {/* PAYMENT */}
-<div>
-  <label className="text-sm text-neutral-400 mb-2 block">
-    Payment Method
-  </label>
+                {/* PAYMENT METHOD */}
 
-  <select
-    value={paymentMode}
-    onChange={(e) =>
-      setPaymentMode(
-        e.target.value
-      )
-    }
-    className="w-full h-12 rounded-2xl bg-neutral-950 border border-neutral-800 px-4 text-white outline-none focus:border-lime-400"
-  >
-    <option value="Cash">
-      Cash
-    </option>
+                <div>
+                  <label className="text-sm text-neutral-400 mb-2 block">
+                    Payment Method
+                  </label>
 
-    <option value="UPI">
-      UPI
-    </option>
+                  <select
+                    value={
+                      paymentMode
+                    }
+                    onChange={(e) =>
+                      setPaymentMode(
+                        e.target.value
+                      )
+                    }
+                    className="w-full h-12 rounded-2xl bg-neutral-950 border border-neutral-800 px-4 text-white outline-none focus:border-lime-400"
+                  >
+                    <option value="Cash">
+                      Cash
+                    </option>
 
-    <option value="Card">
-      Card
-    </option>
+                    <option value="UPI">
+                      UPI
+                    </option>
 
-    <option value="Bank Transfer">
-      Bank Transfer
-    </option>
+                    <option value="Card">
+                      Card
+                    </option>
 
-    <option value="Razorpay">
-      Razorpay
-    </option>
-  </select>
-</div>
+                    <option value="Bank Transfer">
+                      Bank Transfer
+                    </option>
+
+                    <option value="Razorpay">
+                      Razorpay
+                    </option>
+                  </select>
+                </div>
+
               </div>
             </div>
 
             {/* PAYMENT DETAILS */}
+
             <div className="bg-neutral-900 border border-neutral-800 rounded-3xl p-6">
+
               <h3 className="text-lg font-semibold mb-5">
                 Payment Details
               </h3>
 
-              {/* 🔥 COUPON */}
+              {/* COUPONS */}
+
               <div>
                 <label className="text-sm text-neutral-400 mb-2 block">
                   Coupons & Discounts
@@ -1050,232 +1393,334 @@ const BillingPage = ({
                   <p className="text-red-400 text-sm mb-2">
                     {couponError}
                   </p>
-                )
+                )}
 
-              }
-
-                {appliedCoupons.length > 0 && (
+                {appliedCoupons.length >
+                  0 && (
                   <div className="mt-4">
-                    <p className="text-sm text-neutral-400 mb-2">Applied Coupons</p>
-                    <div className="space-y-2">
-                      {appliedCoupons.map((coupon) => (
-                        <div
-                          key={coupon.id}
-                          className="flex items-center justify-between rounded-xl border border-lime-400/20 bg-lime-400/10 p-3"
-                        >
-                          <div>
-                            <p className="text-lime-300 font-semibold">
-                              {coupon.code}
-                            </p>
-                            <p className="text-xs text-neutral-400 mt-1">
-                              {coupon.discountPercent
-                                ? `${coupon.discountPercent}% off`
-                                : `₹${formatCurrency(coupon?.discountFlatAmount ?? 0)} off`}
-                            </p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => removeCoupon(coupon.id)}
-                            className="text-red-400 hover:text-red-300"
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                    <p className="text-sm text-lime-400 mt-2">
-                      Total Discount: ₹{formatCurrency(discount)}
+
+                    <p className="text-sm text-neutral-400 mb-2">
+                      Applied Coupons
                     </p>
+
+                    <div className="space-y-2">
+
+                      {appliedCoupons.map(
+                        (coupon) => (
+                          <div
+                            key={
+                              coupon.id
+                            }
+                            className="flex items-center justify-between rounded-xl border border-lime-400/20 bg-lime-400/10 p-3"
+                          >
+                            <div>
+
+                              <p className="text-lime-300 font-semibold">
+                                {
+                                  coupon.code
+                                }
+                              </p>
+
+                              <p className="text-xs text-neutral-400 mt-1">
+                                {coupon.discountPercent
+                                  ? `${coupon.discountPercent}% off`
+                                  : `₹${formatCurrency(
+                                      coupon.discountFlatAmount ??
+                                        0
+                                    )} off`}
+                              </p>
+
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                removeCoupon(
+                                  coupon.id
+                                )
+                              }
+                              className="text-red-400 hover:text-red-300"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        )
+                      )}
+
+                    </div>
+
+                    <p className="text-sm text-lime-400 mt-2">
+                      Total Discount: ₹
+                      {formatCurrency(
+                        discount
+                      )}
+                    </p>
+
                   </div>
                 )}
 
-                {/* Available Coupons */}
-                {selectedPackage && applicableCoupons.length > 0 && (
-                  <div className="mt-4">
-                    <p className="text-sm text-neutral-400 mb-3">Click to apply coupons</p>
-                    <div className="space-y-2">
-                      {applicableCoupons.map((coupon) => {
-                        const isApplied = appliedCoupons.some(c => c.id === coupon.id);
-                        const isLoading = couponLoading === coupon.id;
-                        
-                        return (
-                          <button
-                            key={coupon.id}
-                            type="button"
-                            onClick={() => validateAndApplyCoupon(coupon)}
-                            disabled={isLoading}
-                            className={`w-full text-left rounded-xl border p-4 transition ${
-                              isApplied
-                                ? "border-lime-400 bg-lime-400/10"
-                                : "border-neutral-700 bg-neutral-950 hover:border-lime-400/50"
-                            } ${isLoading ? "opacity-50" : ""}`}
-                          >
-                            <div className="flex items-start justify-between">
-                              <div className="flex-1">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <p className="font-semibold text-sm">
-                                    {coupon.code}
-                                  </p>
-                                  
-                                  {/* Badges */}
-                                  <div className="flex gap-1.5">
-                                    {coupon.isPrivate && (
-                                      <span className="px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-400 text-[10px] font-medium">
-                                        PRIVATE
-                                      </span>
+                {/* AVAILABLE COUPONS */}
+
+                {selectedPackage &&
+                  applicableCoupons.length >
+                    0 && (
+                    <div className="mt-4">
+
+                      <p className="text-sm text-neutral-400 mb-3">
+                        Click to apply
+                        coupons
+                      </p>
+
+                      <div className="space-y-2">
+
+                        {applicableCoupons.map(
+                          (coupon) => {
+                            const isLoading =
+                              couponLoading ===
+                              coupon.id;
+
+                            return (
+                              <button
+                                key={
+                                  coupon.id
+                                }
+                                type="button"
+                                onClick={() =>
+                                  validateAndApplyCoupon(
+                                    coupon
+                                  )
+                                }
+                                disabled={
+                                  isLoading
+                                }
+                                className={`w-full text-left rounded-xl border p-4 transition ${
+                                  isLoading
+                                    ? "opacity-50"
+                                    : "border-neutral-700 bg-neutral-950 hover:border-lime-400/50"
+                                }`}
+                              >
+                                <div className="flex items-start justify-between">
+
+                                  <div className="flex-1">
+
+                                    <div className="flex items-center gap-2 flex-wrap">
+
+                                      <p className="font-semibold text-sm">
+                                        {
+                                          coupon.code
+                                        }
+                                      </p>
+
+                                      <div className="flex gap-1.5">
+
+                                        {coupon.isPrivate && (
+                                          <span className="px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-400 text-[10px] font-medium">
+                                            PRIVATE
+                                          </span>
+                                        )}
+
+                                        {!coupon.isPrivate && (
+                                          <span className="px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 text-[10px] font-medium">
+                                            PUBLIC
+                                          </span>
+                                        )}
+
+                                        {coupon.usageLimit && (
+                                          <span className="px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-400 text-[10px] font-medium">
+                                            {coupon.usedCount ||
+                                              0}
+                                            /
+                                            {
+                                              coupon.usageLimit
+                                            }{" "}
+                                            USED
+                                          </span>
+                                        )}
+
+                                      </div>
+
+                                    </div>
+
+                                    <p className="text-xs text-neutral-400 mt-2">
+                                      {coupon.discountPercent
+                                        ? `${coupon.discountPercent}% discount`
+                                        : `₹${formatCurrency(
+                                            coupon.discountFlatAmount
+                                          )} discount`}
+                                    </p>
+
+                                    {coupon.expiresAt && (
+                                      <p className="text-xs text-yellow-400 mt-1">
+                                        Expires:{" "}
+                                        {new Date(
+                                          coupon.expiresAt
+                                        ).toLocaleDateString()}
+                                      </p>
                                     )}
-                                    {!coupon.isPrivate && (
-                                      <span className="px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 text-[10px] font-medium">
-                                        PUBLIC
-                                      </span>
+
+                                    {coupon.packages &&
+                                    coupon
+                                      .packages
+                                      .length >
+                                      0 ? (
+                                      <p className="text-xs text-neutral-500 mt-1">
+                                        Applicable
+                                        for:{" "}
+                                        {coupon.packages
+                                          .map(
+                                            (
+                                              p: any
+                                            ) =>
+                                              p.name
+                                          )
+                                          .join(
+                                            ", "
+                                          )}
+                                      </p>
+                                    ) : (
+                                      <p className="text-xs text-neutral-500 mt-1">
+                                        Universal
+                                        coupon
+                                      </p>
                                     )}
-                                    {coupon.usageLimit && (
-                                      <span className="px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-400 text-[10px] font-medium">
-                                        {coupon.usedCount || 0}/{coupon.usageLimit} USED
+
+                                  </div>
+
+                                  <div className="ml-3">
+                                    {isLoading ? (
+                                      <span className="text-neutral-400">
+                                        ...
+                                      </span>
+                                    ) : (
+                                      <span className="text-neutral-400 text-lg">
+                                        +
                                       </span>
                                     )}
                                   </div>
+
                                 </div>
-                                
-                                <p className="text-xs text-neutral-400 mt-2">
-                                  {coupon.discountPercent
-                                    ? `${coupon.discountPercent}% discount`
-                                    : `₹${formatCurrency(coupon.discountFlatAmount)} discount`}
-                                </p>
-                                
-                                {coupon.expiresAt && (
-                                  <p className="text-xs text-yellow-400 mt-1">
-                                    Expires: {new Date(coupon.expiresAt).toLocaleDateString()}
-                                  </p>
-                                )}
-                                
-                                {coupon.packages && coupon.packages.length > 0 ? (
+                              </button>
+                            );
+                          }
+                        )}
+
+                      </div>
+                    </div>
+                  )}
+              </div>
+
+              {/* REFERRAL REWARDS */}
+
+              {selectedPackage &&
+                availableReferralRewards.length >
+                  0 && (
+                  <div className="mt-6">
+
+                    <label className="text-sm text-neutral-400 mb-3 block">
+                      Referral Rewards
+                    </label>
+
+                    <div className="space-y-2">
+
+                      {availableReferralRewards.map(
+                        (reward: any) => {
+                          const active =
+                            selectedReferral?.id ===
+                            reward.id;
+
+                          return (
+                            <div
+                              key={
+                                reward.id
+                              }
+                              className={`rounded-xl border p-4 ${
+                                active
+                                  ? "border-lime-400 bg-lime-400/10"
+                                  : "border-neutral-700 bg-neutral-950"
+                              }`}
+                            >
+                              <div className="flex items-center justify-between">
+
+                                <div>
+
+                                  <div className="flex items-center gap-2">
+
+                                    <p className="font-medium">
+                                      {reward.rewardType ===
+                                      "FIXED_AMOUNT"
+                                        ? `₹${formatCurrency(
+                                            reward.rewardAmount ||
+                                              0
+                                          )} Reward`
+                                        : `${reward.rewardPercentage}% Discount`}
+                                    </p>
+
+                                    <span className="px-2 py-1 rounded-full bg-cyan-500/15 text-cyan-400 text-[10px] font-medium">
+                                      REFERRAL
+                                    </span>
+
+                                  </div>
+
                                   <p className="text-xs text-neutral-500 mt-1">
-                                    Applicable for: {coupon.packages.map((p: any) => p.name).join(", ")}
+                                    Earned from successful
+                                    referral
                                   </p>
-                                ) : (
-                                  <p className="text-xs text-neutral-500 mt-1">
-                                    Universal coupon
-                                  </p>
-                                )}
-                              </div>
-                              
-                              <div className="ml-3">
-                                {isLoading ? (
-                                  <span className="text-neutral-400">...</span>
-                                ) : isApplied ? (
-                                  <span className="text-lime-400 text-lg">✓</span>
-                                ) : (
-                                  <span className="text-neutral-400 text-lg">+</span>
-                                )}
+
+                                </div>
+
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (
+                                      active
+                                    ) {
+                                      setSelectedReferral(
+                                        null
+                                      );
+                                    } else {
+                                      setSelectedReferral(
+                                        reward
+                                      );
+                                    }
+                                  }}
+                                  className={`px-4 h-9 rounded-xl text-sm font-medium transition ${
+                                    active
+                                      ? "bg-red-500/10 border border-red-500/30 text-red-400"
+                                      : "bg-lime-400 text-black"
+                                  }`}
+                                >
+                                  {active
+                                    ? "Remove"
+                                    : "Apply"}
+                                </button>
+
                               </div>
                             </div>
-                          </button>
-                        );
-                      })}
+                          );
+                        }
+                      )}
+
                     </div>
                   </div>
                 )}
-              </div>
 
-
-              {/* REFERRAL REWARDS */}
-{selectedPackage &&
-  availableReferralRewards.length >
-    0 && (
-    <div className="mt-6">
-      <label className="text-sm text-neutral-400 mb-3 block">
-        Referral Rewards
-      </label>
-
-      <div className="space-y-2">
-        {availableReferralRewards.map(
-          (reward: any) => {
-            const active =
-              selectedReferral?.id ===
-              reward.id;
-
-            return (
-              <div
-                key={reward.id}
-                className={`rounded-xl border p-4 ${
-                  active
-                    ? "border-lime-400 bg-lime-400/10"
-                    : "border-neutral-700 bg-neutral-950"
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <p className="font-medium">
-                        {reward.rewardType ===
-                        "FIXED_AMOUNT"
-                          ? `₹${formatCurrency(
-                              reward.rewardAmount ||
-                                0
-                            )} Reward`
-                          : `${reward.rewardPercentage}% Discount`}
-                      </p>
-
-                      <span className="px-2 py-1 rounded-full bg-cyan-500/15 text-cyan-400 text-[10px] font-medium">
-                        REFERRAL
-                      </span>
-                    </div>
-
-                    <p className="text-xs text-neutral-500 mt-1">
-                      Earned from successful referral
-                    </p>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (active) {
-                        setSelectedReferral(
-                          null
-                        );
-                      } else {
-                        setSelectedReferral(
-                          reward
-                        );
-                      }
-                    }}
-                    className={`px-4 h-9 rounded-xl text-sm font-medium transition ${
-                      active
-                        ? "bg-red-500/10 border border-red-500/30 text-red-400"
-                        : "bg-lime-400 text-black"
-                    }`}
-                  >
-                    {active
-                      ? "Remove"
-                      : "Apply"}
-                  </button>
-                </div>
-              </div>
-            );
-          }
-        )}
-      </div>
-    </div>
-  )}
+              {/* COLLECTED */}
 
               <div className="grid md:grid-cols-2 gap-5 mt-5">
-                {/* COLLECTED */}
+
                 <div>
                   <label className="text-sm text-neutral-400 mb-2 block">
                     Amount Collected
                   </label>
 
                   <div className="relative flex items-center">
+
                     <button
                       type="button"
                       onClick={() =>
                         setCollectionType(
-                          (
-                            prev
-                          ) =>
-                            prev ===
-                            "FLAT"
+                          (prev) =>
+                            prev === "FLAT"
                               ? "PERCENT"
                               : "FLAT"
                         )
@@ -1301,105 +1746,93 @@ const BillingPage = ({
                       placeholder="Enter value"
                       className="w-full h-14 rounded-2xl bg-neutral-950 border border-neutral-800 pl-20 pr-4 text-white outline-none focus:border-lime-400"
                     />
+
                   </div>
                 </div>
+
               </div>
 
-              {/* MEMBERSHIP DATES */}
+              {/* DATES */}
+
               <div className="grid md:grid-cols-2 gap-5 mt-5">
-  {/* START DATE */}
-  <div className="grid md:grid-cols-2 gap-5 mt-5">
-  {/* START DATE */}
-  <div>
-    <label className="text-sm text-neutral-400 mb-2 block">
-      Membership Start Date
-    </label>
 
-    <input
-      type="date"
-      value={startDate}
-      onChange={(e) => {
-        const value =
-          e.target.value;
+                <div>
+                  <label className="text-sm text-neutral-400 mb-2 block">
+                    Membership Start Date
+                  </label>
 
-        setStartDate(value);
+                  <input
+                    type="date"
+                    value={
+                      startDate
+                    }
+                    onChange={(e) => {
+                      const value =
+                        e.target.value;
 
-        // auto recalculate only if end date empty
-        if (
-          selectedPackageObj &&
-          !endDate
-        ) {
-          const start =
-            new Date(value);
+                      setStartDate(
+                        value
+                      );
 
-          const calculatedEndDate =
-            addDaysUTC(
-              start,
-              selectedPackageObj.durationInDays -
-                1
-            );
+                      if (
+                        selectedPackageObj &&
+                        !endDate
+                      ) {
+                        const start =
+                          new Date(
+                            value
+                          );
 
-          setEndDate(
-            formatDateInput(
-              calculatedEndDate
-            )
-          );
-        }
-      }}
-      className="
-        w-full
-        h-14
-        rounded-2xl
-        bg-neutral-950
-        border
-        border-neutral-800
-        px-4
-        text-white
-        outline-none
-        focus:border-lime-400
-        [color-scheme:dark]
-      "
-    />
-  </div>
+                        const calculatedEndDate =
+                          addDaysUTC(
+                            start,
+                            selectedPackageObj.durationInDays -
+                              1
+                          );
 
-  {/* END DATE */}
-  <div>
-    <label className="text-sm text-neutral-400 mb-2 block">
-      Membership End Date
-    </label>
+                        setEndDate(
+                          formatDateInput(
+                            calculatedEndDate
+                          )
+                        );
+                      }
+                    }}
+                    className="w-full h-14 rounded-2xl bg-neutral-950 border border-neutral-800 px-4 text-white outline-none focus:border-lime-400 [color-scheme:dark]"
+                  />
+                </div>
 
-    <input
-      type="date"
-      value={endDate}
-      min={startDate}
-      onChange={(e) => {
-        setEndDate(
-          e.target.value
-        );
-      }}
-      className="
-        w-full
-        h-14
-        rounded-2xl
-        bg-neutral-950
-        border
-        border-neutral-800
-        px-4
-        text-white
-        outline-none
-        focus:border-lime-400
-        [color-scheme:dark]
-      "
-    />
-  </div>
-</div>
-</div>
+                <div>
+                  <label className="text-sm text-neutral-400 mb-2 block">
+                    Membership End Date
+                  </label>
 
-              {/* INITIAL COLLECTION METHOD */}
-              {collectedAmount > 0 &&
+                  <input
+                    type="date"
+                    value={
+                      endDate
+                    }
+                    min={
+                      startDate
+                    }
+                    onChange={(e) =>
+                      setEndDate(
+                        e.target.value
+                      )
+                    }
+                    className="w-full h-14 rounded-2xl bg-neutral-950 border border-neutral-800 px-4 text-white outline-none focus:border-lime-400 [color-scheme:dark]"
+                  />
+                </div>
+
+              </div>
+
+              {/* INITIAL PAYMENT METHOD */}
+
+              {collectedAmount >
+                0 &&
                 paymentMode ===
                   "Razorpay" && (
                   <div className="mt-5">
+
                     <label className="text-sm text-neutral-400 mb-2 block">
                       Initial Collected Via
                     </label>
@@ -1431,11 +1864,14 @@ const BillingPage = ({
                         Bank Transfer
                       </option>
                     </select>
+
                   </div>
                 )}
 
               {/* NOTES */}
+
               <div className="mt-5">
+
                 <label className="text-sm text-neutral-400 mb-2 block">
                   Notes
                 </label>
@@ -1451,18 +1887,24 @@ const BillingPage = ({
                   placeholder="Optional notes..."
                   className="w-full rounded-2xl bg-neutral-950 border border-neutral-800 px-4 py-3 text-white outline-none focus:border-lime-400 resize-none"
                 />
+
               </div>
+
             </div>
           </div>
 
           {/* SUMMARY */}
+
           <div>
+
             <div className="sticky top-6 bg-neutral-900 border border-neutral-800 rounded-3xl p-6">
+
               <h3 className="text-lg font-semibold mb-6">
                 Billing Summary
               </h3>
 
               <div className="space-y-4">
+
                 <div className="flex items-center justify-between">
                   <span className="text-neutral-400">
                     Package Amount
@@ -1490,19 +1932,19 @@ const BillingPage = ({
                 </div>
 
                 {selectedReferral && (
-  <div className="flex items-center justify-between">
-    <span className="text-neutral-400">
-      Referral Reward
-    </span>
+                  <div className="flex items-center justify-between">
+                    <span className="text-neutral-400">
+                      Referral Reward
+                    </span>
 
-    <span className="text-red-400 font-semibold">
-      - ₹
-      {formatCurrency(
-        referralDiscount
-      )}
-    </span>
-  </div>
-)}
+                    <span className="text-red-400 font-semibold">
+                      - ₹
+                      {formatCurrency(
+                        referralDiscount
+                      )}
+                    </span>
+                  </div>
+                )}
 
                 <div className="border-t border-neutral-800 pt-4 flex items-center justify-between">
                   <span className="text-neutral-300 font-medium">
@@ -1517,10 +1959,12 @@ const BillingPage = ({
                   </span>
                 </div>
 
-                {/* GST Breakdown */}
                 <div className="flex items-center justify-between">
                   <span className="text-neutral-400">
-                    CGST ({gstSettings?.cgstPercentage || 0}%)
+                    CGST (
+                    {gstSettings?.cgstPercentage ||
+                      0}
+                    %)
                   </span>
 
                   <span className="text-neutral-300">
@@ -1533,7 +1977,10 @@ const BillingPage = ({
 
                 <div className="flex items-center justify-between">
                   <span className="text-neutral-400">
-                    SGST ({gstSettings?.sgstPercentage || 0}%)
+                    SGST (
+                    {gstSettings?.sgstPercentage ||
+                      0}
+                    %)
                   </span>
 
                   <span className="text-neutral-300">
@@ -1584,6 +2031,7 @@ const BillingPage = ({
                 </div>
 
                 <div className="pt-4">
+
                   <div
                     className={`inline-flex px-4 py-2 rounded-full text-sm font-medium ${
                       paymentStatus ===
@@ -1597,7 +2045,9 @@ const BillingPage = ({
                   >
                     {paymentStatus}
                   </div>
+
                 </div>
+
               </div>
 
               <button
@@ -1607,21 +2057,24 @@ const BillingPage = ({
                 disabled={loading}
                 className="mt-8 w-full h-12 rounded-2xl bg-lime-400 text-black font-semibold hover:opacity-90 transition disabled:opacity-50"
               >
-               {
-  loading
-    ? "Processing..."
-    : [
-        "Cash",
-        "UPI",
-        "Bank Transfer",
-        "Card",
-      ].includes(paymentMode)
-    ? "Create Billing"
-    : "Continue To Payment"
-}
+                {loading
+                  ? "Processing..."
+                  : [
+                      "Cash",
+                      "UPI",
+                      "Bank Transfer",
+                      "Card",
+                    ].includes(
+                      paymentMode
+                    )
+                  ? "Create Billing"
+                  : "Continue To Payment"}
               </button>
+
             </div>
+
           </div>
+
         </div>
       </div>
     </div>

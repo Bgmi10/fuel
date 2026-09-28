@@ -1,4 +1,5 @@
 import { MembershipUsageType } from "@prisma/client";
+
 import { NextRequest, NextResponse } from "next/server";
 
 import { prisma } from "@/prisma";
@@ -49,6 +50,32 @@ const toOptionalAmount = (
   return parsed;
 };
 
+/* =========================
+   NORMALIZE SUBCATEGORY IDS
+========================= */
+
+const normalizeSubCategoryIds = (
+  value: unknown
+): string[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return [
+    ...new Set(
+      value.filter(
+        (id): id is string =>
+          typeof id === "string" &&
+          id.trim().length > 0
+      )
+    ),
+  ];
+};
+
+/* =========================
+   PUT - UPDATE PACKAGE
+========================= */
+
 export const PUT = async (
   req: NextRequest,
   { params }: Params
@@ -59,6 +86,10 @@ export const PUT = async (
   } = await params;
 
   try {
+    /* =========================
+       FIND EXISTING PACKAGE
+    ========================= */
+
     const existingPackage =
       await prisma.servicePackage.findFirst({
         where: {
@@ -77,6 +108,10 @@ export const PUT = async (
         { status: 404 }
       );
     }
+
+    /* =========================
+       READ BODY
+    ========================= */
 
     const body = await req.json();
 
@@ -118,6 +153,19 @@ export const PUT = async (
       body.isActive === undefined
         ? existingPackage.isActive
         : Boolean(body.isActive);
+
+    /*
+     * Empty array means:
+     * package applies to the entire service.
+     */
+    const subCategoryIds =
+      normalizeSubCategoryIds(
+        body.subCategoryIds
+      );
+
+    /* =========================
+       VALIDATION
+    ========================= */
 
     if (!name) {
       return NextResponse.json(
@@ -206,27 +254,153 @@ export const PUT = async (
       );
     }
 
+    /* =========================
+       VALIDATE SUBCATEGORIES
+    ========================= */
+
+    if (subCategoryIds.length > 0) {
+      const validSubCategories =
+        await prisma.serviceSubCategory.findMany({
+          where: {
+            id: {
+              in: subCategoryIds,
+            },
+
+            serviceId,
+          },
+
+          select: {
+            id: true,
+          },
+        });
+
+      const validSubCategoryIds =
+        new Set(
+          validSubCategories.map(
+            (subCategory) =>
+              subCategory.id
+          )
+        );
+
+      const invalidSubCategoryIds =
+        subCategoryIds.filter(
+          (id) =>
+            !validSubCategoryIds.has(id)
+        );
+
+      if (
+        invalidSubCategoryIds.length > 0
+      ) {
+        return NextResponse.json(
+          {
+            success: false,
+            message:
+              "One or more selected subcategories do not belong to this service.",
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    /* =========================
+       UPDATE PACKAGE + RELATIONS
+    ========================= */
+
     const updatedPackage =
-      await prisma.servicePackage.update({
-        where: {
-          id: packageId,
-        },
-        data: {
-          name,
-          description:
-            description || null,
-          durationInDays,
-          price,
-          originalPrice,
-          isActive,
-          usageType,
-          totalSessions:
-            usageType ===
-            "SESSION_BASED"
-              ? totalSessions
-              : null,
-        },
-      });
+      await prisma.$transaction(
+        async (tx) => {
+          /*
+           * First update the package itself.
+           */
+          const packageRecord =
+            await tx.servicePackage.update({
+              where: {
+                id: packageId,
+              },
+
+              data: {
+                name,
+
+                description:
+                  description || null,
+
+                durationInDays,
+
+                price,
+
+                originalPrice,
+
+                isActive,
+
+                usageType,
+
+                totalSessions:
+                  usageType ===
+                  "SESSION_BASED"
+                    ? totalSessions
+                    : null,
+              },
+            });
+
+          /*
+           * Remove all existing
+           * subcategory relations.
+           *
+           * This is important because
+           * the user may have changed:
+           *
+           * Yoga + PT
+           *
+           * to:
+           *
+           * Cardio
+           */
+          await tx.servicePackageSubCategory.deleteMany({
+            where: {
+              packageId,
+            },
+          });
+
+          /*
+           * Re-create relations based
+           * on the latest selection.
+           *
+           * If the array is empty,
+           * nothing is created.
+           *
+           * Therefore the package becomes
+           * service-wide.
+           */
+          if (subCategoryIds.length > 0) {
+            await tx.servicePackageSubCategory.createMany({
+              data: subCategoryIds.map(
+                (subCategoryId) => ({
+                  packageId,
+                  subCategoryId,
+                })
+              ),
+            });
+          }
+
+          /*
+           * Return the complete package
+           * including its subcategories.
+           */
+          return tx.servicePackage.findUnique({
+            where: {
+              id: packageId,
+            },
+
+            include: {
+              subCategories: {
+                include: {
+                  subCategory: true,
+                },
+              },
+            },
+          });
+        }
+      );
 
     return NextResponse.json({
       success: true,
@@ -250,6 +424,10 @@ export const PUT = async (
   }
 };
 
+/* =========================
+   DELETE PACKAGE
+========================= */
+
 export const DELETE = async (
   _req: NextRequest,
   { params }: Params
@@ -266,6 +444,7 @@ export const DELETE = async (
           id: packageId,
           serviceId,
         },
+
         select: {
           id: true,
         },
@@ -310,6 +489,10 @@ export const DELETE = async (
   }
 };
 
+/* =========================
+   GET - SINGLE PACKAGE
+========================= */
+
 export const GET = async (
   _req: NextRequest,
   { params }: Params
@@ -325,6 +508,14 @@ export const GET = async (
         where: {
           id: packageId,
           serviceId,
+        },
+
+        include: {
+          subCategories: {
+            include: {
+              subCategory: true,
+            },
+          },
         },
       });
 

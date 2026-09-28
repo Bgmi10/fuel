@@ -17,15 +17,16 @@ export async function GET(
   const { id: serviceId } = await params;
 
   try {
-    const service = await prisma.service.findUnique({
-      where: {
-        id: serviceId,
-      },
-      select: {
-        id: true,
-        name: true,
-      },
-    });
+    const service =
+      await prisma.service.findUnique({
+        where: {
+          id: serviceId,
+        },
+        select: {
+          id: true,
+          name: true,
+        },
+      });
 
     if (!service) {
       return NextResponse.json(
@@ -42,13 +43,32 @@ export async function GET(
         where: {
           serviceId,
         },
+
         orderBy: {
           sortOrder: "asc",
         },
+
         include: {
           schedules: {
             orderBy: {
               sortOrder: "asc",
+            },
+          },
+
+          packages: {
+            include: {
+              package: {
+                select: {
+                  id: true,
+                  name: true,
+                  price: true,
+                  originalPrice: true,
+                  durationInDays: true,
+                  usageType: true,
+                  totalSessions: true,
+                  isActive: true,
+                },
+              },
             },
           },
         },
@@ -68,7 +88,8 @@ export async function GET(
     return NextResponse.json(
       {
         success: false,
-        message: "Failed to fetch subcategories.",
+        message:
+          "Failed to fetch subcategories.",
       },
       { status: 500 }
     );
@@ -111,6 +132,11 @@ export async function POST(
         ? body.name.trim()
         : "";
 
+        const tagline =
+        typeof body.tagline === "string"
+          ? body.tagline.trim()
+          : "";
+
     const description =
       typeof body.description === "string"
         ? body.description.trim()
@@ -151,6 +177,7 @@ export async function POST(
           image: image || null,
           sortOrder,
           isActive,
+          tagline
         },
         include: {
           schedules: {

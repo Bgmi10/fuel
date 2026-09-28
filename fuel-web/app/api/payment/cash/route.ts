@@ -1,4 +1,5 @@
 import { prisma } from "@/prisma";
+
 import { NextRequest, NextResponse } from "next/server";
 
 import { addDaysUTC, nowUTC } from "@/app/utils/date";
@@ -12,7 +13,6 @@ import {
 
 import { whatsapp } from "@/src/lib/services/whatsapp";
 import { sendEmail } from "@/src/lib/services/email";
-
 import { getUserFromRequest } from "@/app/utils/auth";
 
 export const POST = async (req: NextRequest) => {
@@ -22,35 +22,53 @@ export const POST = async (req: NextRequest) => {
     const {
       branchId,
       memberId,
+
+      // SERVICE HIERARCHY
+      serviceId,
+      subCategoryId,
       packageId,
-    
+
       discountAmount = 0,
       paidAmount = 0,
+
       referralId = null,
       referralDiscountAmount = 0,
+
       paymentMode,
       notes,
-    
+
       startDate,
       endDate,
     } = await req.json();
 
+    // =====================================================
+    // VALIDATE REQUIRED FIELDS
+    // =====================================================
+
+
     if (
       !branchId ||
       !memberId ||
+      !serviceId ||
+      !subCategoryId ||
       !packageId
     ) {
       return NextResponse.json({
         success: false,
-        message: "Missing required fields",
+        message:
+          "Service, sub category, package, branch and member are required",
       });
     }
 
+    // =====================================================
     // MEMBER
-    const member =
-      await prisma.member.findUnique({
-        where: { id: memberId },
-      });
+    // =====================================================
+
+    const member = await prisma.member.findUnique({
+      where: {
+        id: memberId,
+      },
+    });
 
     if (!member) {
       return NextResponse.json({
@@ -59,68 +77,152 @@ export const POST = async (req: NextRequest) => {
       });
     }
 
+    // =====================================================
+    // REFERRAL
+    // =====================================================
+
     let referral = null;
 
-if (referralId) {
-  referral = await prisma.referral.findUnique({
-    where: {
-      id: referralId,
-    },
-  });
-
-  if (!referral) {
-    return NextResponse.json({
-      success: false,
-      message: "Referral reward not found",
-    });
-  }
-
-  if (referral.referrerId !== member.id) {
-    return NextResponse.json({
-      success: false,
-      message: "Invalid referral reward",
-    });
-  }
-
-  if (referral.rewardClaimed) {
-    return NextResponse.json({
-      success: false,
-      message: "Referral reward already claimed",
-    });
-  }
-
-  if (
-    referral.rewardType !== "FIXED_AMOUNT" &&
-    referral.rewardType !== "PERCENTAGE_DISCOUNT"
-  ) {
-    return NextResponse.json({
-      success: false,
-      message: "Invalid referral reward type",
-    });
-  }
-}
-
-    // PACKAGE
-    const plan =
-      await prisma.servicePackage.findUnique({
-        where: { id: packageId },
-        include: {
-          service: true,
+    if (referralId) {
+      referral = await prisma.referral.findUnique({
+        where: {
+          id: referralId,
         },
       });
+
+      if (!referral) {
+        return NextResponse.json({
+          success: false,
+          message: "Referral reward not found",
+        });
+      }
+
+      if (referral.referrerId !== member.id) {
+        return NextResponse.json({
+          success: false,
+          message: "Invalid referral reward",
+        });
+      }
+
+      if (referral.rewardClaimed) {
+        return NextResponse.json({
+          success: false,
+          message: "Referral reward already claimed",
+        });
+      }
+
+      if (
+        referral.rewardType !== "FIXED_AMOUNT" &&
+        referral.rewardType !== "PERCENTAGE_DISCOUNT"
+      ) {
+        return NextResponse.json({
+          success: false,
+          message: "Invalid referral reward type",
+        });
+      }
+    }
+
+    // =====================================================
+    // SERVICE
+    // =====================================================
+
+    const service = await prisma.service.findUnique({
+      where: {
+        id: serviceId,
+      },
+    });
+
+    if (!service) {
+      return NextResponse.json({
+        success: false,
+        message: "Service not found",
+      });
+    }
+
+    // =====================================================
+    // SUB CATEGORY
+    //
+    // Make sure sub category belongs to selected service.
+    // =====================================================
+
+    const subCategory = await prisma.serviceSubCategory.findFirst({
+      where: {
+        id: subCategoryId,
+        serviceId: serviceId,
+      },
+    });
+
+    if (!subCategory) {
+      return NextResponse.json({
+        success: false,
+        message:
+          "Selected sub category does not belong to the selected service",
+      });
+    }
+
+    // =====================================================
+    // PACKAGE
+    //
+    // Package must belong to:
+    //
+    // Service
+    //      ↓
+    // Sub Category
+    //      ↓
+    // Package
+    //
+    // We verify this before billing.
+    // =====================================================
+
+    const plan = await prisma.servicePackage.findFirst({
+      where: {
+        id: packageId,
+
+        // Package must belong to selected service
+        serviceId: serviceId,
+
+        // Package must be connected to selected sub category
+        subCategories: {
+          some: {
+            subCategoryId: subCategoryId,
+          },
+        },
+
+        // Only active packages can be billed
+        isActive: true,
+      },
+
+      include: {
+        service: true,
+
+        subCategories: {
+          where: {
+            subCategoryId: subCategoryId,
+          },
+          include: {
+            subCategory: true,
+          },
+        },
+      },
+    });
 
     if (!plan) {
       return NextResponse.json({
         success: false,
-        message: "Package not found",
+        message:
+          "Selected package does not belong to the selected service and sub category",
       });
     }
 
+    // =====================================================
     // BRANCH
-    const branch =
-      await prisma.branch.findUnique({
-        where: { id: branchId },
-      });
+    // =====================================================
+
+    const branch = await prisma.branch.findUnique({
+      where: {
+        id: branchId,
+      },
+    });
 
     if (!branch) {
       return NextResponse.json({
@@ -129,152 +231,196 @@ if (referralId) {
       });
     }
 
+    // =====================================================
     // PRICE CALCULATION
-   // =====================================================
-// PRICE CALCULATION
-// =====================================================
+    // =====================================================
 
-const packageAmount = plan.price;
-const totalDiscount =
-  discountAmount +
-  referralDiscountAmount;
+    const packageAmount = plan.price * 100;
 
-const finalAmount =
-  packageAmount - totalDiscount;
+    const totalDiscount =
+      Number(discountAmount * 100) +
+      Number(referralDiscountAmount * 100);
 
-if (finalAmount < 0) {
-  return NextResponse.json({
-    success: false,
-    message:
-      "Discount cannot exceed package amount",
-  });
-}
+    const finalAmount =
+      packageAmount - totalDiscount;
 
-// =====================================================
-// GST
-// =====================================================
+    if (finalAmount < 0) {
+      return NextResponse.json({
+        success: false,
+        message:
+          "Discount cannot exceed package amount",
+      });
+    }
 
-const setting =
-  await prisma.setting.findFirst();
+    // =====================================================
+    // GST
+    // =====================================================
 
-const gstBreakdown =
-  await calculateGSTBreakdownFormatted(
-    finalAmount
-  );
+    const setting = await prisma.setting.findFirst();
 
-const cgstAmount =
-  Number(gstBreakdown.cgst);
+    const gstBreakdown =
+      await calculateGSTBreakdownFormatted(
+        finalAmount
+      );
 
-const sgstAmount =
-  Number(gstBreakdown.sgst);
+    const cgstAmount =
+      Number(gstBreakdown.cgst);
 
-const totalTax =
-  Number(gstBreakdown.totalTax);
+    const sgstAmount =
+      Number(gstBreakdown.sgst);
 
-// CUSTOMER PAYABLE AMOUNT
+    const totalTax =
+      Number(gstBreakdown.totalTax);
 
-const invoiceTotal =
-  Math.round(
-    finalAmount + totalTax
-  );
-  const balanceAmount = Math.max(
-    invoiceTotal - paidAmount,
-    0
-  );
-  
-// if (paidAmount > invoiceTotal) {
-//   return NextResponse.json({
-//     success: false,
-//     message:
-//       "Paid amount cannot exceed invoice total",
-//   });
-// }
+    // =====================================================
+    // CUSTOMER PAYABLE
+    // =====================================================
 
-    // STATUS
+    const invoiceTotal = Math.round(
+      finalAmount + totalTax
+    );
+
+    const numericPaidAmount =
+      Number(paidAmount * 100) || 0;
+
+    if (numericPaidAmount > invoiceTotal) {
+      return NextResponse.json({
+        success: false,
+        message:
+          "Paid amount cannot exceed invoice total",
+      });
+    }
+
+    const balanceAmount = Math.max(
+      invoiceTotal - numericPaidAmount,
+      0
+    );
+
+    // =====================================================
+    // INVOICE STATUS
+    // =====================================================
+
     let invoiceStatus:
       | "PENDING"
       | "PARTIAL_PAID"
       | "FULLY_PAID" = "PENDING";
 
     if (
-      paidAmount > 0 &&
+      numericPaidAmount > 0 &&
       balanceAmount > 0
     ) {
       invoiceStatus = "PARTIAL_PAID";
     }
 
-    if (paidAmount >= invoiceTotal) {
+    if (numericPaidAmount >= invoiceTotal) {
       invoiceStatus = "FULLY_PAID";
     }
+
+    // =====================================================
     // DATES
-    const subscriptionStartDate =
-    startDate
+    // =====================================================
+
+    const subscriptionStartDate = startDate
       ? new Date(startDate)
       : nowUTC();
-  
-  // IF END DATE IS SENT MANUALLY USE IT
-  // OTHERWISE AUTO CALCULATE FROM PACKAGE
-  
-  const subscriptionEndDate =
-    endDate
+
+    const subscriptionEndDate = endDate
       ? new Date(endDate)
       : addDaysUTC(
           subscriptionStartDate,
-          plan.durationInDays
+          plan.durationInDays - 1
         );
 
-        
-        if (
-          subscriptionEndDate <=
-          subscriptionStartDate
-        ) {
-          return NextResponse.json({
-            success: false,
-            message:
-              "End date must be greater than start date",
-          });
-        }
+    if (
+      subscriptionEndDate <
+      subscriptionStartDate
+    ) {
+      return NextResponse.json({
+        success: false,
+        message:
+          "End date cannot be before start date",
+      });
+    }
 
+    // =====================================================
     // INVOICE NUMBER
+    // =====================================================
+
     const invoiceNumber = `INV-${Date.now()}`;
 
+    // =====================================================
     // CREATE INVOICE
+    // =====================================================
+
     const invoice =
       await prisma.invoice.create({
         data: {
           invoiceNumber,
 
           memberId: member.id,
+
           branchId: branch.id,
+
           packageId: plan.id,
 
           salesRepId: user?.id,
+
           salesRepName: user?.name,
 
           intent: "NEW",
 
-          // SNAPSHOT
+          // =================================================
+          // SERVICE HIERARCHY SNAPSHOT
+          // =================================================
+
           serviceName: plan.service.name,
           packageName: plan.name,
 
           packageDurationInDays:
             plan.durationInDays,
-            referralDiscountAmount,
+
+          // =================================================
+          // REFERRAL
+          // =================================================
+
+          referralDiscountAmount:
+            Number(referralDiscountAmount),
+
+          // =================================================
+          // BRANCH SNAPSHOT
+          // =================================================
+
           branchName: branch.name,
 
+          // =================================================
+          // MEMBER SNAPSHOT
+          // =================================================
+
           memberName: member.name,
+
           memberPhone: member.phone,
+
           memberEmail: member.email,
 
-          packageAmount,
+          // =================================================
+          // AMOUNTS
+          // =================================================
 
-          discountAmount,
+          packageAmount: packageAmount,
+
+          discountAmount:
+            Number(discountAmount),
 
           finalAmount,
 
-          paidAmount,
+          paidAmount:
+            numericPaidAmount,
 
           balanceAmount,
+
+          // =================================================
+          // GST
+          // =================================================
 
           cgstPercentage:
             setting?.cgstPercentage,
@@ -283,31 +429,40 @@ const invoiceTotal =
             setting?.sgstPercentage,
 
           cgstAmount,
-          sgstAmount,
-          totalTax:
-            Number(gstBreakdown.totalTax) ||
-            0,
 
+          sgstAmount,
+
+          totalTax,
+
+          // =================================================
+          // STATUS
+          // =================================================
+
+          subCategoryId,
           status: invoiceStatus,
 
           notes,
         },
       });
 
+    // =====================================================
     // CREATE PAYMENT
+    // =====================================================
+
     let payment = null;
 
-    if (paidAmount > 0) {
+    if (numericPaidAmount > 0) {
       payment =
         await prisma.payment.create({
           data: {
-            receiptNumber: `RCPT-${Date.now()}`,
+            receiptNumber:
+              `RCPT-${Date.now()}`,
 
             invoiceId: invoice.id,
 
             memberId: member.id,
 
-            amount: paidAmount,
+            amount: numericPaidAmount,
 
             paymentMode,
 
@@ -322,7 +477,10 @@ const invoiceTotal =
         });
     }
 
+    // =====================================================
     // CREATE SUBSCRIPTION
+    // =====================================================
+
     const subscription =
       await prisma.subscription.create({
         data: {
@@ -331,52 +489,91 @@ const invoiceTotal =
           packageId: plan.id,
 
           usageType: plan.usageType,
-          totalSessions: plan.totalSessions,
-          remainingSessions: plan.totalSessions,
+
+          totalSessions:
+            plan.totalSessions,
+
+          remainingSessions:
+            plan.totalSessions,
 
           branchId: branch.id,
+          subCategoryId,
 
           invoiceId: invoice.id,
 
-          // SNAPSHOT
-          serviceName: plan.service.name,
-          packageName: plan.name,
+          // =================================================
+          // SERVICE HIERARCHY SNAPSHOT
+          // =================================================
+
+          serviceName:
+            plan.service.name,
+
+
+          packageName:
+            plan.name,
 
           packageDurationInDays:
             plan.durationInDays,
 
+          // =================================================
+          // PRICE SNAPSHOT
+          // =================================================
+
           originalPrice:
             plan.originalPrice,
 
-          finalPrice: finalAmount,
+          finalPrice:
+            finalAmount,
 
-          branchName: branch.name,
+          // =================================================
+          // BRANCH
+          // =================================================
 
-          startDate: subscriptionStartDate,
-          endDate: subscriptionEndDate,
+          branchName:
+            branch.name,
+
+          // =================================================
+          // DATES
+          // =================================================
+
+          startDate:
+            subscriptionStartDate,
+
+          endDate:
+            subscriptionEndDate,
 
           status: "ACTIVE",
         },
       });
 
+    // =====================================================
+    // CLAIM REFERRAL
+    // =====================================================
 
-      if (
-        referral &&
-        paymentMode !== "Razorpay"
-      ) {
-        await prisma.referral.update({
-          where: {
-            id: referral.id,
-          },
-          data: {
-            rewardClaimed: true,
-            status: "REWARDED",
-            claimedInvoiceId: invoice.id,
-          },
-        });
-      }
+    if (
+      referral &&
+      paymentMode !== "Razorpay"
+    ) {
+      await prisma.referral.update({
+        where: {
+          id: referral.id,
+        },
 
+        data: {
+          rewardClaimed: true,
+
+          status: "REWARDED",
+
+          claimedInvoiceId:
+            invoice.id,
+        },
+      });
+    }
+
+    // =====================================================
     // WHATSAPP
+    // =====================================================
+
     try {
       const memberPortal =
         process.env.NEXT_PUBLIC_SITE_URL +
@@ -396,7 +593,9 @@ const invoiceTotal =
           },
           {
             type: "text",
-            text: formatDate(subscriptionEndDate),
+            text: formatDate(
+              subscriptionEndDate
+            ),
           },
           {
             type: "text",
@@ -415,31 +614,33 @@ const invoiceTotal =
       );
     }
 
-try {
-  const memberPortal =
-    process.env.NEXT_PUBLIC_SITE_URL +
-    "/member/login";
+    // =====================================================
+    // EMAIL
+    // =====================================================
 
-  const invoiceUrl = `${process.env.NEXT_PUBLIC_APP_URL}/invoice/${invoice.id}`;
+    try {
+      const memberPortal =
+        process.env.NEXT_PUBLIC_SITE_URL +
+        "/member/login";
 
-  // =====================================================
-  // TOTAL
-  // =====================================================
+      const invoiceUrl =
+        `${process.env.NEXT_PUBLIC_APP_URL}/invoice/${invoice.id}`;
 
-  const totalAmount =
-    paiseToRupees(invoiceTotal);
+      const totalAmount =
+        paiseToRupees(invoiceTotal);
 
-  // =====================================================
-  // PAYMENT HISTORY HTML
-  // =====================================================
+      // ===================================================
+      // PAYMENT HISTORY
+      // ===================================================
 
-  // =====================================================
-// PAYMENT HISTORY HTML ROWS
-// =====================================================
-const paymentDate = formatPaidAt(payment?.paidAt)
-const paymentHistory =
-invoiceStatus === "PENDING"
-  ? `
+      const paymentDate =
+        formatPaidAt(
+          payment?.paidAt
+        );
+
+      const paymentHistory =
+        invoiceStatus === "PENDING"
+          ? `
 <tr>
 <td
   colspan="3"
@@ -455,9 +656,8 @@ invoiceStatus === "PENDING"
 </td>
 </tr>
 `
-  : `
+          : `
 <tr>
-
 <td
   style="
     padding:10px 15px;
@@ -466,9 +666,7 @@ invoiceStatus === "PENDING"
     color:#111827;
   "
 >
-
   ${paymentMode || "-"}
-
 </td>
 
 <td
@@ -479,11 +677,9 @@ invoiceStatus === "PENDING"
     color:#111827;
   "
 >
-
   ₹ ${paiseToRupees(
-    paidAmount
+    numericPaidAmount
   )}
-
 </td>
 
 <td
@@ -495,214 +691,242 @@ invoiceStatus === "PENDING"
     color:#111827;
   "
 >
-
   ${paymentDate}
-
 </td>
-
 </tr>
 `;
-  // =====================================================
-  // SEND EMAIL
-  // =====================================================
 
-  await sendEmail({
-    to: member.email,
+      // ===================================================
+      // SEND EMAIL
+      // ===================================================
 
-    name: member.name,
+      await sendEmail({
+        to: member.email,
+        name: member.name,
+        templateId: 1,
 
-    templateId: 1,
+        params: {
+          // =================================================
+          // MEMBER
+          // =================================================
 
-    params: {
-      // =====================================================
-      // MEMBER
-      // =====================================================
-      invoiceNo: invoiceNumber,
-      amount: paiseToRupees(invoice.packageAmount),
-      referralDiscountAmount:
-      paiseToRupees(
-        invoice.referralDiscountAmount
-      ),
-      memberName:
-        member.name || "-",
+          invoiceNo:
+            invoiceNumber,
 
-      memberPhone:
-        member.phone || "-",
+          amount:
+            paiseToRupees(
+              invoice.packageAmount
+            ),
 
-      memberEmail:
-        member.email || "-",
+          referralDiscountAmount:
+            paiseToRupees(
+              invoice.referralDiscountAmount
+            ),
 
-      memberAddress:
-        member.address || "-",
+          memberName:
+            member.name || "-",
 
-      // =====================================================
-      // INVOICE
-      // =====================================================
+          memberPhone:
+            member.phone || "-",
 
-      invoiceNumber:
-        invoice.invoiceNumber,
+          memberEmail:
+            member.email || "-",
 
-      invoiceDate:
-        formatDate(
-          invoice.createdAt
-        ),
+          memberAddress:
+            member.address || "-",
 
-      salesRepName:
-        user?.name || "System",
+          // =================================================
+          // INVOICE
+          // =================================================
 
-      // =====================================================
-      // BRANCH
-      // =====================================================
+          invoiceNumber:
+            invoice.invoiceNumber,
 
-      branchName:
-        branch.name || "-",
+          invoiceDate:
+            formatDate(
+              invoice.createdAt
+            ),
 
-      branch: {
-        gstNumber:
-          branch.gstNumber ||
-          "-",
+          salesRepName:
+            user?.name || "System",
 
-        address:
-          branch.address || "-",
+          // =================================================
+          // BRANCH
+          // =================================================
 
-        supportEmail:
-          branch.supportEmail ||
-          "-",
+          branchName:
+            branch.name || "-",
 
-        supportPhone:
-          branch.supportPhone ||
-          "-",
+          branch: {
+            gstNumber:
+              branch.gstNumber ||
+              "-",
 
-        terms:
-          (
-            branch.terms ||
-            "Standard terms apply."
-          ).slice(0, 300),
-      },
+            address:
+              branch.address || "-",
 
-      // =====================================================
-      // SERVICE
-      // =====================================================
+            supportEmail:
+              branch.supportEmail ||
+              "-",
 
-      serviceName:
-        invoice.serviceName,
+            supportPhone:
+              branch.supportPhone ||
+              "-",
 
-      packageName:
-        invoice.packageName,
+            terms: (
+              branch.terms ||
+              "Standard terms apply."
+            ).slice(0, 300),
+          },
 
-      startDate:
-        formatDate(subscriptionStartDate),
+          // =================================================
+          // SERVICE HIERARCHY
+          // =================================================
 
-      endDate:
-        formatDate(subscriptionEndDate),
+          serviceName:
+            invoice.serviceName,
 
-      // =====================================================
-      // GST
-      // =====================================================
 
-      baseFee:
-      paiseToRupees(Number(
-        gstBreakdown.baseFee
-      )),
-    
-    cgst:
-    paiseToRupees(Number(
-        gstBreakdown.cgst
-      )),
-    
-    sgst:
-    paiseToRupees(Number(
-        gstBreakdown.sgst
-      )),
-    
-    totalTax:
-      paiseToRupees(Number(
-        gstBreakdown.totalTax
-      )),
+          packageName:
+            invoice.packageName,
 
-      cgstPercentage:
-        setting?.cgstPercentage?.toFixed(
-          2
-        ) || "0.00",
+          startDate:
+            formatDate(
+              subscriptionStartDate
+            ),
 
-      sgstPercentage:
-        setting?.sgstPercentage?.toFixed(
-          2
-        ) || "0.00",
+          endDate:
+            formatDate(
+              subscriptionEndDate
+            ),
 
-      // =====================================================
-      // TOTALS
-      // =====================================================
+          // =================================================
+          // GST
+          // =================================================
 
-      finalAmount:
-  paiseToRupees(
-    invoice.finalAmount
-  ),
+          baseFee:
+            paiseToRupees(
+              Number(
+                gstBreakdown.baseFee
+              )
+            ),
 
-invoiceTotal:
-  totalAmount.toFixed(2),
+          cgst:
+            paiseToRupees(
+              Number(
+                gstBreakdown.cgst
+              )
+            ),
 
-      packageAmount:
-        paiseToRupees(
-          invoice.packageAmount
-        ),
+          sgst:
+            paiseToRupees(
+              Number(
+                gstBreakdown.sgst
+              )
+            ),
 
-      discountAmount:
-        paiseToRupees(
-          invoice.discountAmount
-        ),
+          totalTax:
+            paiseToRupees(
+              Number(
+                gstBreakdown.totalTax
+              )
+            ),
 
-      paidAmount:
-        paiseToRupees(
-          invoice.paidAmount
-        ),
+          cgstPercentage:
+            setting?.cgstPercentage?.toFixed(
+              2
+            ) || "0.00",
 
-      balanceAmount:
-        paiseToRupees(
-          invoice.balanceAmount
-        ),
+          sgstPercentage:
+            setting?.sgstPercentage?.toFixed(
+              2
+            ) || "0.00",
 
-      // =====================================================
-      // PAYMENT
-      // =====================================================
+          // =================================================
+          // TOTALS
+          // =================================================
 
-      paymentMode:
-        paymentMode || "-",
-      paymentDate,
-      paymentHistory,
-      
+          finalAmount:
+            paiseToRupees(
+              invoice.finalAmount
+            ),
 
-      // =====================================================
-      // LINKS
-      // =====================================================
+          invoiceTotal:
+            totalAmount.toFixed(2),
 
-      invoiceUrl,
+          packageAmount:
+            paiseToRupees(
+              invoice.packageAmount
+            ),
 
-      portalUrl:
-        memberPortal,
-    },
-  });
-} catch (e) {
-  console.log(
-    "Email failed",
-    e
-  );
-}
+          discountAmount:
+            paiseToRupees(
+              invoice.discountAmount
+            ),
 
+          paidAmount:
+            paiseToRupees(
+              invoice.paidAmount
+            ),
+
+          balanceAmount:
+            paiseToRupees(
+              invoice.balanceAmount
+            ),
+
+          // =================================================
+          // PAYMENT
+          // =================================================
+
+          paymentMode:
+            paymentMode || "-",
+
+          paymentDate,
+
+          paymentHistory,
+
+          // =================================================
+          // LINKS
+          // =================================================
+
+          invoiceUrl,
+
+          portalUrl:
+            memberPortal,
+        },
+      });
+    } catch (e) {
+      console.log(
+        "Email failed",
+        e
+      );
+    }
+
+    // =====================================================
+    // RESPONSE
+    // =====================================================
 
     return NextResponse.json({
       success: true,
 
       invoice,
+
       payment,
+
       subscription,
     });
   } catch (e) {
     console.log(e);
 
-    return NextResponse.json({
-      success: false,
-      message: "Something went wrong",
-    });
+    return NextResponse.json(
+      {
+        success: false,
+        message:
+          "Something went wrong",
+      },
+      {
+        status: 500,
+      }
+    );
   }
 };

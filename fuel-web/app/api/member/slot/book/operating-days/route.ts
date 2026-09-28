@@ -51,7 +51,13 @@ export async function GET(
           branchId: true,
           startDate: true,
           endDate: true,
-
+          subCategoryId: true,
+          subCategory: {
+            select: {
+              name: true,
+              id: true
+            }
+          },
           package: {
             select: {
               serviceId: true,
@@ -93,7 +99,7 @@ export async function GET(
         where: {
           branchId:
             subscription.branchId,
-
+          subCategoryId: subscription.subCategoryId,
           serviceId:
             subscription.package
               .serviceId,

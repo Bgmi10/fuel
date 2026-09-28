@@ -1,7 +1,9 @@
 "use client";
 
 import Image from "next/image";
+
 import { BookTrialForm } from "@/app/components/BookTrialForm";
+
 import {
   useParams,
   useRouter,
@@ -29,8 +31,11 @@ import {
 import { useBranch } from "@/app/contexts/BranchContext";
 
 import { SubscribeModal } from "@/app/components/SubscribeModal";
+
 import { Header } from "@/app/components/Header";
+
 import Footer from "@/app/components/Footer";
+
 import { ContactForm } from "@/app/components/Contactus";
 
 // =====================================================
@@ -40,74 +45,64 @@ import { ContactForm } from "@/app/components/Contactus";
 type WebsiteContent = {
   id: string;
   serviceId: string;
-
   eyebrow: string | null;
   heroTitle: string | null;
-
   intro: unknown;
-
   closing: string | null;
   tagline: string | null;
-
   benefits: unknown;
   idealFor: unknown;
-
   createdAt: string;
   updatedAt: string;
 };
 
 type ServiceSchedule = {
   id: string;
-
-  subCategoryId: string;
-
+  subCategoryId: string | null;
+  websiteContentId?: string | null;
   label: string;
   times: unknown;
-
   sortOrder: number;
-
   createdAt: string;
   updatedAt: string;
 };
 
 type ServiceSubCategory = {
   id: string;
-
   serviceId: string;
-
   name: string;
+  tagline?: string | null;
   description: string | null;
-
   image: string | null;
-
   sortOrder: number;
   isActive: boolean;
-
   schedules: ServiceSchedule[];
-
   createdAt: string;
   updatedAt: string;
 };
 
-type PackageWithCoupons =
-  ServicePackage & {
-    coupons: Coupon[];
-  };
+type PackageSubCategory = {
+  subCategoryId: string;
+};
 
-type ServiceWithBranches =
-  Service & {
-    branches: Branch[];
+type PackageWithCoupons = ServicePackage & {
+  coupons: Coupon[];
+  subCategories: PackageSubCategory[];
+};
 
-    websiteContent:
-      | WebsiteContent
-      | null;
+type ServiceWithBranches = Service & {
+  branches: Branch[];
 
-    subCategories:
-      ServiceSubCategory[];
+  websiteContent:
+    | (WebsiteContent & {
+        schedules: ServiceSchedule[];
+      })
+    | null;
 
-    packages:
-      PackageWithCoupons[];
-  };
+  subCategories: ServiceSubCategory[];
+
+  packages: PackageWithCoupons[];
+};
 
 // =====================================================
 // HELPERS
@@ -121,9 +116,7 @@ function asStringArray(
   }
 
   return value.filter(
-    (
-      item
-    ): item is string =>
+    (item): item is string =>
       typeof item === "string"
   );
 }
@@ -136,9 +129,7 @@ function asScheduleTimes(
   }
 
   return value.filter(
-    (
-      item
-    ): item is string =>
+    (item): item is string =>
       typeof item === "string"
   );
 }
@@ -199,11 +190,32 @@ export default function ServicePage() {
     setLoading,
   ] = useState(true);
 
+  // ===================================================
+  // SELECTED SUBCATEGORY
+  // ===================================================
+  //
+  // IMPORTANT:
+  // We now store the exact subcategory together
+  // with the selected package.
+  //
+  // This is what allows SubscribeModal to know
+  // exactly which subcategory the customer selected.
+  //
+  // ===================================================
+
   const [
     selectedPackage,
     setSelectedPackage,
   ] =
     useState<PackageWithCoupons | null>(
+      null
+    );
+
+  const [
+    selectedSubCategory,
+    setSelectedSubCategory,
+  ] =
+    useState<ServiceSubCategory | null>(
       null
     );
 
@@ -345,6 +357,57 @@ export default function ServicePage() {
     ) || [];
 
   // ===================================================
+  // SUBCATEGORY CHECK
+  // ===================================================
+
+  const hasSubCategories =
+    subCategories.length > 0;
+
+  // ===================================================
+  // OPEN SUBSCRIBE MODAL
+  // ===================================================
+  //
+  // This is the central function.
+  //
+  // Instead of only selecting a package, we select:
+  //
+  // 1. package
+  // 2. exact subcategory
+  //
+  // The SubscribeModal can then construct the
+  // correct backend payload.
+  //
+  // ===================================================
+
+  const handleChoosePackage = (
+    pkg: PackageWithCoupons,
+    subCategory: ServiceSubCategory | null
+  ) => {
+    setSelectedPackage(pkg);
+
+    setSelectedSubCategory(
+      subCategory
+    );
+
+    setOpen(true);
+  };
+
+  // ===================================================
+  // CLOSE SUBSCRIBE MODAL
+  // ===================================================
+
+  const handleCloseSubscribeModal = (
+    value: boolean
+  ) => {
+    setOpen(value);
+
+    if (!value) {
+      setSelectedPackage(null);
+      setSelectedSubCategory(null);
+    }
+  };
+
+  // ===================================================
   // LOADING
   // ===================================================
 
@@ -379,12 +442,8 @@ export default function ServicePage() {
         </div>
 
         <ContactForm
-          open={
-            isContactOpen
-          }
-          setOpen={
-            setIsContactOpen
-          }
+          open={isContactOpen}
+          setOpen={setIsContactOpen}
         />
 
         <Footer />
@@ -462,12 +521,8 @@ export default function ServicePage() {
         </section>
 
         <ContactForm
-          open={
-            isContactOpen
-          }
-          setOpen={
-            setIsContactOpen
-          }
+          open={isContactOpen}
+          setOpen={setIsContactOpen}
         />
 
         <Footer />
@@ -483,6 +538,290 @@ export default function ServicePage() {
     service.coverImage ||
     service.thumbnailImage ||
     "/service-placeholder.webp";
+
+  // ===================================================
+  // PACKAGE CARD
+  // ===================================================
+  //
+  // Keeping the package card in one place avoids
+  // duplicating package UI between:
+  //
+  // - subcategory packages
+  // - service-level packages
+  //
+  // ===================================================
+
+  const renderPackageCard = (
+    pkg: PackageWithCoupons,
+    subCategory: ServiceSubCategory | null
+  ) => {
+    const hasDiscount =
+      !!pkg.originalPrice &&
+      pkg.originalPrice >
+        pkg.price;
+
+    const publicCoupons =
+      pkg.coupons?.filter(
+        (coupon) =>
+          coupon.isActive &&
+          !coupon.isPrivate
+      ) || [];
+
+    return (
+      <div
+        key={pkg.id}
+        className="
+          group
+          relative
+          rounded-3xl
+          border
+          border-neutral-800
+          bg-neutral-900/70
+          p-7
+          overflow-hidden
+          transition
+          duration-300
+          hover:border-neutral-600
+          hover:-translate-y-1
+        "
+      >
+        {/* PACKAGE NAME */}
+
+        <h3
+          className="
+            text-2xl
+            font-black
+          "
+        >
+          {pkg.name}
+        </h3>
+
+        {/* SUBCATEGORY INDICATOR */}
+
+        {subCategory && (
+          <div
+            className="
+              mt-3
+              inline-flex
+              items-center
+              rounded-full
+              border
+              border-lime-400/20
+              bg-lime-400/5
+              px-3
+              py-1
+              text-xs
+              font-semibold
+              text-lime-400
+            "
+          >
+            {subCategory.name}
+          </div>
+        )}
+
+        {/* DURATION */}
+
+        <p
+          className="
+            mt-3
+            text-sm
+            text-neutral-500
+          "
+        >
+          {pkg.durationInDays} Days
+          Membership
+        </p>
+
+        {/* SESSION BASED */}
+
+        {pkg.usageType ===
+          "SESSION_BASED" &&
+          pkg.totalSessions && (
+            <p
+              className="
+                mt-1
+                text-xs
+                text-lime-400
+                font-semibold
+              "
+            >
+              {pkg.totalSessions}{" "}
+              Sessions
+            </p>
+          )}
+
+        {/* PRICE */}
+
+        <div
+          className="
+            mt-7
+            flex
+            items-end
+            gap-3
+          "
+        >
+          <span
+            className="
+              text-4xl
+              md:text-5xl
+              font-black
+            "
+          >
+            ₹
+            {(
+              pkg.price / 100
+            ).toLocaleString(
+              "en-IN"
+            )}
+          </span>
+
+          {hasDiscount && (
+            <span
+              className="
+                mb-1
+                text-neutral-600
+                line-through
+              "
+            >
+              ₹
+              {(
+                (pkg.originalPrice ||
+                  0) /
+                100
+              ).toLocaleString(
+                "en-IN"
+              )}
+            </span>
+          )}
+        </div>
+
+        {/* DESCRIPTION */}
+
+        <p
+          className="
+            mt-6
+            min-h-[60px]
+            text-sm
+            leading-6
+            text-neutral-400
+          "
+        >
+          {pkg.description ||
+            `Join our ${service.name} program and start your training journey at Fuel Gym.`}
+        </p>
+
+        {/* COUPONS */}
+
+        {publicCoupons.length >
+          0 && (
+          <div
+            className="
+              mt-6
+              space-y-2
+            "
+          >
+            {publicCoupons.map(
+              (coupon) => (
+                <div
+                  key={
+                    coupon.id
+                  }
+                  className="
+                    rounded-xl
+                    border
+                    border-lime-400/20
+                    bg-lime-400/5
+                    px-4
+                    py-3
+                  "
+                >
+                  <p
+                    className="
+                      text-xs
+                      text-neutral-500
+                    "
+                  >
+                    Offer
+                  </p>
+
+                  <p
+                    className="
+                      mt-1
+                      font-bold
+                      tracking-wider
+                      text-lime-300
+                    "
+                  >
+                    {coupon.code}
+                  </p>
+
+                  {coupon.discountPercent && (
+                    <p
+                      className="
+                        mt-1
+                        text-xs
+                        text-neutral-400
+                      "
+                    >
+                      {
+                        coupon.discountPercent
+                      }
+                      % off
+                    </p>
+                  )}
+
+                  {coupon.discountFlatAmount && (
+                    <p
+                      className="
+                        mt-1
+                        text-xs
+                        text-neutral-400
+                      "
+                    >
+                      ₹
+                      {(
+                        coupon.discountFlatAmount /
+                        100
+                      ).toLocaleString(
+                        "en-IN"
+                      )}{" "}
+                      off
+                    </p>
+                  )}
+                </div>
+              )
+            )}
+          </div>
+        )}
+
+        {/* CTA */}
+
+        <button
+          type="button"
+          onClick={() =>
+            handleChoosePackage(
+              pkg,
+              subCategory
+            )
+          }
+          className="
+            mt-8
+            w-full
+            h-12
+            rounded-xl
+            bg-lime-400
+            text-black
+            font-bold
+            cursor-pointer
+            hover:bg-lime-300
+            transition
+          "
+        >
+          Choose Package
+        </button>
+      </div>
+    );
+  };
 
   // ===================================================
   // PAGE
@@ -526,12 +865,8 @@ export default function ServicePage() {
           alt={service.name}
           fill
           priority
-          className="
-            object-cover
-          "
+          className="object-cover"
         />
-
-        {/* DARK OVERLAY */}
 
         <div
           className="
@@ -544,8 +879,6 @@ export default function ServicePage() {
           "
         />
 
-        {/* LEFT GRADIENT */}
-
         <div
           className="
             absolute
@@ -556,8 +889,6 @@ export default function ServicePage() {
             to-transparent
           "
         />
-
-        {/* HERO CONTENT */}
 
         <div
           className="
@@ -572,8 +903,6 @@ export default function ServicePage() {
             md:pb-16
           "
         >
-          {/* EYEBROW */}
-
           {websiteContent?.eyebrow && (
             <p
               className="
@@ -587,8 +916,6 @@ export default function ServicePage() {
               {websiteContent.eyebrow}
             </p>
           )}
-
-          {/* SERVICE NAME */}
 
           <h1
             className="
@@ -606,8 +933,6 @@ export default function ServicePage() {
             {service.name}
           </h1>
 
-          {/* HERO TITLE */}
-
           {websiteContent?.heroTitle && (
             <p
               className="
@@ -620,13 +945,9 @@ export default function ServicePage() {
                 leading-relaxed
               "
             >
-              {
-                websiteContent.heroTitle
-              }
+              {websiteContent.heroTitle}
             </p>
           )}
-
-          {/* BRANCH */}
 
           <div
             className="
@@ -654,8 +975,7 @@ export default function ServicePage() {
               "
             />
 
-            {selectedBranch
-              ?.name ||
+            {selectedBranch?.name ||
               service.branches?.[0]
                 ?.name ||
               "Fuel Gym"}
@@ -685,8 +1005,6 @@ export default function ServicePage() {
             lg:gap-20
           "
         >
-          {/* TITLE */}
-
           <div>
             <p
               className="
@@ -711,8 +1029,7 @@ export default function ServicePage() {
                 leading-[1.05]
               "
             >
-              {websiteContent
-                ?.eyebrow ||
+              {websiteContent?.eyebrow ||
                 service.name}
 
               <br />
@@ -726,8 +1043,6 @@ export default function ServicePage() {
               </span>
             </h2>
           </div>
-
-          {/* INTRO */}
 
           <div
             className="
@@ -764,19 +1079,17 @@ export default function ServicePage() {
               >
                 Explore our{" "}
                 {service.name}{" "}
-                program at Fuel
-                Gym.
+                program at Fuel Gym.
               </p>
             )}
           </div>
         </div>
 
         {/* ================================================= */}
-        {/* SUB CATEGORIES + SCHEDULES */}
+        {/* SUB CATEGORIES */}
         {/* ================================================= */}
 
-        {subCategories.length >
-          0 && (
+        {hasSubCategories && (
           <div
             className="
               mt-16
@@ -804,6 +1117,18 @@ export default function ServicePage() {
                         b.sortOrder
                     ) || [];
 
+                const subCategoryPackages =
+                  packages.filter(
+                    (pkg) =>
+                      pkg.subCategories?.some(
+                        (
+                          relation
+                        ) =>
+                          relation.subCategoryId ===
+                          subCategory.id
+                      )
+                  );
+
                 return (
                   <div
                     key={
@@ -818,7 +1143,7 @@ export default function ServicePage() {
                       md:p-8
                     "
                   >
-                    {/* SUB CATEGORY HEADER */}
+                    {/* SUBCATEGORY HEADER */}
 
                     <div
                       className="
@@ -842,9 +1167,7 @@ export default function ServicePage() {
                         "
                       >
                         <CalendarDays
-                          size={
-                            18
-                          }
+                          size={18}
                           className="
                             text-lime-400
                           "
@@ -865,6 +1188,24 @@ export default function ServicePage() {
                       </h3>
                     </div>
 
+                    {/* TAGLINE */}
+
+                    {subCategory.tagline && (
+                      <p
+                        className="
+                          mt-4
+                          text-sm
+                          md:text-base
+                          font-semibold
+                          text-lime-400
+                        "
+                      >
+                        {
+                          subCategory.tagline
+                        }
+                      </p>
+                    )}
+
                     {/* DESCRIPTION */}
 
                     {subCategory.description && (
@@ -881,7 +1222,7 @@ export default function ServicePage() {
                       </p>
                     )}
 
-                    {/* SUBCATEGORY IMAGE */}
+                    {/* IMAGE */}
 
                     {subCategory.image && (
                       <div
@@ -954,8 +1295,6 @@ export default function ServicePage() {
                                   p-5
                                 "
                               >
-                                {/* LABEL */}
-
                                 <div
                                   className="
                                     flex
@@ -984,8 +1323,6 @@ export default function ServicePage() {
                                     }
                                   </p>
                                 </div>
-
-                                {/* TIMES */}
 
                                 {times.length >
                                   0 && (
@@ -1029,12 +1366,272 @@ export default function ServicePage() {
                         )}
                       </div>
                     )}
+
+                    {/* ================================================= */}
+                    {/* SUBCATEGORY PACKAGES */}
+                    {/* ================================================= */}
+
+                    {subCategoryPackages.length >
+                      0 && (
+                      <div
+                        className="
+                          mt-8
+                        "
+                      >
+                        <p
+                          className="
+                            text-xs
+                            text-lime-400
+                            uppercase
+                            tracking-[0.25em]
+                            font-bold
+                          "
+                        >
+                          Membership Options
+                        </p>
+
+                        <h4
+                          className="
+                            mt-3
+                            text-2xl
+                            md:text-3xl
+                            font-black
+                            uppercase
+                          "
+                        >
+                          Choose Your{" "}
+                          <span className="text-lime-400">
+                            Package
+                          </span>
+                        </h4>
+
+                        <div
+                          className="
+                            mt-7
+                            grid
+                            grid-cols-1
+                            md:grid-cols-2
+                            xl:grid-cols-3
+                            gap-6
+                          "
+                        >
+                          {subCategoryPackages.map(
+                            (
+                              pkg
+                            ) =>
+                              renderPackageCard(
+                                pkg,
+                                subCategory
+                              )
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* NO PACKAGES */}
+
+                    {subCategoryPackages.length ===
+                      0 && (
+                      <div
+                        className="
+                          mt-8
+                          rounded-2xl
+                          border
+                          border-neutral-800
+                          bg-black/40
+                          px-5
+                          py-8
+                          text-center
+                        "
+                      >
+                        <p
+                          className="
+                            text-lg
+                            font-bold
+                          "
+                        >
+                          Packages Coming Soon
+                        </p>
+
+                        <p
+                          className="
+                            mt-2
+                            text-sm
+                            text-neutral-500
+                          "
+                        >
+                          Membership
+                          packages for
+                          this program
+                          are currently
+                          unavailable.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 );
               }
             )}
           </div>
         )}
+
+        {/* ================================================= */}
+        {/* SERVICE LEVEL SCHEDULES */}
+        {/* ================================================= */}
+
+        {!hasSubCategories &&
+          websiteContent?.schedules &&
+          websiteContent.schedules.length >
+            0 && (
+            <div
+              className="
+                mt-16
+              "
+            >
+              <div
+                className="
+                  mb-7
+                "
+              >
+                <p
+                  className="
+                    text-lime-400
+                    text-xs
+                    tracking-[0.3em]
+                    uppercase
+                    font-bold
+                  "
+                >
+                  Schedule
+                </p>
+
+                <h3
+                  className="
+                    mt-3
+                    text-3xl
+                    md:text-4xl
+                    font-black
+                    uppercase
+                  "
+                >
+                  Training{" "}
+                  <span className="text-lime-400">
+                    Timings
+                  </span>
+                </h3>
+              </div>
+
+              <div
+                className="
+                  grid
+                  md:grid-cols-2
+                  gap-4
+                "
+              >
+                {websiteContent.schedules
+                  .filter(
+                    (schedule) =>
+                      schedule.label
+                  )
+                  .sort(
+                    (a, b) =>
+                      a.sortOrder -
+                      b.sortOrder
+                  )
+                  .map(
+                    (
+                      schedule
+                    ) => {
+                      const times =
+                        asScheduleTimes(
+                          schedule.times
+                        );
+
+                      return (
+                        <div
+                          key={
+                            schedule.id
+                          }
+                          className="
+                            rounded-2xl
+                            border
+                            border-white/[0.07]
+                            bg-neutral-950
+                            p-5
+                          "
+                        >
+                          <div
+                            className="
+                              flex
+                              items-center
+                              gap-2
+                            "
+                          >
+                            <Clock3
+                              size={
+                                15
+                              }
+                              className="
+                                text-lime-400
+                              "
+                            />
+
+                            <p
+                              className="
+                                text-sm
+                                font-bold
+                                text-white
+                              "
+                            >
+                              {
+                                schedule.label
+                              }
+                            </p>
+                          </div>
+
+                          {times.length >
+                            0 && (
+                            <div
+                              className="
+                                mt-4
+                                flex
+                                flex-wrap
+                                gap-2
+                              "
+                            >
+                              {times.map(
+                                (
+                                  time,
+                                  index
+                                ) => (
+                                  <span
+                                    key={`${schedule.id}-${index}`}
+                                    className="
+                                      px-3
+                                      py-1.5
+                                      rounded-lg
+                                      border
+                                      border-white/10
+                                      bg-white/[0.035]
+                                      text-xs
+                                      text-neutral-300
+                                    "
+                                  >
+                                    {
+                                      time
+                                    }
+                                  </span>
+                                )
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    }
+                  )}
+              </div>
+            </div>
+          )}
 
         {/* ================================================= */}
         {/* CLOSING */}
@@ -1322,8 +1919,6 @@ export default function ServicePage() {
             md:py-11
           "
         >
-          {/* GREEN GLOW */}
-
           <div
             className="
               absolute
@@ -1337,8 +1932,6 @@ export default function ServicePage() {
               pointer-events-none
             "
           />
-
-          {/* SMALL ACCENT */}
 
           <div
             className="
@@ -1363,8 +1956,6 @@ export default function ServicePage() {
               gap-7
             "
           >
-            {/* CONTENT */}
-
             <div
               className="
                 max-w-3xl
@@ -1428,8 +2019,6 @@ export default function ServicePage() {
               </p>
             </div>
 
-            {/* CTA */}
-
             <button
               type="button"
               onClick={() =>
@@ -1465,397 +2054,133 @@ export default function ServicePage() {
       </section>
 
       {/* ================================================= */}
-      {/* PACKAGES */}
+      {/* SERVICE LEVEL PACKAGES */}
       {/* ================================================= */}
 
-      <section
-        className="
-          border-t
-          border-neutral-900
-          bg-neutral-950
-          py-16
-          md:py-20
-          px-6
-        "
-      >
-        <div
+      {!hasSubCategories && (
+        <section
           className="
-            max-w-7xl
-            mx-auto
+            border-t
+            border-neutral-900
+            bg-neutral-950
+            py-16
+            md:py-20
+            px-6
           "
         >
-          {/* PACKAGE HEADING */}
-
           <div
             className="
-              max-w-3xl
+              max-w-7xl
+              mx-auto
             "
           >
-            <p
+            <div
               className="
-                text-lime-400
-                text-xs
-                tracking-[0.3em]
-                uppercase
-                font-bold
+                max-w-3xl
               "
             >
-              Membership Options
-            </p>
-
-            <h2
-              className="
-                mt-4
-                text-4xl
-                md:text-5xl
-                font-black
-                uppercase
-                tracking-tight
-              "
-            >
-              Choose Your{" "}
-              <span
+              <p
                 className="
                   text-lime-400
-                "
-              >
-                Package
-              </span>
-            </h2>
-
-            <p
-              className="
-                mt-4
-                text-neutral-500
-                leading-7
-              "
-            >
-              Select the membership
-              option that works best
-              for your training goals.
-            </p>
-          </div>
-
-          {/* PACKAGE CARDS */}
-
-          {packages.length >
-          0 ? (
-            <div
-              className="
-                mt-10
-                grid
-                grid-cols-1
-                md:grid-cols-2
-                xl:grid-cols-3
-                gap-6
-              "
-            >
-              {packages.map(
-                (pkg) => {
-                  const hasDiscount =
-                    !!pkg.originalPrice &&
-                    pkg.originalPrice >
-                      pkg.price;
-
-                  const publicCoupons =
-                    pkg.coupons?.filter(
-                      (
-                        coupon
-                      ) =>
-                        coupon.isActive &&
-                        !coupon.isPrivate
-                    ) || [];
-
-                  return (
-                    <div
-                      key={
-                        pkg.id
-                      }
-                      className="
-                        group
-                        relative
-                        rounded-3xl
-                        border
-                        border-neutral-800
-                        bg-neutral-900/70
-                        p-7
-                        overflow-hidden
-                        transition
-                        duration-300
-                        hover:border-neutral-600
-                        hover:-translate-y-1
-                      "
-                    >
-                      {/* PACKAGE NAME */}
-
-                      <h3
-                        className="
-                          text-2xl
-                          font-black
-                        "
-                      >
-                        {
-                          pkg.name
-                        }
-                      </h3>
-
-                      {/* DURATION */}
-
-                      <p
-                        className="
-                          mt-2
-                          text-sm
-                          text-neutral-500
-                        "
-                      >
-                        {
-                          pkg.durationInDays
-                        }{" "}
-                        Days
-                        Membership
-                      </p>
-
-                      {/* SESSION BASED */}
-
-                      {pkg.usageType ===
-                        "SESSION_BASED" &&
-                        pkg.totalSessions && (
-                          <p
-                            className="
-                              mt-1
-                              text-xs
-                              text-lime-400
-                              font-semibold
-                            "
-                          >
-                            {
-                              pkg.totalSessions
-                            }{" "}
-                            Sessions
-                          </p>
-                        )}
-
-                      {/* PRICE */}
-
-                      <div
-                        className="
-                          mt-7
-                          flex
-                          items-end
-                          gap-3
-                        "
-                      >
-                        <span
-                          className="
-                            text-4xl
-                            md:text-5xl
-                            font-black
-                          "
-                        >
-                          ₹
-                          {(
-                            pkg.price /
-                            100
-                          ).toLocaleString(
-                            "en-IN"
-                          )}
-                        </span>
-
-                        {hasDiscount && (
-                          <span
-                            className="
-                              mb-1
-                              text-neutral-600
-                              line-through
-                            "
-                          >
-                            ₹
-                            {(
-                              (pkg.originalPrice ||
-                                0) /
-                              100
-                            ).toLocaleString(
-                              "en-IN"
-                            )}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* DESCRIPTION */}
-
-                      <p
-                        className="
-                          mt-6
-                          min-h-[60px]
-                          text-sm
-                          leading-6
-                          text-neutral-400
-                        "
-                      >
-                        {pkg.description ||
-                          `Join our ${service.name} program and start your training journey at Fuel Gym.`}
-                      </p>
-
-                      {/* COUPONS */}
-
-                      {publicCoupons.length >
-                        0 && (
-                        <div
-                          className="
-                            mt-6
-                            space-y-2
-                          "
-                        >
-                          {publicCoupons.map(
-                            (
-                              coupon
-                            ) => (
-                              <div
-                                key={
-                                  coupon.id
-                                }
-                                className="
-                                  rounded-xl
-                                  border
-                                  border-lime-400/20
-                                  bg-lime-400/5
-                                  px-4
-                                  py-3
-                                "
-                              >
-                                <p
-                                  className="
-                                    text-xs
-                                    text-neutral-500
-                                  "
-                                >
-                                  Offer
-                                </p>
-
-                                <p
-                                  className="
-                                    mt-1
-                                    font-bold
-                                    tracking-wider
-                                    text-lime-300
-                                  "
-                                >
-                                  {
-                                    coupon.code
-                                  }
-                                </p>
-
-                                {/* DISCOUNT */}
-
-                                {coupon.discountPercent && (
-                                  <p
-                                    className="
-                                      mt-1
-                                      text-xs
-                                      text-neutral-400
-                                    "
-                                  >
-                                    {
-                                      coupon.discountPercent
-                                    }
-                                    % off
-                                  </p>
-                                )}
-
-                                {coupon.discountFlatAmount && (
-                                  <p
-                                    className="
-                                      mt-1
-                                      text-xs
-                                      text-neutral-400
-                                    "
-                                  >
-                                    ₹
-                                    {(
-                                      coupon.discountFlatAmount /
-                                      100
-                                    ).toLocaleString(
-                                      "en-IN"
-                                    )}{" "}
-                                    off
-                                  </p>
-                                )}
-                              </div>
-                            )
-                          )}
-                        </div>
-                      )}
-
-                      {/* CTA */}
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedPackage(
-                            pkg
-                          );
-
-                          setOpen(
-                            true
-                          );
-                        }}
-                        className="
-                          mt-8
-                          w-full
-                          h-12
-                          rounded-xl
-                          bg-lime-400
-                          text-black
-                          font-bold
-                          cursor-pointer
-                          hover:bg-lime-300
-                          transition
-                        "
-                      >
-                        Choose Package
-                      </button>
-                    </div>
-                  );
-                }
-              )}
-            </div>
-          ) : (
-            <div
-              className="
-                mt-10
-                rounded-3xl
-                border
-                border-neutral-800
-                bg-neutral-900/50
-                px-6
-                py-14
-                text-center
-              "
-            >
-              <h3
-                className="
-                  text-2xl
+                  text-xs
+                  tracking-[0.3em]
+                  uppercase
                   font-bold
                 "
               >
-                Packages Coming
-                Soon
-              </h3>
+                Membership Options
+              </p>
+
+              <h2
+                className="
+                  mt-4
+                  text-4xl
+                  md:text-5xl
+                  font-black
+                  uppercase
+                  tracking-tight
+                "
+              >
+                Choose Your{" "}
+                <span
+                  className="
+                    text-lime-400
+                  "
+                >
+                  Package
+                </span>
+              </h2>
 
               <p
                 className="
-                  mt-3
+                  mt-4
                   text-neutral-500
+                  leading-7
                 "
               >
-                Membership packages
-                for this service are
-                currently unavailable.
+                Select the membership
+                option that works best
+                for your training goals.
               </p>
             </div>
-          )}
-        </div>
-      </section>
+
+            {packages.length >
+            0 ? (
+              <div
+                className="
+                  mt-10
+                  grid
+                  grid-cols-1
+                  md:grid-cols-2
+                  xl:grid-cols-3
+                  gap-6
+                "
+              >
+                {packages.map(
+                  (pkg) =>
+                    renderPackageCard(
+                      pkg,
+                      null
+                    )
+                )}
+              </div>
+            ) : (
+              <div
+                className="
+                  mt-10
+                  rounded-3xl
+                  border
+                  border-neutral-800
+                  bg-neutral-900/50
+                  px-6
+                  py-14
+                  text-center
+                "
+              >
+                <h3
+                  className="
+                    text-2xl
+                    font-bold
+                  "
+                >
+                  Packages Coming Soon
+                </h3>
+
+                <p
+                  className="
+                    mt-3
+                    text-neutral-500
+                  "
+                >
+                  Membership packages
+                  for this service are
+                  currently unavailable.
+                </p>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
 
       {/* ================================================= */}
       {/* SUBSCRIBE MODAL */}
@@ -1864,11 +2189,16 @@ export default function ServicePage() {
       {selectedPackage && (
         <SubscribeModal
           open={open}
-          setOpen={setOpen}
+          setOpen={
+            handleCloseSubscribeModal
+          }
           selectedPackage={
             selectedPackage
           }
           service={service}
+          subCategory={
+            selectedSubCategory
+          }
         />
       )}
 

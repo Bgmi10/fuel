@@ -9,8 +9,7 @@ type SessionInput = {
   capacity?: number | string;
 };
 
-const TIME_PATTERN =
-  /^([01]\d|2[0-3]):[0-5]\d$/;
+const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 const WEEKDAY_ORDER: SlotWeekday[] = [
   SlotWeekday.MONDAY,
@@ -22,87 +21,91 @@ const WEEKDAY_ORDER: SlotWeekday[] = [
   SlotWeekday.SUNDAY,
 ];
 
-const VALID_WEEKDAYS =
-  new Set<SlotWeekday>(WEEKDAY_ORDER);
+const VALID_WEEKDAYS = new Set<SlotWeekday>(WEEKDAY_ORDER);
 
 function normalizeWeekdays(
   value: unknown
 ): SlotWeekday[] | null {
-  if (
-    !Array.isArray(value) ||
-    value.length === 0
-  ) {
+  if (!Array.isArray(value) || value.length === 0) {
     return null;
   }
 
-  const selectedDays =
-    new Set<SlotWeekday>();
+  const selectedDays = new Set<SlotWeekday>();
 
   for (const item of value) {
     if (
       typeof item !== "string" ||
-      !VALID_WEEKDAYS.has(
-        item as SlotWeekday
-      )
+      !VALID_WEEKDAYS.has(item as SlotWeekday)
     ) {
       return null;
     }
 
-    selectedDays.add(
-      item as SlotWeekday
-    );
+    selectedDays.add(item as SlotWeekday);
   }
 
-  /*
-   * Store the weekdays in normal
-   * Monday-to-Sunday order.
-   */
+  // Store weekdays in normal Monday-to-Sunday order.
   return WEEKDAY_ORDER.filter((day) =>
     selectedDays.has(day)
   );
 }
 
+function normalizeOptionalId(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+
+  return trimmed || null;
+}
+
+// -------------------------------------------------------
 // GET all active slots
+// -------------------------------------------------------
+
 export async function GET() {
   try {
-    const slots =
-      await prisma.slot.findMany({
-        where: {
-          isActive: true,
-        },
+    const slots = await prisma.slot.findMany({
+      where: {
+        isActive: true,
+      },
 
-        include: {
-          branch: true,
-          service: true,
+      include: {
+        branch: true,
 
-          _count: {
-            select: {
-              bookings: true,
-            },
+        service: true,
+
+        subCategory: {
+          select: {
+            id: true,
+            name: true,
           },
         },
 
-        orderBy: [
-          {
-            createdAt: "desc",
+        _count: {
+          select: {
+            bookings: true,
           },
-          {
-            startTime: "asc",
-          },
-        ],
-      });
+        },
+      },
+
+      orderBy: [
+        {
+          createdAt: "desc",
+        },
+        {
+          startTime: "asc",
+        },
+      ],
+    });
 
     return NextResponse.json(slots);
   } catch (error) {
-    console.error(
-      "GET /api/slot error:",
-      error
-    );
+    console.error("GET /api/slot error:", error);
 
     return NextResponse.json(
       {
-        message:
-          "Failed to fetch slots",
+        message: "Failed to fetch slots",
       },
       {
         status: 500,
@@ -111,7 +114,10 @@ export async function GET() {
   }
 }
 
+// -------------------------------------------------------
 // CREATE multiple sessions
+// -------------------------------------------------------
+
 export async function POST(req: Request) {
   try {
     const body = await req.json();
@@ -126,21 +132,28 @@ export async function POST(req: Request) {
         ? body.serviceId.trim()
         : "";
 
-    const daysOfWeek =
-      normalizeWeekdays(
-        body.daysOfWeek
-      );
+    const subCategoryId = normalizeOptionalId(
+      body.subCategoryId
+    );
 
-    const sessions: SessionInput[] =
-      Array.isArray(body.sessions)
-        ? body.sessions
-        : [];
+    const daysOfWeek = normalizeWeekdays(
+      body.daysOfWeek
+    );
+
+    const sessions: SessionInput[] = Array.isArray(
+      body.sessions
+    )
+      ? body.sessions
+      : [];
+
+    // -------------------------------------------------------
+    // BASIC VALIDATION
+    // -------------------------------------------------------
 
     if (!branchId) {
       return NextResponse.json(
         {
-          message:
-            "Branch is required",
+          message: "Branch is required",
         },
         {
           status: 400,
@@ -151,8 +164,7 @@ export async function POST(req: Request) {
     if (!serviceId) {
       return NextResponse.json(
         {
-          message:
-            "Service is required",
+          message: "Service is required",
         },
         {
           status: 400,
@@ -175,8 +187,7 @@ export async function POST(req: Request) {
     if (sessions.length === 0) {
       return NextResponse.json(
         {
-          message:
-            "At least one session is required",
+          message: "At least one session is required",
         },
         {
           status: 400,
@@ -196,59 +207,52 @@ export async function POST(req: Request) {
       );
     }
 
-    const normalizedSessions =
-      sessions.map(
-        (session, index) => {
-          const name =
-            typeof session.name ===
-            "string"
-              ? session.name.trim()
-              : "";
+    // -------------------------------------------------------
+    // NORMALIZE SESSIONS
+    // -------------------------------------------------------
 
-          const startTime =
-            typeof session.startTime ===
-            "string"
-              ? session.startTime.trim()
-              : "";
+    const normalizedSessions = sessions.map(
+      (session, index) => {
+        const name =
+          typeof session.name === "string"
+            ? session.name.trim()
+            : "";
 
-          const endTime =
-            typeof session.endTime ===
-            "string"
-              ? session.endTime.trim()
-              : "";
+        const startTime =
+          typeof session.startTime === "string"
+            ? session.startTime.trim()
+            : "";
 
-          const capacity = Number(
-            session.capacity
-          );
+        const endTime =
+          typeof session.endTime === "string"
+            ? session.endTime.trim()
+            : "";
 
-          return {
-            name:
-              name ||
-              `Session ${index + 1}`,
+        const capacity = Number(session.capacity);
 
-            startTime,
-            endTime,
-            capacity,
-          };
-        }
-      );
+        return {
+          name: name || `Session ${index + 1}`,
+          startTime,
+          endTime,
+          capacity,
+        };
+      }
+    );
+
+    // -------------------------------------------------------
+    // VALIDATE SESSION DATA
+    // -------------------------------------------------------
 
     for (
       let index = 0;
-      index <
-      normalizedSessions.length;
+      index < normalizedSessions.length;
       index += 1
     ) {
-      const session =
-        normalizedSessions[index];
+      const session = normalizedSessions[index];
 
       if (
-        !TIME_PATTERN.test(
-          session.startTime
-        ) ||
-        !TIME_PATTERN.test(
-          session.endTime
-        )
+        !TIME_PATTERN.test(session.startTime) ||
+        !TIME_PATTERN.test(session.endTime)
       ) {
         return NextResponse.json(
           {
@@ -262,10 +266,7 @@ export async function POST(req: Request) {
         );
       }
 
-      if (
-        session.startTime >=
-        session.endTime
-      ) {
+      if (session.startTime >= session.endTime) {
         return NextResponse.json(
           {
             message: `Session ${
@@ -279,9 +280,7 @@ export async function POST(req: Request) {
       }
 
       if (
-        !Number.isInteger(
-          session.capacity
-        ) ||
+        !Number.isInteger(session.capacity) ||
         session.capacity <= 0
       ) {
         return NextResponse.json(
@@ -297,22 +296,24 @@ export async function POST(req: Request) {
       }
     }
 
-    const branch =
-      await prisma.branch.findUnique({
-        where: {
-          id: branchId,
-        },
+    // -------------------------------------------------------
+    // VALIDATE BRANCH
+    // -------------------------------------------------------
 
-        select: {
-          id: true,
-        },
-      });
+    const branch = await prisma.branch.findUnique({
+      where: {
+        id: branchId,
+      },
+
+      select: {
+        id: true,
+      },
+    });
 
     if (!branch) {
       return NextResponse.json(
         {
-          message:
-            "Branch not found",
+          message: "Branch not found",
         },
         {
           status: 404,
@@ -320,23 +321,26 @@ export async function POST(req: Request) {
       );
     }
 
-    const service =
-      await prisma.service.findFirst({
-        where: {
-          id: serviceId,
+    // -------------------------------------------------------
+    // VALIDATE SERVICE
+    // -------------------------------------------------------
 
-          branches: {
-            some: {
-              id: branchId,
-            },
+    const service = await prisma.service.findFirst({
+      where: {
+        id: serviceId,
+
+        branches: {
+          some: {
+            id: branchId,
           },
         },
+      },
 
-        select: {
-          id: true,
-          name: true,
-        },
-      });
+      select: {
+        id: true,
+        name: true,
+      },
+    });
 
     if (!service) {
       return NextResponse.json(
@@ -350,55 +354,105 @@ export async function POST(req: Request) {
       );
     }
 
+    // -------------------------------------------------------
+    // VALIDATE SUBCATEGORY
+    //
+    // A subcategory is optional.
+    //
+    // If supplied, it MUST belong to the selected service.
+    // -------------------------------------------------------
+
+    if (subCategoryId) {
+      const subCategory =
+        await prisma.serviceSubCategory.findFirst({
+          where: {
+            id: subCategoryId,
+
+            serviceId: serviceId,
+
+            isActive: true,
+          },
+
+          select: {
+            id: true,
+            name: true,
+          },
+        });
+
+      if (!subCategory) {
+        return NextResponse.json(
+          {
+            message:
+              "The selected subcategory is not available for this service",
+          },
+          {
+            status: 400,
+          }
+        );
+      }
+    }
+
+    // -------------------------------------------------------
+    // CREATE SLOTS
+    // -------------------------------------------------------
+
     const createdSlots =
       await prisma.$transaction(
-        normalizedSessions.map(
-          (session) =>
-            prisma.slot.create({
-              data: {
-                branchId,
-                serviceId,
+        normalizedSessions.map((session) =>
+          prisma.slot.create({
+            data: {
+              branchId,
 
-                name: session.name,
+              serviceId,
 
-                startTime:
-                  session.startTime,
+              subCategoryId,
 
-                endTime:
-                  session.endTime,
+              name: session.name,
 
-                capacity:
-                  session.capacity,
+              startTime: session.startTime,
 
-                daysOfWeek,
-              },
+              endTime: session.endTime,
 
-              include: {
-                branch: true,
-                service: true,
+              capacity: session.capacity,
 
-                _count: {
-                  select: {
-                    bookings: true,
-                  },
+              daysOfWeek,
+            },
+
+            include: {
+              branch: true,
+
+              service: true,
+
+              subCategory: {
+                select: {
+                  id: true,
+                  name: true,
                 },
               },
-            })
+
+              _count: {
+                select: {
+                  bookings: true,
+                },
+              },
+            },
+          })
         )
       );
 
+    // -------------------------------------------------------
+    // RESPONSE
+    // -------------------------------------------------------
+
     return NextResponse.json(
       {
-        message: `${
-          createdSlots.length
-        } ${
+        message: `${createdSlots.length} ${
           createdSlots.length === 1
             ? "session"
             : "sessions"
         } created successfully`,
 
-        createdCount:
-          createdSlots.length,
+        createdCount: createdSlots.length,
 
         slots: createdSlots,
       },
@@ -407,15 +461,11 @@ export async function POST(req: Request) {
       }
     );
   } catch (error) {
-    console.error(
-      "POST /api/slot error:",
-      error
-    );
+    console.error("POST /api/slot error:", error);
 
     return NextResponse.json(
       {
-        message:
-          "Failed to create sessions",
+        message: "Failed to create sessions",
       },
       {
         status: 500,

@@ -95,6 +95,7 @@ export async function getMemberSession(
       id: user.id,
     },
     include: {
+      
       fitnessAssessments: {
         orderBy: {
           assessmentDate: "desc",
@@ -124,6 +125,7 @@ export async function getMemberSession(
       subscriptions: {
         include: {
           branch: true,
+          subCategory: true,
           package: true,
           invoice: {
             where: {

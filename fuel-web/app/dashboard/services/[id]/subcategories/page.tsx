@@ -27,7 +27,20 @@ import {
   useState,
 } from "react";
 
-type SubCategory = ServiceSubCategory;
+type SubCategory = ServiceSubCategory & {
+  packages: {
+    package: {
+      id: string;
+      name: string;
+      price: number;
+      originalPrice: number | null;
+      durationInDays: number;
+      usageType: string;
+      totalSessions: number | null;
+      isActive: boolean;
+    };
+  }[];
+};
 
 const Page = () => {
   const params = useParams();
@@ -63,6 +76,7 @@ const Page = () => {
   const [name, setName] =
     useState("");
 
+    const [tagline, setTagline] = useState("");
   const [description, setDescription] =
     useState("");
 
@@ -211,9 +225,9 @@ const Page = () => {
   /* =========================
      RESET FORM
   ========================= */
-
   const resetForm = () => {
     setName("");
+    setTagline("");
     setDescription("");
     setImage("");
     setImageFile(null);
@@ -222,7 +236,6 @@ const Page = () => {
     setIsActive(true);
     setEditingSubCategory(null);
   };
-
   const closeModal = () => {
     setModalOpen(false);
     resetForm();
@@ -255,6 +268,11 @@ const Page = () => {
     setDescription(
       subCategory.description || ""
     );
+
+
+setTagline(
+  subCategory.tagline || ""
+);
 
     setImage(
       subCategory.image || ""
@@ -407,9 +425,13 @@ const Page = () => {
           );
       }
 
+      const normalizedTagline =
+  tagline.trim();
+
       const payload = {
         name: normalizedName,
-
+        tagline:
+        normalizedTagline || null,
         description:
           normalizedDescription ||
           null,
@@ -679,6 +701,12 @@ const Page = () => {
                         </span>
                       </div>
 
+                      {subCategory.tagline && (
+  <p className="mt-2 text-sm font-medium text-lime-400">
+    {subCategory.tagline}
+  </p>
+)}
+
                       {subCategory.description && (
                         <p className="mt-2 max-w-2xl text-sm leading-relaxed text-neutral-500">
                           {
@@ -686,6 +714,62 @@ const Page = () => {
                           }
                         </p>
                       )}
+
+{subCategory.packages &&
+  subCategory.packages.length > 0 && (
+    <div className="mt-4">
+      <div className="mb-2 flex items-center gap-2">
+        <span className="text-xs font-medium uppercase tracking-wide text-neutral-500">
+          Included Packages
+        </span>
+
+        <span className="rounded-full border border-lime-500/20 bg-lime-500/10 px-2 py-0.5 text-[10px] font-medium text-lime-400">
+          {subCategory.packages.length}
+        </span>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {subCategory.packages.map(
+          ({ package: pkg }) => (
+            <div
+              key={pkg.id}
+              className={`flex items-center gap-2 rounded-lg border px-3 py-2 ${
+                pkg.isActive
+                  ? "border-lime-500/20 bg-lime-500/5"
+                  : "border-neutral-800 bg-neutral-950"
+              }`}
+            >
+              <div
+                className={`h-1.5 w-1.5 rounded-full ${
+                  pkg.isActive
+                    ? "bg-lime-400"
+                    : "bg-neutral-600"
+                }`}
+              />
+
+              <div>
+                <p
+                  className={`text-xs font-medium ${
+                    pkg.isActive
+                      ? "text-neutral-200"
+                      : "text-neutral-500"
+                  }`}
+                >
+                  {pkg.name}
+                </p>
+
+                <p className="mt-0.5 text-[10px] text-neutral-600">
+                  ₹{String(pkg.price / 100)}
+                  {" · "}
+                  {pkg.durationInDays} days
+                </p>
+              </div>
+            </div>
+          )
+        )}
+      </div>
+    </div>
+  )}
                     </div>
                   </div>
 
@@ -808,6 +892,27 @@ const Page = () => {
                 </div>
 
                 {/* DESCRIPTION */}
+
+{/* TAGLINE */}
+<div>
+  <label className="mb-2 block text-sm text-neutral-400">
+    Tagline
+  </label>
+
+  <input
+    value={tagline}
+    onChange={(event) =>
+      setTagline(event.target.value)
+    }
+    placeholder="Example: Personalized training for your goals"
+    disabled={actionLoading}
+    className="w-full rounded-xl border border-zinc-700 bg-black px-4 py-3 text-sm text-white outline-none transition focus:border-lime-400 disabled:opacity-50"
+  />
+
+  <p className="mt-1.5 text-xs text-neutral-600">
+    A short website-facing tagline for this subcategory.
+  </p>
+</div>
 
                 <div>
                   <label className="mb-2 block text-sm text-neutral-400">

@@ -1,9 +1,15 @@
 "use client";
 
-import type { Service, ServicePackage } from "@prisma/client";
+import type {
+  Service,
+  ServicePackage,
+  ServiceSubCategory,
+} from "@prisma/client";
 
 import {
   CalendarDays,
+  Check,
+  ChevronDown,
   Dumbbell,
   Infinity as InfinityIcon,
   Plus,
@@ -11,9 +17,7 @@ import {
   X,
 } from "lucide-react";
 
-import {
-  useParams,
-} from "next/navigation";
+import { useParams } from "next/navigation";
 
 import {
   useEffect,
@@ -24,7 +28,12 @@ type PackageUsageType =
   | "DURATION_BASED"
   | "SESSION_BASED";
 
-type Package = ServicePackage;
+type Package = ServicePackage & {
+  subCategories?: {
+    subCategoryId: string;
+    subCategory: ServiceSubCategory;
+  }[];
+};
 
 const Page = () => {
   const params = useParams();
@@ -43,6 +52,9 @@ const Page = () => {
 
   const [packages, setPackages] =
     useState<Package[]>([]);
+
+  const [subCategories, setSubCategories] =
+    useState<ServiceSubCategory[]>([]);
 
   const [loading, setLoading] =
     useState(true);
@@ -91,6 +103,20 @@ const Page = () => {
     useState("");
 
   /* =========================
+     SUBCATEGORY STATE
+  ========================= */
+
+  const [
+    selectedSubCategoryIds,
+    setSelectedSubCategoryIds,
+  ] = useState<string[]>([]);
+
+  const [
+    subCategoryDropdownOpen,
+    setSubCategoryDropdownOpen,
+  ] = useState(false);
+
+  /* =========================
      FETCH DATA
   ========================= */
 
@@ -105,6 +131,7 @@ const Page = () => {
       const [
         serviceResponse,
         packageResponse,
+        subCategoryResponse,
       ] = await Promise.all([
         fetch(
           `/api/services/${serviceId}`,
@@ -119,6 +146,13 @@ const Page = () => {
             cache: "no-store",
           }
         ),
+
+        fetch(
+          `/api/services/${serviceId}/subcategories`,
+          {
+            cache: "no-store",
+          }
+        ),
       ]);
 
       const serviceData =
@@ -126,6 +160,9 @@ const Page = () => {
 
       const packageData =
         await packageResponse.json();
+
+      const subCategoryData =
+        await subCategoryResponse.json();
 
       setService(
         serviceData.service || null
@@ -142,6 +179,23 @@ const Page = () => {
 
       setPackages(
         packageData.packages || []
+      );
+
+      if (
+        subCategoryData.success === false
+      ) {
+        alert(
+          subCategoryData.message ||
+            "Failed to load subcategories"
+        );
+
+        return;
+      }
+
+      setSubCategories(
+        subCategoryData.subCategories ||
+          subCategoryData.subcategories ||
+          []
       );
     } catch (error) {
       console.error(error);
@@ -171,6 +225,10 @@ const Page = () => {
     setIsActive(true);
     setUsageType("DURATION_BASED");
     setTotalSessions("");
+
+    setSelectedSubCategoryIds([]);
+    setSubCategoryDropdownOpen(false);
+
     setEditingPackage(null);
   };
 
@@ -185,6 +243,7 @@ const Page = () => {
 
   const openCreatePackage = () => {
     resetPackageForm();
+
     setPackageModalOpen(true);
   };
 
@@ -242,8 +301,63 @@ const Page = () => {
         : ""
     );
 
+    /*
+     * Existing package relations.
+     *
+     * Empty array means this is a
+     * service-wide package.
+     */
+    setSelectedSubCategoryIds(
+      servicePackage.subCategories?.map(
+        (relation) =>
+          relation.subCategoryId
+      ) || []
+    );
+
+    setSubCategoryDropdownOpen(false);
+
     setPackageModalOpen(true);
   };
+
+  /* =========================
+     SUBCATEGORY HELPERS
+  ========================= */
+
+  const toggleSubCategory = (
+    subCategoryId: string
+  ) => {
+    setSelectedSubCategoryIds(
+      (current) => {
+        if (
+          current.includes(
+            subCategoryId
+          )
+        ) {
+          return current.filter(
+            (id) =>
+              id !== subCategoryId
+          );
+        }
+
+        return [
+          ...current,
+          subCategoryId,
+        ];
+      }
+    );
+  };
+
+  const clearSubCategories = () => {
+    setSelectedSubCategoryIds([]);
+  };
+
+  const selectedSubCategories =
+    subCategories.filter(
+      (subCategory) =>
+        selectedSubCategoryIds.includes(
+          subCategory.id
+        )
+    );
 
   /* =========================
      CREATE / UPDATE PACKAGE
@@ -375,6 +489,14 @@ const Page = () => {
             "SESSION_BASED"
               ? sessions
               : null,
+
+          /*
+           * Empty array means:
+           * package applies to the
+           * entire service.
+           */
+          subCategoryIds:
+            selectedSubCategoryIds,
         };
 
         const endpoint =
@@ -569,6 +691,14 @@ const Page = () => {
                   servicePackage.usageType ===
                   "SESSION_BASED";
 
+                const packageSubCategories =
+                  servicePackage.subCategories ||
+                  [];
+
+                const isServiceWide =
+                  packageSubCategories.length ===
+                  0;
+
                 return (
                   <div
                     key={
@@ -690,6 +820,41 @@ const Page = () => {
                         )}
                       </div>
 
+                      {/* APPLICABILITY */}
+
+                      <div className="mt-4">
+                        <p className="text-xs text-neutral-500">
+                          Applicable To
+                        </p>
+
+                        {isServiceWide ? (
+                          <div className="mt-2 inline-flex items-center rounded-lg border border-lime-500/20 bg-lime-500/10 px-3 py-1.5 text-xs font-medium text-lime-300">
+                            Entire Service
+                          </div>
+                        ) : (
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {packageSubCategories.map(
+                              (
+                                relation
+                              ) => (
+                                <span
+                                  key={
+                                    relation.subCategoryId
+                                  }
+                                  className="rounded-lg border border-zinc-700 bg-black px-3 py-1.5 text-xs text-neutral-300"
+                                >
+                                  {
+                                    relation
+                                      .subCategory
+                                      .name
+                                  }
+                                </span>
+                              )
+                            )}
+                          </div>
+                        )}
+                      </div>
+
                       {/* DESCRIPTION */}
 
                       {servicePackage.description && (
@@ -758,8 +923,9 @@ const Page = () => {
 
                 <p className="mt-1 text-xs text-neutral-500">
                   Configure package
-                  validity, pricing
-                  and entry limits.
+                  validity, pricing,
+                  entry limits and
+                  applicability.
                 </p>
               </div>
 
@@ -810,6 +976,199 @@ const Page = () => {
                     placeholder="Example: Zumba 12 Sessions"
                     className="w-full rounded-xl border border-zinc-700 bg-black px-4 py-3 text-sm text-white outline-none transition focus:border-lime-400"
                   />
+                </div>
+
+                {/* APPLICABLE SUBCATEGORIES */}
+
+                <div>
+                  <div className="mb-2 flex items-center justify-between">
+                    <label className="block text-sm text-neutral-400">
+                      Applicable Subcategories
+                    </label>
+
+                    {selectedSubCategoryIds.length >
+                      0 && (
+                      <button
+                        type="button"
+                        onClick={
+                          clearSubCategories
+                        }
+                        className="text-xs text-neutral-500 transition hover:text-white"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSubCategoryDropdownOpen(
+                          (value) =>
+                            !value
+                        )
+                      }
+                      disabled={
+                        subCategories.length ===
+                        0
+                      }
+                      className="flex w-full items-center justify-between rounded-xl border border-zinc-700 bg-black px-4 py-3 text-left text-sm text-white outline-none transition hover:border-zinc-600 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <div className="min-w-0">
+                        {selectedSubCategories.length ===
+                        0 ? (
+                          <span className="text-neutral-500">
+                            No subcategory
+                            selected
+                          </span>
+                        ) : (
+                          <div className="flex flex-wrap gap-1.5">
+                            {selectedSubCategories
+                              .slice(0, 3)
+                              .map(
+                                (
+                                  subCategory
+                                ) => (
+                                  <span
+                                    key={
+                                      subCategory.id
+                                    }
+                                    className="rounded-md bg-lime-400/10 px-2 py-1 text-xs text-lime-300"
+                                  >
+                                    {
+                                      subCategory.name
+                                    }
+                                  </span>
+                                )
+                              )}
+
+                            {selectedSubCategories.length >
+                              3 && (
+                              <span className="rounded-md bg-zinc-800 px-2 py-1 text-xs text-neutral-400">
+                                +
+                                {selectedSubCategories.length -
+                                  3}{" "}
+                                more
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      <ChevronDown
+                        size={18}
+                        className={`ml-3 shrink-0 text-neutral-500 transition ${
+                          subCategoryDropdownOpen
+                            ? "rotate-180"
+                            : ""
+                        }`}
+                      />
+                    </button>
+
+                    {subCategoryDropdownOpen && (
+                      <div className="absolute left-0 right-0 top-full z-20 mt-2 overflow-hidden rounded-xl border border-zinc-700 bg-zinc-950 shadow-2xl">
+                        {subCategories.length ===
+                        0 ? (
+                          <div className="p-4 text-sm text-neutral-500">
+                            No subcategories
+                            available for
+                            this service.
+                          </div>
+                        ) : (
+                          <div className="max-h-60 overflow-y-auto p-2">
+                            {subCategories.map(
+                              (
+                                subCategory
+                              ) => {
+                                const selected =
+                                  selectedSubCategoryIds.includes(
+                                    subCategory.id
+                                  );
+
+                                return (
+                                  <button
+                                    key={
+                                      subCategory.id
+                                    }
+                                    type="button"
+                                    onClick={() =>
+                                      toggleSubCategory(
+                                        subCategory.id
+                                      )
+                                    }
+                                    className={`flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left transition ${
+                                      selected
+                                        ? "bg-lime-400/10"
+                                        : "hover:bg-zinc-900"
+                                    }`}
+                                  >
+                                    <span
+                                      className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${
+                                        selected
+                                          ? "border-lime-400 bg-lime-400 text-black"
+                                          : "border-zinc-600 bg-black"
+                                      }`}
+                                    >
+                                      {selected && (
+                                        <Check
+                                          size={
+                                            13
+                                          }
+                                        />
+                                      )}
+                                    </span>
+
+                                    <div className="min-w-0">
+                                      <p className="text-sm font-medium text-white">
+                                        {
+                                          subCategory.name
+                                        }
+                                      </p>
+
+                                      {subCategory.description && (
+                                        <p className="mt-0.5 truncate text-xs text-neutral-500">
+                                          {
+                                            subCategory.description
+                                          }
+                                        </p>
+                                      )}
+                                    </div>
+                                  </button>
+                                );
+                              }
+                            )}
+                          </div>
+                        )}
+
+                        <div className="border-t border-zinc-800 px-3 py-2.5">
+                          <p className="text-xs text-neutral-500">
+                            Select none to make
+                            this package
+                            applicable to
+                            the entire
+                            service.
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {selectedSubCategoryIds.length ===
+                  0 ? (
+                    <p className="mt-2 text-xs text-lime-300">
+                      This package will
+                      apply to the entire
+                      service.
+                    </p>
+                  ) : (
+                    <p className="mt-2 text-xs text-neutral-500">
+                      This package will
+                      apply only to the
+                      selected
+                      subcategories.
+                    </p>
+                  )}
                 </div>
 
                 {/* MEMBERSHIP ACCESS */}

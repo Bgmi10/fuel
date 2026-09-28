@@ -36,6 +36,11 @@ type Slot = {
   available: number;
   isFull: boolean;
   daysOfWeek?: SlotWeekday[];
+  subCategoryId?: string | null;
+  subCategory?: {
+    id: string;
+    name: string;
+  } | null;
 };
 
 const WEEKDAY_LABELS: Record<
@@ -165,6 +170,11 @@ export default function Page() {
         subscription.status ===
         "ACTIVE"
     ) || [];
+
+  const selectedSubCategoryName =
+    selectedSubscription?.subCategory?.name ||
+    selectedSubscription?.subCategoryName ||
+    null;
 
   /*
    * Next 7 days.
@@ -813,6 +823,14 @@ export default function Page() {
                             </span>
                           </div>
 
+                          {(subscription.subCategory?.name ||
+                            subscription.subCategoryName) && (
+                            <p className="text-xs text-lime-400">
+                              {subscription.subCategory?.name ||
+                                subscription.subCategoryName}
+                            </p>
+                          )}
+
                           <p className="text-xs text-gray-500">
                             Valid until{" "}
                             {new Date(
@@ -928,6 +946,12 @@ export default function Page() {
                     selectedSubscription
                       ?.branchName}
                 </p>
+
+                {selectedSubCategoryName && (
+                  <p className="mt-1 truncate text-xs font-medium text-lime-400">
+                    {selectedSubCategoryName}
+                  </p>
+                )}
               </div>
             </div>
 
@@ -1337,6 +1361,12 @@ export default function Page() {
                       }
                     )}
                   </p>
+
+                  {selectedSubCategoryName && (
+                    <p className="mt-1 text-xs font-medium text-lime-400">
+                      {selectedSubCategoryName}
+                    </p>
+                  )}
                 </div>
               </div>
 

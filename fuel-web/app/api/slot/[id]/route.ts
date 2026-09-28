@@ -2,8 +2,7 @@ import { prisma } from "@/prisma";
 import { SlotWeekday } from "@prisma/client";
 import { NextResponse } from "next/server";
 
-const TIME_PATTERN =
-  /^([01]\d|2[0-3]):[0-5]\d$/;
+const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 const WEEKDAY_ORDER: SlotWeekday[] = [
   SlotWeekday.MONDAY,
@@ -15,37 +14,29 @@ const WEEKDAY_ORDER: SlotWeekday[] = [
   SlotWeekday.SUNDAY,
 ];
 
-const VALID_WEEKDAYS =
-  new Set<SlotWeekday>(WEEKDAY_ORDER);
+const VALID_WEEKDAYS = new Set<SlotWeekday>(WEEKDAY_ORDER);
 
 function normalizeWeekdays(
   value: unknown
 ): SlotWeekday[] | null {
-  if (
-    !Array.isArray(value) ||
-    value.length === 0
-  ) {
+  if (!Array.isArray(value) || value.length === 0) {
     return null;
   }
 
-  const selectedDays =
-    new Set<SlotWeekday>();
+  const selectedDays = new Set<SlotWeekday>();
 
   for (const item of value) {
     if (
       typeof item !== "string" ||
-      !VALID_WEEKDAYS.has(
-        item as SlotWeekday
-      )
+      !VALID_WEEKDAYS.has(item as SlotWeekday)
     ) {
       return null;
     }
 
-    selectedDays.add(
-      item as SlotWeekday
-    );
+    selectedDays.add(item as SlotWeekday);
   }
 
+  // Always store weekdays in Monday-to-Sunday order.
   return WEEKDAY_ORDER.filter((day) =>
     selectedDays.has(day)
   );
@@ -65,48 +56,40 @@ export async function GET(
   const { id } = await params;
 
   try {
-    const slot =
-      await prisma.slot.findUnique({
-        where: {
-          id,
-        },
-
-        include: {
-          branch: true,
-          service: true,
-
-          bookings: {
-            include: {
-              member: true,
-              branch: true,
-
-              package: {
-                include: {
-                  service: true,
-                },
+    const slot = await prisma.slot.findUnique({
+      where: {
+        id,
+      },
+      include: {
+        branch: true,
+        service: true,
+        bookings: {
+          include: {
+            member: true,
+            branch: true,
+            package: {
+              include: {
+                service: true,
               },
-
-              subscription: true,
             },
-
-            orderBy: {
-              bookingDate: "desc",
-            },
+            subscription: true,
           },
-
-          _count: {
-            select: {
-              bookings: true,
-            },
+          orderBy: {
+            bookingDate: "desc",
           },
         },
-      });
+        _count: {
+          select: {
+            bookings: true,
+          },
+        },
+      },
+    });
 
     if (!slot) {
       return NextResponse.json(
         {
-          message:
-            "Slot not found",
+          message: "Slot not found",
         },
         {
           status: 404,
@@ -123,8 +106,7 @@ export async function GET(
 
     return NextResponse.json(
       {
-        message:
-          "Failed to fetch slot",
+        message: "Failed to fetch slot",
       },
       {
         status: 500,
@@ -168,14 +150,11 @@ export async function PUT(
         ? body.serviceId.trim()
         : "";
 
-    const capacity = Number(
-      body.capacity
-    );
+    const capacity = Number(body.capacity);
 
-    const daysOfWeek =
-      normalizeWeekdays(
-        body.daysOfWeek
-      );
+    const daysOfWeek = normalizeWeekdays(
+      body.daysOfWeek
+    );
 
     if (
       !name ||
@@ -186,8 +165,7 @@ export async function PUT(
     ) {
       return NextResponse.json(
         {
-          message:
-            "All slot fields are required",
+          message: "All slot fields are required",
         },
         {
           status: 400,
@@ -213,8 +191,7 @@ export async function PUT(
     ) {
       return NextResponse.json(
         {
-          message:
-            "Invalid start time or end time",
+          message: "Invalid start time or end time",
         },
         {
           status: 400,
@@ -225,8 +202,7 @@ export async function PUT(
     if (startTime >= endTime) {
       return NextResponse.json(
         {
-          message:
-            "End time must be after start time",
+          message: "End time must be after start time",
         },
         {
           status: 400,
@@ -254,7 +230,6 @@ export async function PUT(
         where: {
           id,
         },
-
         select: {
           id: true,
         },
@@ -263,8 +238,7 @@ export async function PUT(
     if (!existingSlot) {
       return NextResponse.json(
         {
-          message:
-            "Slot not found",
+          message: "Slot not found",
         },
         {
           status: 404,
@@ -277,7 +251,6 @@ export async function PUT(
         where: {
           id: branchId,
         },
-
         select: {
           id: true,
         },
@@ -286,8 +259,7 @@ export async function PUT(
     if (!branch) {
       return NextResponse.json(
         {
-          message:
-            "Branch not found",
+          message: "Branch not found",
         },
         {
           status: 404,
@@ -299,14 +271,12 @@ export async function PUT(
       await prisma.service.findFirst({
         where: {
           id: serviceId,
-
           branches: {
             some: {
               id: branchId,
             },
           },
         },
-
         select: {
           id: true,
         },
@@ -329,7 +299,6 @@ export async function PUT(
         where: {
           id,
         },
-
         data: {
           name,
           startTime,
@@ -339,11 +308,9 @@ export async function PUT(
           serviceId,
           daysOfWeek,
         },
-
         include: {
           branch: true,
           service: true,
-
           _count: {
             select: {
               bookings: true,
@@ -353,9 +320,7 @@ export async function PUT(
       });
 
     return NextResponse.json({
-      message:
-        "Slot updated successfully",
-
+      message: "Slot updated successfully",
       slot: updatedSlot,
     });
   } catch (error) {
@@ -366,8 +331,7 @@ export async function PUT(
 
     return NextResponse.json(
       {
-        message:
-          "Failed to update slot",
+        message: "Failed to update slot",
       },
       {
         status: 500,
@@ -389,7 +353,6 @@ export async function DELETE(
         where: {
           id,
         },
-
         select: {
           id: true,
           isActive: true,
@@ -399,8 +362,7 @@ export async function DELETE(
     if (!existingSlot) {
       return NextResponse.json(
         {
-          message:
-            "Slot not found",
+          message: "Slot not found",
         },
         {
           status: 404,
@@ -410,8 +372,7 @@ export async function DELETE(
 
     if (!existingSlot.isActive) {
       return NextResponse.json({
-        message:
-          "Slot is already inactive",
+        message: "Slot is already inactive",
       });
     }
 
@@ -420,16 +381,13 @@ export async function DELETE(
         where: {
           id,
         },
-
         data: {
           isActive: false,
         },
       });
 
     return NextResponse.json({
-      message:
-        "Slot deactivated successfully",
-
+      message: "Slot deactivated successfully",
       slot: deactivatedSlot,
     });
   } catch (error) {
@@ -440,8 +398,7 @@ export async function DELETE(
 
     return NextResponse.json(
       {
-        message:
-          "Failed to deactivate slot",
+        message: "Failed to deactivate slot",
       },
       {
         status: 500,

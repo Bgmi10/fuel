@@ -1,30 +1,27 @@
 import { getUserFromRequest } from "@/app/utils/auth";
 import { prisma } from "@/prisma";
-import { calculateGSTBreakdownFormatted, generateReferralCode } from "@/app/utils/helper";
-import { addDaysUTC, nowUTC } from "@/app/utils/date";
-
+import {
+  calculateGSTBreakdownFormatted,
+  generateReferralCode,
+} from "@/app/utils/helper";
+import {
+  addDaysUTC,
+  nowUTC,
+} from "@/app/utils/date";
 import {
   NextRequest,
   NextResponse,
 } from "next/server";
-
 import Razorpay from "razorpay";
 
 const rp = new Razorpay({
-  key_id:
-    process.env.RAZORPAY_KEY_ID!,
-
-  key_secret:
-    process.env
-      .RAZORPAY_KEY_SECRET!,
+  key_id: process.env.RAZORPAY_KEY_ID!,
+  key_secret: process.env.RAZORPAY_KEY_SECRET!,
 });
 
-export const POST = async (
-  req: NextRequest
-) => {
+export const POST = async (req: NextRequest) => {
   try {
-    const user =
-      await getUserFromRequest(req);
+    const user = await getUserFromRequest(req);
 
     const body = await req.json();
 
@@ -32,14 +29,12 @@ export const POST = async (
       // =========================================
       // ADMIN FLOW
       // =========================================
-
       memberId,
       ref,
 
       // =========================================
       // LANDING PAGE FLOW
       // =========================================
-
       name,
       phone,
       email,
@@ -47,16 +42,13 @@ export const POST = async (
       // =========================================
       // COMMON
       // =========================================
-
       packageId,
+      subCategoryId,
       branchId,
 
       discountAmount = 0,
-
       paidAmount = 0,
-
       initialPaymentMethod = "Online",
-
       referralDiscountAmount = 0,
 
       notes,
@@ -71,35 +63,44 @@ export const POST = async (
     // VALIDATION
     // =====================================================
 
-    if (!packageId || !branchId) {
-      return NextResponse.json({
-        success: false,
 
-        message:
-          "Missing required fields",
-      });
+    if (!packageId || !branchId) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Missing required fields",
+        },
+        { status: 400 }
+      );
     }
 
-    /**
-     * Either:
-     *
-     * memberId
-     *
-     * OR
-     *
-     * name + phone
-     */
+    // =====================================================
+    // SUBCATEGORY VALIDATION
+    // =====================================================
 
-    if (
-      !memberId &&
-      (!name || !phone)
-    ) {
-      return NextResponse.json({
-        success: false,
+    if (!subCategoryId) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Subcategory is required for this membership",
+        },
+        { status: 400 }
+      );
+    }
 
-        message:
-          "Member details are required",
-      });
+    // =====================================================
+    // MEMBER VALIDATION
+    // =====================================================
+
+    if (!memberId && (!name || !phone)) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Member details are required",
+        },
+        { status: 400 }
+      );
     }
 
     // =====================================================
@@ -113,22 +114,20 @@ export const POST = async (
     // =====================================================
 
     if (memberId) {
-      member =
-        await prisma.member.findUnique(
-          {
-            where: {
-              id: memberId,
-            },
-          }
-        );
+      member = await prisma.member.findUnique({
+        where: {
+          id: memberId,
+        },
+      });
 
       if (!member) {
-        return NextResponse.json({
-          success: false,
-
-          message:
-            "Member not found",
-        });
+        return NextResponse.json(
+          {
+            success: false,
+            message: "Member not found",
+          },
+          { status: 404 }
+        );
       }
     }
 
@@ -137,49 +136,41 @@ export const POST = async (
     // =====================================================
 
     else {
-      /**
-       * First try existing member
-       */
+      member = await prisma.member.findFirst({
+        where: {
+          OR: [
+            {
+              phone,
+            },
+            ...(email
+              ? [
+                  {
+                    email,
+                  },
+                ]
+              : []),
+          ],
+        },
+      });
 
-      member =
-        await prisma.member.findFirst({
-          where: {
-            OR: [
-              {
-                phone,
-              },
-
-              ...(email
-                ? [
-                    {
-                      email,
-                    },
-                  ]
-                : []),
-            ],
+      // Create member if not found
+      if (!member) {
+        member = await prisma.member.create({
+          data: {
+            name,
+            phone,
+            email: email || null,
+            referralCode: generateReferralCode(name),
+            branchId,
+            status: "ACTIVE",
           },
         });
-
-      /**
-       * Create member
-       */
-
-      if (!member) {
-        member =
-          await prisma.member.create({
-            data: {
-              name,
-              phone,
-              email:
-                email || null,
-                referralCode: generateReferralCode(name),
-              branchId,
-
-              status: "ACTIVE",
-            },
-          });
       }
     }
+
+    // =====================================================
+    // REFERRAL
+    // =====================================================
 
     if (ref) {
       const referrer =
@@ -188,7 +179,7 @@ export const POST = async (
             referralCode: ref,
           },
         });
-    
+
       if (
         referrer &&
         referrer.id !== member.id
@@ -196,17 +187,15 @@ export const POST = async (
         const existingReferral =
           await prisma.referral.findFirst({
             where: {
-              referredMemberId:
-                member.id,
+              referredMemberId: member.id,
             },
           });
-    
+
         if (!existingReferral) {
           await prisma.referral.create({
             data: {
               referrerId: referrer.id,
-              referredMemberId:
-                member.id,
+              referredMemberId: member.id,
               status: "JOINED",
               rewardAmount: 0,
             },
@@ -220,27 +209,102 @@ export const POST = async (
     // =====================================================
 
     const selectedPackage =
-      await prisma.servicePackage.findUnique(
-        {
-          where: {
-            id: packageId,
-
-            isActive: true,
-          },
-
-          include: {
-            service: true,
-          },
-        }
-      );
+      await prisma.servicePackage.findUnique({
+        where: {
+          id: packageId,
+          isActive: true,
+        },
+        include: {
+          service: true,
+          subCategories: true,
+          coupons: true,
+        },
+      });
 
     if (!selectedPackage) {
-      return NextResponse.json({
-        success: false,
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Package not found",
+        },
+        { status: 404 }
+      );
+    }
 
-        message:
-          "Package not found",
+    // =====================================================
+    // SUBCATEGORY
+    // =====================================================
+
+    const selectedSubCategory =
+      await prisma.serviceSubCategory.findUnique({
+        where: {
+          id: subCategoryId,
+        },
       });
+
+    if (!selectedSubCategory) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Subcategory not found",
+        },
+        { status: 404 }
+      );
+    }
+
+    // =====================================================
+    // SUBCATEGORY MUST BE ACTIVE
+    // =====================================================
+
+    if (!selectedSubCategory.isActive) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "This subcategory is currently unavailable",
+        },
+        { status: 400 }
+      );
+    }
+
+    // =====================================================
+    // PACKAGE ↔ SUBCATEGORY VALIDATION
+    // =====================================================
+
+    const packageBelongsToSubCategory =
+      selectedPackage.subCategories.some(
+        (relation) =>
+          relation.subCategoryId ===
+          subCategoryId
+      );
+
+    if (!packageBelongsToSubCategory) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Selected package does not belong to the selected subcategory",
+        },
+        { status: 400 }
+      );
+    }
+
+    // =====================================================
+    // SERVICE ↔ SUBCATEGORY VALIDATION
+    // =====================================================
+
+    if (
+      selectedSubCategory.serviceId !==
+      selectedPackage.serviceId
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Subcategory does not belong to the selected service",
+        },
+        { status: 400 }
+      );
     }
 
     // =====================================================
@@ -255,44 +319,84 @@ export const POST = async (
       });
 
     if (!branch) {
-      return NextResponse.json({
-        success: false,
-
-        message: "Branch not found",
-      });
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Branch not found",
+        },
+        { status: 404 }
+      );
     }
 
     // =====================================================
-    // ACTIVE SUB CHECK
+    // SUBCATEGORY-AWARE ACTIVE SUBSCRIPTION CHECK
+    // =====================================================
+    //
+    // IMPORTANT:
+    //
+    // Previously this searched only by memberId.
+    //
+    // That meant:
+    //
+    // Subcategory A subscription exists
+    //          +
+    // User buys Subcategory B
+    //          =
+    // B incorrectly becomes EXTEND
+    //
+    // Now we only find an existing subscription
+    // belonging to the SAME subcategory.
+    //
     // =====================================================
 
-    let intent:
-      | "NEW"
-      | "EXTEND" = "NEW";
+    let intent: "NEW" | "EXTEND" = "NEW";
 
     const activeSubscription =
-      await prisma.subscription.findFirst(
-        {
-          where: {
-            memberId: member.id,
+      await prisma.subscription.findFirst({
+        where: {
+          memberId: member.id,
 
-            status: {
-              in: [
-                "ACTIVE",
-                "FROZEN",
-              ],
-            },
+          // IMPORTANT:
+          // Extension must belong to the same
+          // subcategory being purchased.
+          subCategoryId,
 
-            endDate: {
-              gte: new Date(),
-            },
+          status: {
+            in: [
+              "ACTIVE",
+              "FROZEN",
+            ],
           },
-        }
-      );
+
+          endDate: {
+            gte: new Date(),
+          },
+        },
+
+        orderBy: {
+          endDate: "desc",
+        },
+      });
+
+    // =====================================================
+    // INTENT
+    // =====================================================
+    //
+    // Do NOT use:
+    //
+    // if (activeSubscription || extend)
+    //
+    // because "extend" by itself could cause an unrelated
+    // subcategory to become an extension.
+    //
+    // An extension is only valid when a matching
+    // subcategory subscription exists.
+    //
+    // =====================================================
 
     if (
-      activeSubscription ||
-      extend
+      activeSubscription &&
+      (extend || !extend)
     ) {
       intent = "EXTEND";
     }
@@ -302,20 +406,23 @@ export const POST = async (
     // =====================================================
 
     const packageAmount =
-    Number(selectedPackage.price);
-  
-  const finalAmount =
-    packageAmount -
-    Number(discountAmount) -
-    Number(referralDiscountAmount);
-  
-  if (finalAmount < 0) {
-    return NextResponse.json({
-      success: false,
-      message:
-        "Discount cannot exceed package amount",
-    });
-  }
+      Number(selectedPackage.price);
+
+    const finalAmount =
+      packageAmount -
+      Number(discountAmount) -
+      Number(referralDiscountAmount);
+
+    if (finalAmount < 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Discount cannot exceed package amount",
+        },
+        { status: 400 }
+      );
+    }
 
     // =====================================================
     // GST
@@ -338,7 +445,9 @@ export const POST = async (
     const totalTax =
       Number(gstBreakdown.totalTax);
 
-    // CUSTOMER PAYABLE AMOUNT
+    // =====================================================
+    // CUSTOMER PAYABLE
+    // =====================================================
 
     const invoiceTotal =
       Math.round(
@@ -349,14 +458,16 @@ export const POST = async (
       invoiceTotal -
       Number(paidAmount);
 
-    // if (Number(paidAmount) > invoiceTotal) {
-    //   return NextResponse.json({
-    //     success: false,
-
-    //     message:
-    //       "Paid amount cannot exceed invoice total",
-    //   });
-    // }
+    if (balanceAmount < 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Paid amount cannot exceed invoice total",
+        },
+        { status: 400 }
+      );
+    }
 
     // =====================================================
     // DATES
@@ -366,9 +477,6 @@ export const POST = async (
       startDate
         ? new Date(startDate)
         : nowUTC();
-
-    // IF END DATE IS SENT MANUALLY USE IT
-    // OTHERWISE AUTO CALCULATE FROM PACKAGE
 
     const subscriptionEndDate =
       endDate
@@ -382,15 +490,18 @@ export const POST = async (
       subscriptionEndDate <=
       subscriptionStartDate
     ) {
-      return NextResponse.json({
-        success: false,
-        message:
-          "End date must be greater than start date",
-      });
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "End date must be greater than start date",
+        },
+        { status: 400 }
+      );
     }
 
     // =====================================================
-    // CREATE RAZORPAY ORDER
+    // RAZORPAY ORDER
     // =====================================================
 
     let razorpayOrder = null;
@@ -399,24 +510,46 @@ export const POST = async (
       razorpayOrder =
         await rp.orders.create({
           amount: balanceAmount,
-
           currency: "INR",
-
           receipt: `fuel_${Date.now()}`,
 
           notes: {
             memberId: member.id,
-            packageId: selectedPackage.id,
-            branchId: branch.id,
-            invoiceIntent: intent,
-          
-            referralCode: ref || "",
+
+            packageId:
+              selectedPackage.id,
+
+            // IMPORTANT
+            subCategoryId:
+              selectedSubCategory.id,
+
+            serviceId:
+              selectedPackage.serviceId,
+
+            branchId:
+              branch.id,
+
+            invoiceIntent:
+              intent,
+
+            // IMPORTANT
+            // Store the exact subscription being
+            // extended instead of making the webhook
+            // guess later.
+            extensionSubscriptionId:
+              activeSubscription?.id || "",
+
+            referralCode:
+              ref || "",
+
             referralDiscountAmount:
-              String(referralDiscountAmount || 0),
-          
+              String(
+                referralDiscountAmount || 0
+              ),
+
             subscriptionStartDate:
               subscriptionStartDate.toISOString(),
-          
+
             subscriptionEndDate:
               subscriptionEndDate.toISOString(),
           },
@@ -427,41 +560,53 @@ export const POST = async (
     // INVOICE
     // =====================================================
 
-    const invoiceNumber = `INV-${Date.now()}`;
+    const invoiceNumber =
+      `INV-${Date.now()}`;
 
     const invoice =
       await prisma.invoice.create({
         data: {
           invoiceNumber,
-referralDiscountAmount,
 
-          memberId: member.id,
+          referralDiscountAmount,
 
-          branchId: branch.id,
+          memberId:
+            member.id,
+
+          branchId:
+            branch.id,
 
           packageId:
             selectedPackage.id,
+
+          // IMPORTANT:
+          // Persist the selected subcategory
+          // on the invoice.
+          subCategoryId:
+            selectedSubCategory.id,
 
           salesRepId:
             user?.id || null,
 
           salesRepName:
-            user?.name ??
-            "Website",
+            user?.name ?? "Website",
 
           intent,
 
+          // =================================================
           // SNAPSHOTS
+          // =================================================
 
           serviceName:
-            selectedPackage.service
-              .name,
+            selectedPackage
+              .service.name,
 
           packageName:
             selectedPackage.name,
 
           packageDurationInDays:
-            selectedPackage.durationInDays,
+            selectedPackage
+              .durationInDays,
 
           branchName:
             branch.name,
@@ -492,10 +637,13 @@ referralDiscountAmount,
             setting?.sgstPercentage,
 
           cgstAmount,
+
           sgstAmount,
+
           totalTax:
-            Number(gstBreakdown.totalTax) ||
-            0,
+            Number(
+              gstBreakdown.totalTax
+            ) || 0,
 
           notes,
 
@@ -515,11 +663,14 @@ referralDiscountAmount,
     if (Number(paidAmount) > 0) {
       await prisma.payment.create({
         data: {
-          receiptNumber: `RCPT-${Date.now()}`,
+          receiptNumber:
+            `RCPT-${Date.now()}`,
 
-          invoiceId: invoice.id,
+          invoiceId:
+            invoice.id,
 
-          memberId: member.id,
+          memberId:
+            member.id,
 
           amount:
             Number(paidAmount),
@@ -527,9 +678,11 @@ referralDiscountAmount,
           paymentMode:
             initialPaymentMethod,
 
-          paymentType: "INITIAL",
+          paymentType:
+            "INITIAL",
 
-          status: "PAID",
+          status:
+            "PAID",
 
           notes:
             "Initial collected amount",
@@ -547,13 +700,17 @@ referralDiscountAmount,
     ) {
       await prisma.payment.create({
         data: {
-          receiptNumber: `RCPT-RZP-${Date.now()}`,
+          receiptNumber:
+            `RCPT-RZP-${Date.now()}`,
 
-          invoiceId: invoice.id,
+          invoiceId:
+            invoice.id,
 
-          memberId: member.id,
+          memberId:
+            member.id,
 
-          amount: balanceAmount,
+          amount:
+            balanceAmount,
 
           paymentMode:
             "Razorpay",
@@ -563,7 +720,8 @@ referralDiscountAmount,
               ? "BALANCE"
               : "INITIAL",
 
-          status: "FAILED",
+          status:
+            "FAILED",
 
           razorpayOrderId:
             razorpayOrder.id,
@@ -578,44 +736,83 @@ referralDiscountAmount,
     return NextResponse.json({
       success: true,
 
-      memberId: member.id,
+      memberId:
+        member.id,
 
-      invoiceId: invoice.id,
+      invoiceId:
+        invoice.id,
 
       orderId:
         razorpayOrder?.id ?? null,
 
-      amount: balanceAmount,
+      amount:
+        balanceAmount,
 
-      currency: "INR",
+      currency:
+        "INR",
 
-      invoiceTotal: invoiceTotal,
+      invoiceTotal,
 
-      key: process.env
-        .RAZORPAY_KEY_ID,
+      key:
+        process.env.RAZORPAY_KEY_ID,
 
       member: {
-        name: member.name,
+        name:
+          member.name,
 
-        email: member.email,
+        email:
+          member.email,
 
-        phone: member.phone,
+        phone:
+          member.phone,
+      },
+
+      service: {
+        id:
+          selectedPackage.serviceId,
+
+        name:
+          selectedPackage
+            .service.name,
+      },
+
+      subCategory: {
+        id:
+          selectedSubCategory.id,
+
+        name:
+          selectedSubCategory.name,
       },
 
       package: {
-        name: selectedPackage.name,
+        id:
+          selectedPackage.id,
+
+        name:
+          selectedPackage.name,
       },
 
-      startDate: subscriptionStartDate,
-      endDate: subscriptionEndDate,
+      // Useful for frontend/debugging
+      intent,
+
+      extensionSubscriptionId:
+        activeSubscription?.id ?? null,
+
+      startDate:
+        subscriptionStartDate,
+
+      endDate:
+        subscriptionEndDate,
     });
   } catch (e) {
-    console.log(e);
+    console.error(
+      "SUBSCRIBE API ERROR:",
+      e
+    );
 
     return NextResponse.json(
       {
         success: false,
-
         message:
           "Something went wrong",
       },

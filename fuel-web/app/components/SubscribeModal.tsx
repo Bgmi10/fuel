@@ -7,15 +7,22 @@ import {
   ServicePackage,
 } from "@prisma/client";
 
-import {
-  useSearchParams,
-} from "next/navigation";
+import { useSearchParams } from "next/navigation";
 
 import {
   useEffect,
   useMemo,
   useState,
 } from "react";
+
+/* =========================================================
+ * TYPES
+ * ======================================================= */
+
+type SubCategory = {
+  id: string;
+  name: string;
+};
 
 type Props = {
   open: boolean;
@@ -24,6 +31,8 @@ type Props = {
   service: Service & {
     branches: Branch[];
   };
+
+  subCategory: SubCategory | null;
 
   selectedPackage: ServicePackage;
 };
@@ -53,8 +62,7 @@ type CheckoutSettings = {
 
   groupJoiningMaxMembers: number;
 
-  groupDiscountRules:
-    GroupDiscountRule[];
+  groupDiscountRules: GroupDiscountRule[];
 
   groupDiscountApplicability:
     GroupDiscountApplicability[];
@@ -80,71 +88,70 @@ const EMPTY_MEMBER: MemberForm = {
   email: "",
 };
 
-const PHONE_REGEX =
-  /^[6-9]\d{9}$/;
+const PHONE_REGEX = /^[6-9]\d{9}$/;
 
 const EMAIL_REGEX =
   /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+/* =========================================================
+ * HELPERS
+ * ======================================================= */
 
-  const parseGroupDiscountApplicability = (
-    value: unknown
-  ): GroupDiscountApplicability[] => {
-    if (!Array.isArray(value)) {
-      return [];
-    }
-  
-    return value
-      .map((item) => {
-        if (
-          !item ||
-          typeof item !== "object"
-        ) {
-          return null;
-        }
-  
-        const entry =
-          item as Record<
-            string,
-            unknown
-          >;
-  
-        const serviceId =
-          typeof entry.serviceId ===
-          "string"
-            ? entry.serviceId.trim()
-            : "";
-  
-        const packageIds =
-          Array.isArray(
-            entry.packageIds
-          )
-            ? entry.packageIds
-                .map((id) =>
-                  String(id).trim()
-                )
-                .filter(Boolean)
-            : [];
-  
-        if (!serviceId) {
-          return null;
-        }
-  
-        return {
-          serviceId,
-  
-          packageIds: [
-            ...new Set(packageIds),
-          ],
-        };
-      })
-      .filter(
-        (
-          item
-        ): item is GroupDiscountApplicability =>
-          item !== null
-      );
-  };
+const parseGroupDiscountApplicability = (
+  value: unknown
+): GroupDiscountApplicability[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => {
+      if (
+        !item ||
+        typeof item !== "object"
+      ) {
+        return null;
+      }
+
+      const entry =
+        item as Record<string, unknown>;
+
+      const serviceId =
+        typeof entry.serviceId ===
+        "string"
+          ? entry.serviceId.trim()
+          : "";
+
+      const packageIds =
+        Array.isArray(
+          entry.packageIds
+        )
+          ? entry.packageIds
+              .map((id) =>
+                String(id).trim()
+              )
+              .filter(Boolean)
+          : [];
+
+      if (!serviceId) {
+        return null;
+      }
+
+      return {
+        serviceId,
+
+        packageIds: [
+          ...new Set(packageIds),
+        ],
+      };
+    })
+    .filter(
+      (
+        item
+      ): item is GroupDiscountApplicability =>
+        item !== null
+    );
+};
 
 const parseGroupRules = (
   value: unknown
@@ -226,10 +233,15 @@ const formatMoney = (
   );
 };
 
+/* =========================================================
+ * COMPONENT
+ * ======================================================= */
+
 export const SubscribeModal = ({
   open,
   setOpen,
   service,
+  subCategory,
   selectedPackage,
 }: Props) => {
   const searchParams =
@@ -241,6 +253,9 @@ export const SubscribeModal = ({
   const branches =
     service.branches || [];
 
+  /* =======================================================
+   * FORM
+   * ===================================================== */
 
   const [
     form,
@@ -257,6 +272,10 @@ export const SubscribeModal = ({
     setGroupMembers,
   ] = useState<MemberForm[]>([]);
 
+  /* =======================================================
+   * SETTINGS
+   * ===================================================== */
+
   const [
     settings,
     setSettings,
@@ -264,15 +283,15 @@ export const SubscribeModal = ({
     useState<CheckoutSettings>({
       cgstPercentage: 2.5,
       sgstPercentage: 2.5,
-  
+
       groupJoiningEnabled:
         false,
-  
+
       groupJoiningMaxMembers:
         10,
-  
+
       groupDiscountRules: [],
-  
+
       groupDiscountApplicability:
         [],
     });
@@ -287,6 +306,10 @@ export const SubscribeModal = ({
     setLoading,
   ] = useState(false);
 
+  /* =======================================================
+   * EXTENSION
+   * ===================================================== */
+
   const [
     extendModal,
     setExtendModal,
@@ -298,6 +321,10 @@ export const SubscribeModal = ({
   ] = useState<
     ActiveGroupMember[]
   >([]);
+
+  /* =======================================================
+   * COUPONS
+   * ===================================================== */
 
   const [
     couponLoading,
@@ -328,9 +355,10 @@ export const SubscribeModal = ({
     setCouponError,
   ] = useState("");
 
-  /*
-   * Auto-select the first branch.
-   */
+  /* =======================================================
+   * AUTO SELECT BRANCH
+   * ===================================================== */
+
   useEffect(() => {
     if (
       branches.length > 0 &&
@@ -350,10 +378,10 @@ export const SubscribeModal = ({
     form.branchId,
   ]);
 
-  /*
-   * Load coupons and public checkout
-   * settings whenever the modal opens.
-   */
+  /* =======================================================
+   * FETCH PUBLIC CHECKOUT DATA
+   * ===================================================== */
+
   useEffect(() => {
     if (!open) {
       return;
@@ -476,11 +504,6 @@ export const SubscribeModal = ({
                   data.setting
                     .cgstPercentage
                 ) || 2.5,
-                groupDiscountApplicability:
-  parseGroupDiscountApplicability(
-    data.setting
-      .groupDiscountApplicability
-  ),
 
               sgstPercentage:
                 Number(
@@ -502,6 +525,12 @@ export const SubscribeModal = ({
                   data.setting
                     .groupDiscountRules
                 ),
+
+              groupDiscountApplicability:
+                parseGroupDiscountApplicability(
+                  data.setting
+                    .groupDiscountApplicability
+                ),
             });
           }
         } catch (error) {
@@ -520,89 +549,93 @@ export const SubscribeModal = ({
     fetchSettings();
   }, [open]);
 
+  /* =======================================================
+   * GROUP DISCOUNT ELIGIBILITY
+   * ===================================================== */
 
   const groupDiscountApplicable =
-  useMemo(() => {
-    if (
-      !settings.groupJoiningEnabled ||
-      settings.groupDiscountRules
-        .length === 0
-    ) {
-      return false;
-    }
+    useMemo(() => {
+      if (
+        !settings.groupJoiningEnabled ||
+        settings.groupDiscountRules
+          .length === 0
+      ) {
+        return false;
+      }
 
-    return settings
-      .groupDiscountApplicability
-      .some(
-        (item) =>
-          item.serviceId ===
-            service.id &&
-          item.packageIds.includes(
-            selectedPackage.id
-          )
-      );
-  }, [
-    settings.groupJoiningEnabled,
-    settings.groupDiscountRules,
-    settings.groupDiscountApplicability,
-    service.id,
-    selectedPackage.id,
-  ]);
+      return settings
+        .groupDiscountApplicability
+        .some(
+          (item) =>
+            item.serviceId ===
+              service.id &&
+            item.packageIds.includes(
+              selectedPackage.id
+            )
+        );
+    }, [
+      settings.groupJoiningEnabled,
+      settings.groupDiscountRules,
+      settings.groupDiscountApplicability,
+      service.id,
+      selectedPackage.id,
+    ]);
 
+  /* =======================================================
+   * RESET WHEN PACKAGE / SERVICE / SUBCATEGORY CHANGES
+   * ======================================================= */
 
   useEffect(() => {
-    /*
-     * A different package/service is a new
-     * checkout context.
-     *
-     * Never carry group members or discounts
-     * from the previous membership.
-     */
     setGroupMembers([]);
-  
+
     setAppliedCoupons([]);
-  
+
     setCouponError("");
-  
+
     setGroupExtendMembers([]);
-  
+
     setExtendModal(false);
   }, [
     service.id,
+    subCategory.id,
     selectedPackage.id,
   ]);
 
+  /* =======================================================
+   * MAX GROUP DISCOUNT
+   * ======================================================= */
+
   const maximumGroupDiscount =
-  useMemo(() => {
-    if (
-      !groupDiscountApplicable
-    ) {
-      return 0;
-    }
+    useMemo(() => {
+      if (
+        !groupDiscountApplicable
+      ) {
+        return 0;
+      }
 
-    return settings
-      .groupDiscountRules
-      .reduce(
-        (
-          maximum,
-          rule
-        ) =>
-          Math.max(
+      return settings
+        .groupDiscountRules
+        .reduce(
+          (
             maximum,
-            Number(
-              rule.discountPercentage
-            ) || 0
-          ),
+            rule
+          ) =>
+            Math.max(
+              maximum,
+              Number(
+                rule.discountPercentage
+              ) || 0
+            ),
+          0
+        );
+    }, [
+      groupDiscountApplicable,
+      settings.groupDiscountRules,
+    ]);
 
-        0
-      );
-  }, [
-    groupDiscountApplicable,
-    settings.groupDiscountRules,
-  ]);
-
-
- 
+  /* =======================================================
+   * BRANCH
+   * ===================================================== */
 
   const selectedBranch =
     useMemo(() => {
@@ -615,6 +648,10 @@ export const SubscribeModal = ({
       branches,
       form.branchId,
     ]);
+
+  /* =======================================================
+   * INDIVIDUAL VALIDATION
+   * ===================================================== */
 
   const individualPhoneValid =
     useMemo(() => {
@@ -630,17 +667,21 @@ export const SubscribeModal = ({
       );
     }, [form.email]);
 
-    const memberCount =
-  1 + groupMembers.length;
+  /* =======================================================
+   * MEMBER COUNT
+   * ===================================================== */
+
+  const memberCount =
+    1 + groupMembers.length;
 
   const isGroupCheckout =
-  groupDiscountApplicable &&
-  memberCount > 1;
-  /*
+    groupDiscountApplicable &&
+    memberCount > 1;
 
+  /* =======================================================
+   * COUPON DISCOUNT
+   * ===================================================== */
 
-   * Individual coupon discount.
-   */
   const couponDiscountAmount =
     useMemo(() => {
       if (
@@ -703,13 +744,16 @@ export const SubscribeModal = ({
       selectedPackage.price,
     ]);
 
+  /* =======================================================
+   * INDIVIDUAL PRICE
+   * ===================================================== */
+
   const individualFinalPrice =
     Math.max(
       Number(
         selectedPackage.price
       ) -
         couponDiscountAmount,
-
       0
     );
 
@@ -739,14 +783,12 @@ export const SubscribeModal = ({
     individualFinalPrice +
     individualTotalGst;
 
-  /*
-   * Group pricing is derived entirely from
-   * the admin-configured rule for the
-   * currently selected member count.
-   */
+  /* =======================================================
+   * GROUP PRICE
+   * ===================================================== */
 
   const groupMemberCount =
-  memberCount;
+    memberCount;
 
   const matchingGroupRule =
     useMemo(() => {
@@ -760,8 +802,7 @@ export const SubscribeModal = ({
               rule.maxMembers
         );
     }, [
-      settings
-        .groupDiscountRules,
+      settings.groupDiscountRules,
       groupMemberCount,
     ]);
 
@@ -788,7 +829,6 @@ export const SubscribeModal = ({
         selectedPackage.price
       ) -
         groupDiscountPerMember,
-
       0
     );
 
@@ -818,23 +858,29 @@ export const SubscribeModal = ({
     groupFinalPricePerMember +
     groupGstPerMember;
 
-    const groupOriginalGstPerMember =
-  Math.round(
-    Number(selectedPackage.price) *
-      (
-        (settings.cgstPercentage +
-          settings.sgstPercentage) /
-        100
-      )
-  );
+  const groupOriginalGstPerMember =
+    Math.round(
+      Number(
+        selectedPackage.price
+      ) *
+        (
+          (
+            settings.cgstPercentage +
+            settings.sgstPercentage
+          ) /
+          100
+        )
+    );
 
-const groupOriginalInvoicePerMember =
-  Number(selectedPackage.price) +
-  groupOriginalGstPerMember;
+  const groupOriginalInvoicePerMember =
+    Number(
+      selectedPackage.price
+    ) +
+    groupOriginalGstPerMember;
 
-const groupOriginalInvoiceTotal =
-  groupOriginalInvoicePerMember *
-  groupMemberCount;
+  const groupOriginalInvoiceTotal =
+    groupOriginalInvoicePerMember *
+    groupMemberCount;
 
   const groupPackageSubtotal =
     Number(
@@ -853,20 +899,24 @@ const groupOriginalInvoiceTotal =
   const groupInvoiceTotal =
     groupInvoicePerMember *
     groupMemberCount;
-const displayedInvoiceTotal =
-  isGroupCheckout
-    ? groupInvoiceTotal
-    : individualInvoiceTotal;
 
-const displayedTotalGst =
-  isGroupCheckout
-    ? groupTotalGst
-    : individualTotalGst;
+  /* =======================================================
+   * DISPLAYED TOTALS
+   * ===================================================== */
 
-const displayedSavings =
-  isGroupCheckout
-    ? groupTotalDiscount
-    : couponDiscountAmount;
+  const displayedInvoiceTotal =
+    isGroupCheckout
+      ? groupInvoiceTotal
+      : individualInvoiceTotal;
+
+  const displayedTotalGst =
+    isGroupCheckout
+      ? groupTotalGst
+      : individualTotalGst;
+
+  /* =======================================================
+   * COUPON FILTERING
+   * ===================================================== */
 
   const packageCoupons =
     useMemo(() => {
@@ -892,6 +942,10 @@ const displayedSavings =
       selectedPackage.id,
     ]);
 
+  /* =======================================================
+   * COUPON HANDLER
+   * ===================================================== */
+
   const validateAndApplyCoupon =
     async (
       coupon: PublicCoupon
@@ -914,6 +968,7 @@ const displayedSavings =
         );
 
         setCouponError("");
+
         return;
       }
 
@@ -975,69 +1030,66 @@ const displayedSavings =
       }
     };
 
+  /* =======================================================
+   * MEMBER COUNT
+   * ===================================================== */
 
-const changeMemberCount = (
-  direction: -1 | 1
-) => {
-  const nextCount =
-    memberCount + direction;
+  const changeMemberCount = (
+    direction: -1 | 1
+  ) => {
+    const nextCount =
+      memberCount + direction;
 
-  if (
-    nextCount < 1 ||
-    nextCount >
-      settings
-        .groupJoiningMaxMembers
-  ) {
-    return;
-  }
+    if (
+      nextCount < 1 ||
+      nextCount >
+        settings
+          .groupJoiningMaxMembers
+    ) {
+      return;
+    }
 
-  /*
-   * Increasing beyond 1 is only
-   * allowed for eligible packages.
-   */
-  if (
-    nextCount > 1 &&
-    !groupDiscountApplicable
-  ) {
-    return;
-  }
+    if (
+      nextCount > 1 &&
+      !groupDiscountApplicable
+    ) {
+      return;
+    }
 
-  setCouponError("");
+    setCouponError("");
 
-  /*
-   * Group discounts and coupons
-   * cannot be combined.
-   */
-  if (nextCount > 1) {
-    setAppliedCoupons([]);
-  }
+    if (nextCount > 1) {
+      setAppliedCoupons([]);
+    }
 
-  if (direction === 1) {
+    if (direction === 1) {
+      setGroupMembers(
+        (current) => [
+          ...current,
+          {
+            ...EMPTY_MEMBER,
+          },
+        ]
+      );
+
+      return;
+    }
+
     setGroupMembers(
-      (current) => [
-        ...current,
-        { ...EMPTY_MEMBER },
-      ]
-    );
-
-    return;
-  }
-
-  /*
-   * Count drops from e.g. 4 -> 3,
-   * remove the last additional member.
-   */
-  setGroupMembers(
-    (current) =>
-      current.slice(
-        0,
-        Math.max(
+      (current) =>
+        current.slice(
           0,
-          nextCount - 1
+          Math.max(
+            0,
+            nextCount - 1
+          )
         )
-      )
-  );
-};
+    );
+  };
+
+  /* =======================================================
+   * UPDATE GROUP MEMBER
+   * ===================================================== */
 
   const updateGroupMember = (
     index: number,
@@ -1047,7 +1099,10 @@ const changeMemberCount = (
     setGroupMembers(
       (current) =>
         current.map(
-          (member, memberIndex) =>
+          (
+            member,
+            memberIndex
+          ) =>
             memberIndex ===
             index
               ? {
@@ -1060,154 +1115,142 @@ const changeMemberCount = (
     );
   };
 
+  /* =======================================================
+   * GROUP VALIDATION
+   * ===================================================== */
+
   const validateGroupMembers =
-  () => {
-    if (
-      !groupDiscountApplicable
-    ) {
-      return (
-        "Group joining is not available " +
-        "for this membership."
-      );
-    }
-
-    /*
-     * groupJoiningMaxMembers is
-     * only the upper limit.
-     */
-    if (
-      memberCount >
-      settings
-        .groupJoiningMaxMembers
-    ) {
-      return (
-        `Maximum ${settings.groupJoiningMaxMembers} ` +
-        `members are allowed in a group.`
-      );
-    }
-
-    if (!matchingGroupRule) {
-      return (
-        "No group discount is configured " +
-        `for ${memberCount} members.`
-      );
-    }
-
-    /*
-     * Build the ACTUAL complete
-     * member list:
-     *
-     * form = Member 1
-     * groupMembers = Member 2+
-     */
-    const allMembers:
-      MemberForm[] = [
-        {
-          name:
-            form.name,
-
-          phone:
-            form.phone,
-
-          email:
-            form.email,
-        },
-
-        ...groupMembers,
-      ];
-
-    /*
-     * Validate every member.
-     */
-    for (
-      let index = 0;
-      index <
-      allMembers.length;
-      index += 1
-    ) {
-      const member =
-        allMembers[index];
-
+    () => {
       if (
-        !member.name.trim() ||
-        !member.phone.trim() ||
-        !member.email.trim()
+        !groupDiscountApplicable
       ) {
         return (
-          `Complete all details for ` +
-          `Member ${index + 1}.`
+          "Group joining is not available " +
+          "for this membership."
         );
       }
 
       if (
-        !PHONE_REGEX.test(
-          member.phone.trim()
-        )
+        memberCount >
+        settings
+          .groupJoiningMaxMembers
       ) {
         return (
-          `Enter a valid mobile number ` +
-          `for Member ${index + 1}.`
+          `Maximum ${settings.groupJoiningMaxMembers} ` +
+          `members are allowed in a group.`
         );
       }
+
+      if (!matchingGroupRule) {
+        return (
+          "No group discount is configured " +
+          `for ${memberCount} members.`
+        );
+      }
+
+      const allMembers:
+        MemberForm[] = [
+          {
+            name:
+              form.name,
+
+            phone:
+              form.phone,
+
+            email:
+              form.email,
+          },
+
+          ...groupMembers,
+        ];
+
+      for (
+        let index = 0;
+        index <
+        allMembers.length;
+        index += 1
+      ) {
+        const member =
+          allMembers[index];
+
+        if (
+          !member.name.trim() ||
+          !member.phone.trim() ||
+          !member.email.trim()
+        ) {
+          return (
+            `Complete all details for ` +
+            `Member ${index + 1}.`
+          );
+        }
+
+        if (
+          !PHONE_REGEX.test(
+            member.phone.trim()
+          )
+        ) {
+          return (
+            `Enter a valid mobile number ` +
+            `for Member ${index + 1}.`
+          );
+        }
+
+        if (
+          !EMAIL_REGEX.test(
+            member.email.trim()
+          )
+        ) {
+          return (
+            `Enter a valid email address ` +
+            `for Member ${index + 1}.`
+          );
+        }
+      }
+
+      const phones =
+        allMembers.map(
+          (member) =>
+            member.phone.trim()
+        );
 
       if (
-        !EMAIL_REGEX.test(
-          member.email.trim()
-        )
+        new Set(phones).size !==
+        phones.length
       ) {
         return (
-          `Enter a valid email address ` +
-          `for Member ${index + 1}.`
+          "Each group member must use " +
+          "a different mobile number."
         );
       }
-    }
 
-    /*
-     * Unique phone validation.
-     */
-    const phones =
-      allMembers.map(
-        (member) =>
-          member.phone.trim()
-      );
+      const emails =
+        allMembers.map(
+          (member) =>
+            member.email
+              .trim()
+              .toLowerCase()
+        );
 
-    if (
-      new Set(phones).size !==
-      phones.length
-    ) {
-      return (
-        "Each group member must use " +
-        "a different mobile number."
-      );
-    }
+      if (
+        new Set(emails).size !==
+        emails.length
+      ) {
+        return (
+          "Each group member must use " +
+          "a different email address."
+        );
+      }
 
-    /*
-     * Unique email validation.
-     */
-    const emails =
-      allMembers.map(
-        (member) =>
-          member.email
-            .trim()
-            .toLowerCase()
-      );
+      if (!form.branchId) {
+        return "Select a branch.";
+      }
 
-    if (
-      new Set(emails).size !==
-      emails.length
-    ) {
-      return (
-        "Each group member must use " +
-        "a different email address."
-      );
-    }
+      return null;
+    };
 
-    if (!form.branchId) {
-      return "Select a branch.";
-    }
-
-    return null;
-  };
+  /* =======================================================
+   * RAZORPAY
+   * ===================================================== */
 
   const openRazorpay = ({
     orderId,
@@ -1226,6 +1269,7 @@ const changeMemberCount = (
           .NEXT_PUBLIC_RAZORPAY_KEY,
 
       amount,
+
       currency: "INR",
 
       order_id: orderId,
@@ -1260,6 +1304,10 @@ const changeMemberCount = (
 
     razorpay.open();
   };
+
+  /* =======================================================
+   * INDIVIDUAL CHECKOUT
+   * ======================================================= */
 
   const handleIndividualSubmit =
     async (
@@ -1297,6 +1345,58 @@ const changeMemberCount = (
       setLoading(true);
 
       try {
+        /*
+         * ===================================================
+         * INDIVIDUAL CHECKOUT PAYLOAD
+         * ===================================================
+         *
+         * The backend now knows exactly:
+         *
+         * service
+         * sub-category
+         * package
+         * branch
+         *
+         * instead of having to infer sub-category.
+         */
+
+        const payload = {
+          name:
+            form.name.trim(),
+
+          phone:
+            form.phone.trim(),
+
+          email:
+            form.email
+              .trim()
+              .toLowerCase(),
+
+          serviceId:
+            service.id,
+
+          subCategoryId:
+            subCategory.id,
+
+          packageId:
+            selectedPackage.id,
+
+          branchId:
+            form.branchId,
+
+          ref,
+
+          extend,
+
+          discountAmount:
+            couponDiscountAmount,
+        };
+
+        console.log(
+          "INDIVIDUAL CHECKOUT PAYLOAD",
+          payload
+        );
+
         const response =
           await fetch(
             "/api/payment/create-order",
@@ -1308,31 +1408,10 @@ const changeMemberCount = (
                   "application/json",
               },
 
-              body: JSON.stringify({
-                name:
-                  form.name.trim(),
-
-                phone:
-                  form.phone.trim(),
-
-                email:
-                  form.email
-                    .trim()
-                    .toLowerCase(),
-
-                branchId:
-                  form.branchId,
-
-                ref,
-
-                packageId:
-                  selectedPackage.id,
-
-                extend,
-
-                discountAmount:
-                  couponDiscountAmount,
-              }),
+              body:
+                JSON.stringify(
+                  payload
+                ),
             }
           );
 
@@ -1344,6 +1423,7 @@ const changeMemberCount = (
           data.requiresConfirmation
         ) {
           setExtendModal(true);
+
           return;
         }
 
@@ -1376,6 +1456,7 @@ const changeMemberCount = (
 
           description:
             `${service.name} - ` +
+            `${subCategory.name} - ` +
             `${selectedPackage.name}`,
         });
       } catch (error) {
@@ -1389,51 +1470,50 @@ const changeMemberCount = (
       }
     };
 
-    const handleGroupSubmit =
+  /* =======================================================
+   * GROUP CHECKOUT
+   * ======================================================= */
+
+  const handleGroupSubmit =
     async (
       extendPhones:
         string[] = []
     ) => {
       const validationError =
         validateGroupMembers();
-  
+
       if (validationError) {
         alert(validationError);
+
         return;
       }
-  
+
       setLoading(true);
-  
+
       try {
-        /*
-         * IMPORTANT:
-         *
-         * form = Member 1
-         * groupMembers = Member 2+
-         */
         const normalizedMembers:
           MemberForm[] = [
             {
               name:
                 form.name.trim(),
-  
+
               phone:
                 form.phone.trim(),
-  
+
               email:
                 form.email
                   .trim()
                   .toLowerCase(),
             },
-  
+
             ...groupMembers.map(
               (member) => ({
                 name:
                   member.name.trim(),
-  
+
                 phone:
                   member.phone.trim(),
-  
+
                 email:
                   member.email
                     .trim()
@@ -1441,54 +1521,58 @@ const changeMemberCount = (
               })
             ),
           ];
-  
+
         /*
-         * Helpful while testing.
+         * ===================================================
+         * GROUP CHECKOUT PAYLOAD
+         * ===================================================
          */
+
+        const payload = {
+          serviceId:
+            service.id,
+
+          subCategoryId:
+            subCategory.id,
+
+          packageId:
+            selectedPackage.id,
+
+          branchId:
+            form.branchId,
+
+          members:
+            normalizedMembers,
+
+          extendPhones,
+        };
+
         console.log(
           "GROUP CHECKOUT PAYLOAD",
-          {
-            memberCount:
-              normalizedMembers.length,
-  
-            expectedMemberCount:
-              memberCount,
-  
-            members:
-              normalizedMembers,
-          }
+          payload
         );
-  
+
         const response =
           await fetch(
             "/api/payment/create-group-order",
             {
               method: "POST",
-  
+
               headers: {
                 "Content-Type":
                   "application/json",
               },
-  
+
               body:
-                JSON.stringify({
-                  branchId:
-                    form.branchId,
-  
-                  packageId:
-                    selectedPackage.id,
-  
-                  members:
-                    normalizedMembers,
-  
-                  extendPhones,
-                }),
+                JSON.stringify(
+                  payload
+                ),
             }
           );
-  
+
         const data =
           await response.json();
-  
+
         if (
           !data.success &&
           data.requiresConfirmation
@@ -1499,28 +1583,23 @@ const changeMemberCount = (
             )
               ? data.activeMembers
               : [];
-  
+
           setGroupExtendMembers(
             activeMembers
           );
-  
+
           return;
         }
-  
+
         if (!data.success) {
           alert(
             data.message ||
               "Unable to create group checkout"
           );
-  
+
           return;
         }
-  
-        /*
-         * Sanity check:
-         * backend and frontend should agree
-         * on member count.
-         */
+
         if (
           Number(
             data.memberCount
@@ -1532,24 +1611,19 @@ const changeMemberCount = (
             {
               frontend:
                 normalizedMembers.length,
-  
+
               backend:
                 data.memberCount,
             }
           );
-  
+
           alert(
             "Member count mismatch. Please refresh and try again."
           );
-  
+
           return;
         }
-  
-        /*
-         * Sanity check:
-         * backend and frontend should agree
-         * on payable amount.
-         */
+
         if (
           Number(data.amount) !==
           Number(
@@ -1561,31 +1635,32 @@ const changeMemberCount = (
             {
               frontend:
                 groupInvoiceTotal,
-  
+
               backend:
                 data.amount,
             }
           );
-  
+
           alert(
             "Checkout price mismatch. Please refresh and try again."
           );
-  
+
           return;
         }
-  
+
         openRazorpay({
           orderId:
             data.orderId,
-  
+
           amount:
             data.amount,
-  
+
           payer:
             normalizedMembers[0],
-  
+
           description:
             `${service.name} - ` +
+            `${subCategory.name} - ` +
             `${selectedPackage.name} ` +
             `(${normalizedMembers.length} members)`,
         });
@@ -1593,7 +1668,7 @@ const changeMemberCount = (
         console.error(
           error
         );
-  
+
         alert(
           "Something went wrong"
         );
@@ -1601,19 +1676,32 @@ const changeMemberCount = (
         setLoading(false);
       }
     };
-    
-    const handleSubmit = () => {
-      if (isGroupCheckout) {
-        handleGroupSubmit();
-        return;
-      }
-    
-      handleIndividualSubmit(false);
-    };
+
+  /* =======================================================
+   * SUBMIT
+   * ======================================================= */
+
+  const handleSubmit = () => {
+    if (isGroupCheckout) {
+      handleGroupSubmit();
+
+      return;
+    }
+
+    handleIndividualSubmit(false);
+  };
+
+  /* =======================================================
+   * CLOSED
+   * ======================================================= */
 
   if (!open) {
     return null;
   }
+
+  /* =======================================================
+   * UI
+   * ======================================================= */
 
   return (
     <>
@@ -1625,34 +1713,40 @@ const changeMemberCount = (
               : "max-h-[94dvh] max-w-lg"
           }`}
         >
-          {/* ================================================= */}
-          {/* HEADER */}
-          {/* ================================================= */}
-  
+          {/* =================================================
+           * HEADER
+           * =============================================== */}
+
           <div className="shrink-0 border-b border-neutral-800 bg-gradient-to-b from-lime-400/10 to-transparent px-4 py-3 sm:px-5 sm:py-4">
-            {/* TOP */}
-  
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
                 <p className="text-[9px] font-medium uppercase tracking-[0.3em] text-lime-400">
                   Fuel Gym
                 </p>
-  
+
                 <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
                   <h2 className="truncate text-lg font-bold text-white sm:text-xl">
                     {service.name}
                   </h2>
-  
+
                   <span className="text-neutral-700">
                     ·
                   </span>
-  
+
+                  <p className="truncate text-sm text-neutral-400">
+                    {subCategory.name}
+                  </p>
+
+                  <span className="text-neutral-700">
+                    ·
+                  </span>
+
                   <p className="truncate text-sm text-neutral-400">
                     {selectedPackage.name}
                   </p>
                 </div>
               </div>
-  
+
               <button
                 type="button"
                 onClick={() =>
@@ -1663,51 +1757,68 @@ const changeMemberCount = (
                 ✕
               </button>
             </div>
-  
-            {/* PRICE + CURRENT GROUP STATUS */}
-  
+
+            {/* PRICE */}
+
             <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-3">
-  <div className="flex items-end gap-3">
-    {isGroupCheckout ? (
-      <div className="flex flex-col">
-        <span className="text-sm font-medium text-neutral-500 line-through">
-          ₹{formatMoney(groupOriginalInvoiceTotal)}
-        </span>
+              <div className="flex items-end gap-3">
+                {isGroupCheckout ? (
+                  <div className="flex flex-col">
+                    <span className="text-sm font-medium text-neutral-500 line-through">
+                      ₹
+                      {formatMoney(
+                        groupOriginalInvoiceTotal
+                      )}
+                    </span>
 
-        <div className="flex items-end gap-2">
-          <h3 className="text-3xl font-black leading-none text-lime-400 sm:text-4xl">
-            ₹{formatMoney(displayedInvoiceTotal)}
-          </h3>
+                    <div className="flex items-end gap-2">
+                      <h3 className="text-3xl font-black leading-none text-lime-400 sm:text-4xl">
+                        ₹
+                        {formatMoney(
+                          displayedInvoiceTotal
+                        )}
+                      </h3>
 
-          <span className="mb-0.5 text-[11px] font-medium text-neutral-500">
-            incl. GST
-          </span>
-        </div>
-      </div>
-    ) : (
-      <div className="flex items-end gap-2">
-        <h3 className="text-2xl font-black text-white sm:text-3xl">
-          ₹{formatMoney(displayedInvoiceTotal)}
-        </h3>
+                      <span className="mb-0.5 text-[11px] font-medium text-neutral-500">
+                        incl. GST
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-end gap-2">
+                    <h3 className="text-2xl font-black text-white sm:text-3xl">
+                      ₹
+                      {formatMoney(
+                        displayedInvoiceTotal
+                      )}
+                    </h3>
 
-        <span className="mb-1 text-[11px] text-neutral-500">
-          incl. ₹{formatMoney(displayedTotalGst)} GST
-        </span>
-      </div>
-    )}
-  </div>
+                    <span className="mb-1 text-[11px] text-neutral-500">
+                      incl. ₹
+                      {formatMoney(
+                        displayedTotalGst
+                      )}{" "}
+                      GST
+                    </span>
+                  </div>
+                )}
+              </div>
 
-  {isGroupCheckout && matchingGroupRule && (
-    <span className="rounded-full border border-lime-400/20 bg-lime-400/10 px-3 py-1 text-xs font-semibold text-lime-300">
-      {memberCount} members · {groupDiscountPercentage}% OFF
-    </span>
-  )}
-</div>
-  
+              {isGroupCheckout &&
+                matchingGroupRule && (
+                  <span className="rounded-full border border-lime-400/20 bg-lime-400/10 px-3 py-1 text-xs font-semibold text-lime-300">
+                    {memberCount}{" "}
+                    members ·{" "}
+                    {
+                      groupDiscountPercentage
+                    }
+                    % OFF
+                  </span>
+                )}
+            </div>
+
             {/* GROUP PROMOTION */}
 
-            
-  
             {!isGroupCheckout &&
               groupDiscountApplicable &&
               maximumGroupDiscount >
@@ -1724,9 +1835,9 @@ const changeMemberCount = (
                   discount.
                 </p>
               )}
-  
-            {/* INDIVIDUAL COUPON SAVING */}
-  
+
+            {/* COUPON SAVING */}
+
             {!isGroupCheckout &&
               appliedCoupons.length >
                 0 && (
@@ -1737,9 +1848,9 @@ const changeMemberCount = (
                   )}
                 </p>
               )}
-  
+
             {/* PACKAGE META */}
-  
+
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <span className="rounded-full bg-neutral-800 px-2.5 py-0.5 text-[10px] text-neutral-300">
                 {
@@ -1747,7 +1858,11 @@ const changeMemberCount = (
                 }{" "}
                 Days
               </span>
-  
+
+              <span className="rounded-full border border-lime-400/20 bg-lime-400/10 px-2.5 py-0.5 text-[10px] text-lime-300">
+                {subCategory.name}
+              </span>
+
               {selectedBranch && (
                 <span className="rounded-full border border-lime-400/20 bg-lime-400/10 px-2.5 py-0.5 text-[10px] text-lime-300">
                   {
@@ -1757,25 +1872,21 @@ const changeMemberCount = (
               )}
             </div>
           </div>
-  
-          {/* ================================================= */}
-          {/* BODY */}
-          {/* ================================================= */}
-  
+
+          {/* =================================================
+           * BODY
+           * =============================================== */}
+
           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
-            {/* SETTINGS LOADING */}
-  
             {settingsLoading && (
               <div className="mb-3 rounded-xl border border-neutral-800 bg-neutral-900 px-4 py-2.5 text-xs text-neutral-400">
                 Loading available
                 membership offers...
               </div>
             )}
-  
-            {/* ================================================= */}
+
             {/* MEMBER COUNT */}
-            {/* ================================================= */}
-  
+
             {groupDiscountApplicable && (
               <div className="mb-3 rounded-xl border border-neutral-800 bg-neutral-900 px-4 py-3">
                 <div className="flex items-center justify-between gap-4">
@@ -1783,13 +1894,13 @@ const changeMemberCount = (
                     <p className="text-sm font-semibold text-white">
                       Members
                     </p>
-  
+
                     <p className="mt-0.5 text-[11px] text-neutral-500">
                       People joining
                       this membership
                     </p>
                   </div>
-  
+
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
@@ -1805,11 +1916,11 @@ const changeMemberCount = (
                     >
                       −
                     </button>
-  
+
                     <span className="min-w-9 text-center text-xl font-black text-white">
                       {memberCount}
                     </span>
-  
+
                     <button
                       type="button"
                       onClick={() =>
@@ -1828,9 +1939,7 @@ const changeMemberCount = (
                     </button>
                   </div>
                 </div>
-  
-                {/* NO RULE WARNING */}
-  
+
                 {isGroupCheckout &&
                   !matchingGroupRule && (
                     <div className="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2">
@@ -1847,11 +1956,9 @@ const changeMemberCount = (
                   )}
               </div>
             )}
-  
-            {/* ================================================= */}
-            {/* COMPACT GROUP PRICE SUMMARY */}
-            {/* ================================================= */}
-  
+
+            {/* GROUP PRICE */}
+
             {isGroupCheckout &&
               matchingGroupRule && (
                 <div className="mb-3 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-neutral-800 bg-neutral-800 sm:grid-cols-4">
@@ -1861,7 +1968,7 @@ const changeMemberCount = (
                       groupPackageSubtotal
                     )}`}
                   />
-  
+
                   <PriceSummaryCard
                     label={`Discount ${groupDiscountPercentage}%`}
                     value={`-₹${formatMoney(
@@ -1869,14 +1976,14 @@ const changeMemberCount = (
                     )}`}
                     highlight
                   />
-  
+
                   <PriceSummaryCard
                     label="GST"
                     value={`₹${formatMoney(
                       groupTotalGst
                     )}`}
                   />
-  
+
                   <PriceSummaryCard
                     label="Payable"
                     value={`₹${formatMoney(
@@ -1886,11 +1993,11 @@ const changeMemberCount = (
                   />
                 </div>
               )}
-  
-            {/* ================================================= */}
-            {/* PRIMARY MEMBER */}
-            {/* ================================================= */}
-  
+
+            {/* =================================================
+             * PRIMARY MEMBER
+             * =============================================== */}
+
             <div
               className={`rounded-xl ${
                 isGroupCheckout
@@ -1899,39 +2006,47 @@ const changeMemberCount = (
               }`}
             >
               {isGroupCheckout && (
-  <div className="mb-4 flex items-center justify-between gap-4 rounded-xl border border-lime-400/20 bg-lime-400/5 px-4 py-3">
-    <div className="min-w-0">
-      <div className="flex items-center gap-2">
-        <h3 className="text-sm font-bold text-white">
-          Member 1
-        </h3>
+                <div className="mb-4 flex items-center justify-between gap-4 rounded-xl border border-lime-400/20 bg-lime-400/5 px-4 py-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-sm font-bold text-white">
+                        Member 1
+                      </h3>
 
-        <span className="rounded-full bg-lime-400/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-lime-400">
-          Primary
-        </span>
-      </div>
+                      <span className="rounded-full bg-lime-400/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-lime-400">
+                        Primary
+                      </span>
+                    </div>
 
-      <p className="mt-1 text-[11px] font-medium uppercase tracking-wide text-neutral-500">
-        Each Person Price
-      </p>
-    </div>
+                    <p className="mt-1 text-[11px] font-medium uppercase tracking-wide text-neutral-500">
+                      Each Person Price
+                    </p>
+                  </div>
 
-    <div className="shrink-0 text-right">
-      <p className="text-xs font-medium text-neutral-500 line-through">
-        ₹{formatMoney(Number(selectedPackage.price))}
-      </p>
+                  <div className="shrink-0 text-right">
+                    <p className="text-xs font-medium text-neutral-500 line-through">
+                      ₹
+                      {formatMoney(
+                        Number(
+                          selectedPackage.price
+                        )
+                      )}
+                    </p>
 
-      <p className="text-xl font-black leading-tight text-lime-400 sm:text-2xl">
-        ₹{formatMoney(groupInvoicePerMember)}
-      </p>
+                    <p className="text-xl font-black leading-tight text-lime-400 sm:text-2xl">
+                      ₹
+                      {formatMoney(
+                        groupInvoicePerMember
+                      )}
+                    </p>
 
-      <p className="mt-0.5 text-[10px] font-medium text-neutral-500">
-        incl. GST
-      </p>
-    </div>
-  </div>
-)}
-  
+                    <p className="mt-0.5 text-[10px] font-medium text-neutral-500">
+                      incl. GST
+                    </p>
+                  </div>
+                </div>
+              )}
+
               <div
                 className={
                   isGroupCheckout
@@ -1940,12 +2055,12 @@ const changeMemberCount = (
                 }
               >
                 {/* NAME */}
-  
+
                 <div>
                   <label className="mb-1 block text-[11px] text-neutral-400">
                     Full Name
                   </label>
-  
+
                   <input
                     value={
                       form.name
@@ -1955,7 +2070,7 @@ const changeMemberCount = (
                     ) =>
                       setForm({
                         ...form,
-  
+
                         name:
                           event.target
                             .value,
@@ -1969,19 +2084,19 @@ const changeMemberCount = (
                     }`}
                   />
                 </div>
-  
+
                 {/* PHONE */}
-  
+
                 <div>
                   <label className="mb-1 block text-[11px] text-neutral-400">
                     Mobile Number
                   </label>
-  
+
                   <div className="flex h-10 overflow-hidden rounded-lg border border-neutral-800 transition focus-within:border-lime-400">
                     <div className="flex w-12 shrink-0 items-center justify-center bg-neutral-800 text-xs font-medium text-white">
                       +91
                     </div>
-  
+
                     <input
                       value={
                         form.phone
@@ -1998,10 +2113,10 @@ const changeMemberCount = (
                             /\D/g,
                             ""
                           );
-  
+
                         setForm({
                           ...form,
-  
+
                           phone:
                             value,
                         });
@@ -2014,7 +2129,7 @@ const changeMemberCount = (
                       }`}
                     />
                   </div>
-  
+
                   {form.phone &&
                     !individualPhoneValid && (
                       <p className="mt-1 text-[10px] text-red-400">
@@ -2024,14 +2139,14 @@ const changeMemberCount = (
                       </p>
                     )}
                 </div>
-  
+
                 {/* EMAIL */}
-  
+
                 <div>
                   <label className="mb-1 block text-[11px] text-neutral-400">
                     Email Address
                   </label>
-  
+
                   <input
                     value={
                       form.email
@@ -2041,7 +2156,7 @@ const changeMemberCount = (
                     ) =>
                       setForm({
                         ...form,
-  
+
                         email:
                           event.target
                             .value,
@@ -2054,7 +2169,7 @@ const changeMemberCount = (
                         : "bg-neutral-900"
                     }`}
                   />
-  
+
                   {form.email &&
                     !individualEmailValid && (
                       <p className="mt-1 text-[10px] text-red-400">
@@ -2065,11 +2180,11 @@ const changeMemberCount = (
                 </div>
               </div>
             </div>
-  
-            {/* ================================================= */}
-            {/* ADDITIONAL GROUP MEMBERS */}
-            {/* ================================================= */}
-  
+
+            {/* =================================================
+             * ADDITIONAL MEMBERS
+             * =============================================== */}
+
             {isGroupCheckout &&
               groupMembers.length >
                 0 && (
@@ -2081,7 +2196,7 @@ const changeMemberCount = (
                     ) => {
                       const memberNumber =
                         index + 2;
-  
+
                       return (
                         <div
                           key={
@@ -2089,8 +2204,6 @@ const changeMemberCount = (
                           }
                           className="rounded-xl border border-neutral-800 bg-neutral-900 px-4 py-3"
                         >
-                          {/* MEMBER HEADER */}
-  
                           <div className="mb-3 flex items-center justify-between gap-3">
                             <h3 className="text-sm font-semibold text-white">
                               Member{" "}
@@ -2098,29 +2211,38 @@ const changeMemberCount = (
                                 memberNumber
                               }
                             </h3>
+
                             <div className="shrink-0 text-right">
-  <p className="text-[10px] font-medium uppercase tracking-wide text-neutral-500">
-    Each Person
-  </p>
+                              <p className="text-[10px] font-medium uppercase tracking-wide text-neutral-500">
+                                Each Person
+                              </p>
 
-  <p className="text-xs font-medium text-neutral-500 line-through">
-    ₹{formatMoney(Number(selectedPackage.price))}
-  </p>
+                              <p className="text-xs font-medium text-neutral-500 line-through">
+                                ₹
+                                {formatMoney(
+                                  Number(
+                                    selectedPackage.price
+                                  )
+                                )}
+                              </p>
 
-  <p className="text-lg font-black leading-tight text-lime-400">
-    ₹{formatMoney(groupInvoicePerMember)}
-  </p>
-</div>
+                              <p className="text-lg font-black leading-tight text-lime-400">
+                                ₹
+                                {formatMoney(
+                                  groupInvoicePerMember
+                                )}
+                              </p>
+                            </div>
                           </div>
-  
+
                           <div className="grid gap-3 md:grid-cols-3">
                             {/* NAME */}
-  
+
                             <div>
                               <label className="mb-1 block text-[11px] text-neutral-400">
                                 Full Name
                               </label>
-  
+
                               <input
                                 value={
                                   member.name
@@ -2131,7 +2253,8 @@ const changeMemberCount = (
                                   updateGroupMember(
                                     index,
                                     "name",
-                                    event.target
+                                    event
+                                      .target
                                       .value
                                   )
                                 }
@@ -2139,20 +2262,19 @@ const changeMemberCount = (
                                 className="h-10 w-full rounded-lg border border-neutral-800 bg-neutral-950 px-3 text-sm text-white outline-none transition focus:border-lime-400"
                               />
                             </div>
-  
+
                             {/* PHONE */}
-  
+
                             <div>
                               <label className="mb-1 block text-[11px] text-neutral-400">
-                                Mobile
-                                Number
+                                Mobile Number
                               </label>
-  
+
                               <div className="flex h-10 overflow-hidden rounded-lg border border-neutral-800 transition focus-within:border-lime-400">
                                 <div className="flex w-12 shrink-0 items-center justify-center bg-neutral-800 text-xs text-white">
                                   +91
                                 </div>
-  
+
                                 <input
                                   value={
                                     member.phone
@@ -2177,7 +2299,7 @@ const changeMemberCount = (
                                   className="min-w-0 flex-1 bg-neutral-950 px-3 text-sm text-white outline-none"
                                 />
                               </div>
-  
+
                               {member.phone &&
                                 !PHONE_REGEX.test(
                                   member.phone
@@ -2189,15 +2311,14 @@ const changeMemberCount = (
                                   </p>
                                 )}
                             </div>
-  
+
                             {/* EMAIL */}
-  
+
                             <div>
                               <label className="mb-1 block text-[11px] text-neutral-400">
-                                Email
-                                Address
+                                Email Address
                               </label>
-  
+
                               <input
                                 value={
                                   member.email
@@ -2208,14 +2329,15 @@ const changeMemberCount = (
                                   updateGroupMember(
                                     index,
                                     "email",
-                                    event.target
+                                    event
+                                      .target
                                       .value
                                   )
                                 }
                                 placeholder="member@email.com"
                                 className="h-10 w-full rounded-lg border border-neutral-800 bg-neutral-950 px-3 text-sm text-white outline-none transition focus:border-lime-400"
                               />
-  
+
                               {member.email &&
                                 !EMAIL_REGEX.test(
                                   member.email
@@ -2234,12 +2356,11 @@ const changeMemberCount = (
                   )}
                 </div>
               )}
-  
-            {/* ================================================= */}
-            {/* COUPONS */}
-            {/* INDIVIDUAL ONLY */}
-            {/* ================================================= */}
-  
+
+            {/* =================================================
+             * COUPONS
+             * =============================================== */}
+
             {!isGroupCheckout &&
               packageCoupons.length >
                 0 && (
@@ -2247,7 +2368,7 @@ const changeMemberCount = (
                   <label className="mb-2 block text-xs text-neutral-400">
                     Available Offers
                   </label>
-  
+
                   <div className="space-y-2">
                     {packageCoupons.map(
                       (
@@ -2261,11 +2382,11 @@ const changeMemberCount = (
                               item.id ===
                               coupon.id
                           );
-  
+
                         const isLoading =
                           couponLoading ===
                           coupon.id;
-  
+
                         return (
                           <div
                             key={
@@ -2285,7 +2406,7 @@ const changeMemberCount = (
                                       coupon.code
                                     }
                                   </span>
-  
+
                                   <span className="text-xs text-neutral-400">
                                     {coupon.discountPercent
                                       ? `${coupon.discountPercent}% OFF`
@@ -2296,7 +2417,7 @@ const changeMemberCount = (
                                   </span>
                                 </div>
                               </div>
-  
+
                               <button
                                 type="button"
                                 onClick={() =>
@@ -2325,7 +2446,7 @@ const changeMemberCount = (
                       }
                     )}
                   </div>
-  
+
                   {couponError && (
                     <p className="mt-2 text-xs text-red-400">
                       {
@@ -2335,18 +2456,18 @@ const changeMemberCount = (
                   )}
                 </div>
               )}
-  
-            {/* ================================================= */}
-            {/* BRANCH */}
-            {/* ================================================= */}
-  
+
+            {/* =================================================
+             * BRANCH
+             * =============================================== */}
+
             {branches.length >
               1 && (
               <div className="mt-4">
                 <label className="mb-1.5 block text-xs text-neutral-400">
                   Select Branch
                 </label>
-  
+
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                   {branches.map(
                     (
@@ -2355,7 +2476,7 @@ const changeMemberCount = (
                       const active =
                         form.branchId ===
                         branch.id;
-  
+
                       return (
                         <button
                           key={
@@ -2365,7 +2486,7 @@ const changeMemberCount = (
                           onClick={() =>
                             setForm({
                               ...form,
-  
+
                               branchId:
                                 branch.id,
                             })
@@ -2387,22 +2508,20 @@ const changeMemberCount = (
               </div>
             )}
           </div>
-  
-          {/* ================================================= */}
-          {/* COMPACT FOOTER */}
-          {/* ================================================= */}
-  
+
+          {/* =================================================
+           * FOOTER
+           * =============================================== */}
+
           <div className="shrink-0 border-t border-neutral-800 bg-neutral-950 px-4 py-3 sm:px-5">
             <div className="flex items-center gap-4">
-              {/* DESKTOP GROUP SUMMARY */}
-  
               {isGroupCheckout && (
                 <div className="hidden min-w-[150px] shrink-0 sm:block">
                   <p className="text-[10px] text-neutral-500">
                     {memberCount}{" "}
                     memberships
                   </p>
-  
+
                   <p className="mt-0.5 text-sm font-semibold text-white">
                     ₹
                     {formatMoney(
@@ -2412,7 +2531,7 @@ const changeMemberCount = (
                   </p>
                 </div>
               )}
-  
+
               <button
                 type="button"
                 disabled={
@@ -2434,7 +2553,7 @@ const changeMemberCount = (
                     )}`}
               </button>
             </div>
-  
+
             <p className="mt-1.5 text-center text-[9px] text-neutral-600">
               Secure payments
               powered by Razorpay
@@ -2442,11 +2561,11 @@ const changeMemberCount = (
           </div>
         </div>
       </div>
-  
-      {/* ================================================= */}
-      {/* INDIVIDUAL EXTEND CONFIRMATION */}
-      {/* ================================================= */}
-  
+
+      {/* =====================================================
+       * INDIVIDUAL EXTEND
+       * =================================================== */}
+
       {extendModal && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/85 p-4 backdrop-blur-md">
           <div className="w-full max-w-md rounded-3xl border border-neutral-800 bg-neutral-950 p-6">
@@ -2454,7 +2573,7 @@ const changeMemberCount = (
               Active Membership
               Found
             </h3>
-  
+
             <p className="mt-3 text-sm leading-relaxed text-neutral-400">
               You already have an
               active membership.
@@ -2462,7 +2581,7 @@ const changeMemberCount = (
               additional days to
               your existing plan.
             </p>
-  
+
             <div className="mt-6 flex gap-3">
               <button
                 type="button"
@@ -2475,14 +2594,14 @@ const changeMemberCount = (
               >
                 Cancel
               </button>
-  
+
               <button
                 type="button"
                 onClick={() => {
                   setExtendModal(
                     false
                   );
-  
+
                   handleIndividualSubmit(
                     true
                   );
@@ -2495,11 +2614,11 @@ const changeMemberCount = (
           </div>
         </div>
       )}
-  
-      {/* ================================================= */}
-      {/* GROUP EXTEND CONFIRMATION */}
-      {/* ================================================= */}
-  
+
+      {/* =====================================================
+       * GROUP EXTEND
+       * =================================================== */}
+
       {groupExtendMembers.length >
         0 && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/85 p-4 backdrop-blur-md">
@@ -2508,7 +2627,7 @@ const changeMemberCount = (
               Active Memberships
               Found
             </h3>
-  
+
             <p className="mt-3 text-sm leading-relaxed text-neutral-400">
               The following members
               already have active
@@ -2517,7 +2636,7 @@ const changeMemberCount = (
               the existing
               membership.
             </p>
-  
+
             <div className="mt-4 space-y-2">
               {groupExtendMembers.map(
                 (
@@ -2533,13 +2652,13 @@ const changeMemberCount = (
                         member.name
                       }
                     </p>
-  
+
                     <p className="mt-1 text-xs text-neutral-500">
                       +91{" "}
                       {
                         member.phone
                       }
-  
+
                       {(member.endDate ||
                         member.currentEndDate) &&
                         ` · Active until ${
@@ -2551,7 +2670,7 @@ const changeMemberCount = (
                 )
               )}
             </div>
-  
+
             <div className="mt-6 flex gap-3">
               <button
                 type="button"
@@ -2564,7 +2683,7 @@ const changeMemberCount = (
               >
                 Cancel
               </button>
-  
+
               <button
                 type="button"
                 onClick={() => {
@@ -2575,11 +2694,11 @@ const changeMemberCount = (
                       ) =>
                         member.phone
                     );
-  
+
                   setGroupExtendMembers(
                     []
                   );
-  
+
                   handleGroupSubmit(
                     extendPhones
                   );
@@ -2594,45 +2713,48 @@ const changeMemberCount = (
       )}
     </>
   );
-  };
-  
-  type PriceSummaryCardProps = {
-    label: string;
-    value: string;
-    highlight?: boolean;
-    strong?: boolean;
-  };
-  
-  const PriceSummaryCard = ({
-    label,
-    value,
-    highlight = false,
-    strong = false,
-  }: PriceSummaryCardProps) => {
-    return (
-      <div
-        className={`px-3 py-2.5 sm:px-4 ${
+};
+
+/* ===========================================================
+ * PRICE SUMMARY CARD
+ * ========================================================= */
+
+type PriceSummaryCardProps = {
+  label: string;
+  value: string;
+  highlight?: boolean;
+  strong?: boolean;
+};
+
+const PriceSummaryCard = ({
+  label,
+  value,
+  highlight = false,
+  strong = false,
+}: PriceSummaryCardProps) => {
+  return (
+    <div
+      className={`px-3 py-2.5 sm:px-4 ${
+        strong
+          ? "bg-neutral-900"
+          : "bg-neutral-950"
+      }`}
+    >
+      <p className="truncate text-[9px] uppercase tracking-wider text-neutral-500 sm:text-[10px]">
+        {label}
+      </p>
+
+      <p
+        className={`mt-1 truncate font-bold ${
           strong
-            ? "bg-neutral-900"
-            : "bg-neutral-950"
+            ? "text-base text-white"
+            : highlight
+            ? "text-sm text-lime-300"
+            : "text-sm text-neutral-200"
         }`}
       >
-        <p className="truncate text-[9px] uppercase tracking-wider text-neutral-500 sm:text-[10px]">
-          {label}
-        </p>
-  
-        <p
-          className={`mt-1 truncate font-bold ${
-            strong
-              ? "text-base text-white"
-              : highlight
-              ? "text-sm text-lime-300"
-              : "text-sm text-neutral-200"
-          }`}
-        >
-          {value}
-        </p>
-      </div>
-    );
-  };
-
+        {value}
+      </p>
+    </div>
+  );
+};

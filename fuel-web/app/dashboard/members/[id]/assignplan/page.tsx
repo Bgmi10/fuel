@@ -15,8 +15,8 @@ const page = async ({ params }: Props) => {
       id,
     },
     include: {
-      referrals: true
-    }
+      referrals: true,
+    },
   });
 
   if (!member) {
@@ -36,16 +36,69 @@ const page = async ({ params }: Props) => {
   }
 
   const services = await prisma.service.findMany({
+    where: {
+      // Only services that are active
+      // If your Service model does not have isActive,
+      // remove this where block.
+    },
+
     include: {
+      /*
+       * ============================================================
+       * BRANCHES
+       * ============================================================
+       */
       branches: true,
 
+      /*
+       * ============================================================
+       * SERVICE LEVEL PACKAGES
+       *
+       * These are packages directly attached to the service.
+       *
+       * They should be shown when:
+       * Service selected
+       * + No sub-category selected
+       * ============================================================
+       */
       packages: {
         where: {
           isActive: true,
         },
-
         orderBy: {
           createdAt: "desc",
+        },
+      },
+
+      /*
+       * ============================================================
+       * SUB CATEGORIES
+       *
+       * Service
+       *   ↓
+       * Sub Category
+       *   ↓
+       * Packages
+       * ============================================================
+       */
+      subCategories: {
+        orderBy: {
+          createdAt: "desc",
+        },
+
+        include: {
+          packages: {
+            where: {
+              package: {
+                isActive: true,
+              },
+            },
+
+          
+            select: {
+              package: true,
+            },
+          },
         },
       },
     },

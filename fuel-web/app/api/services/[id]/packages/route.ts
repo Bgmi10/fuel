@@ -1,4 +1,5 @@
 import { MembershipUsageType } from "@prisma/client";
+
 import { NextRequest, NextResponse } from "next/server";
 
 import { prisma } from "@/prisma";
@@ -48,6 +49,32 @@ const toOptionalAmount = (
   return parsed;
 };
 
+/* =========================
+   NORMALIZE SUBCATEGORY IDS
+========================= */
+
+const normalizeSubCategoryIds = (
+  value: unknown
+): string[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return [
+    ...new Set(
+      value.filter(
+        (id): id is string =>
+          typeof id === "string" &&
+          id.trim().length > 0
+      )
+    ),
+  ];
+};
+
+/* =========================
+   POST - CREATE PACKAGE
+========================= */
+
 export const POST = async (
   req: NextRequest,
   { params }: Params
@@ -96,6 +123,19 @@ export const POST = async (
       body.isActive === undefined
         ? true
         : Boolean(body.isActive);
+
+    /*
+     * Empty array means:
+     * package applies to the entire service.
+     */
+    const subCategoryIds =
+      normalizeSubCategoryIds(
+        body.subCategoryIds
+      );
+
+    /* =========================
+       BASIC VALIDATION
+    ========================= */
 
     if (!serviceId) {
       return NextResponse.json(
@@ -195,6 +235,10 @@ export const POST = async (
       );
     }
 
+    /* =========================
+       CHECK SERVICE
+    ========================= */
+
     const service =
       await prisma.service.findUnique({
         where: {
@@ -216,23 +260,110 @@ export const POST = async (
       );
     }
 
+    /* =========================
+       VALIDATE SUBCATEGORIES
+    ========================= */
+
+    if (subCategoryIds.length > 0) {
+      const validSubCategories =
+        await prisma.serviceSubCategory.findMany({
+          where: {
+            id: {
+              in: subCategoryIds,
+            },
+
+            serviceId,
+          },
+
+          select: {
+            id: true,
+          },
+        });
+
+      const validSubCategoryIds =
+        new Set(
+          validSubCategories.map(
+            (subCategory) =>
+              subCategory.id
+          )
+        );
+
+      const invalidSubCategoryIds =
+        subCategoryIds.filter(
+          (id) =>
+            !validSubCategoryIds.has(id)
+        );
+
+      if (
+        invalidSubCategoryIds.length > 0
+      ) {
+        return NextResponse.json(
+          {
+            success: false,
+            message:
+              "One or more selected subcategories do not belong to this service.",
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    /* =========================
+       CREATE PACKAGE
+    ========================= */
+
     const servicePackage =
       await prisma.servicePackage.create({
         data: {
           serviceId,
+
           name,
+
           description:
             description || null,
+
           durationInDays,
+
           price,
+
           originalPrice,
+
           isActive,
+
           usageType,
+
           totalSessions:
             usageType ===
             "SESSION_BASED"
               ? totalSessions
               : null,
+
+          /*
+           * If subCategoryIds is empty,
+           * no relation rows are created.
+           *
+           * Therefore the package is
+           * service-wide.
+           */
+          subCategories:
+            subCategoryIds.length > 0
+              ? {
+                  create:
+                    subCategoryIds.map(
+                      (subCategoryId) => ({
+                        subCategoryId,
+                      })
+                    ),
+                }
+              : undefined,
+        },
+
+        include: {
+          subCategories: {
+            include: {
+              subCategory: true,
+            },
+          },
         },
       });
 
@@ -260,6 +391,10 @@ export const POST = async (
   }
 };
 
+/* =========================
+   GET - FETCH PACKAGES
+========================= */
+
 export const GET = async (
   _req: NextRequest,
   { params }: Params
@@ -284,8 +419,17 @@ export const GET = async (
         where: {
           serviceId,
         },
+
         orderBy: {
           createdAt: "desc",
+        },
+
+        include: {
+          subCategories: {
+            include: {
+              subCategory: true,
+            },
+          },
         },
       });
 

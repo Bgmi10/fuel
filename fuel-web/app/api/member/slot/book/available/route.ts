@@ -121,34 +121,40 @@ export async function GET(req: NextRequest) {
      * - subscription is active
      * - selected date is within subscription validity
      */
-    const subscription =
-      await prisma.subscription.findFirst({
-        where: {
-          id: subscriptionId,
-          memberId: member.id,
-          status: "ACTIVE",
-
-          startDate: {
-            lte: bookingDayEnd,
-          },
-
-          endDate: {
-            gte: bookingDayStart,
+    const subscription = await prisma.subscription.findFirst({
+      where: {
+        id: subscriptionId,
+        memberId: member.id,
+        status: "ACTIVE",
+        startDate: {
+          lte: bookingDayEnd,
+        },
+        endDate: {
+          gte: bookingDayStart,
+        },
+      },
+      select: {
+        id: true,
+        branchId: true,
+        packageId: true,
+    
+        package: {
+          select: {
+            serviceId: true,
+    
+            // IMPORTANT:
+            // whatever field identifies the package's subcategory
           },
         },
-
-        select: {
-          id: true,
-          branchId: true,
-          packageId: true,
-
-          package: {
-            select: {
-              serviceId: true,
-            },
-          },
-        },
-      });
+        subCategoryId: true,
+        subCategory: {
+         select: {
+          name: true,
+          id: true
+         }
+        }
+      },
+    });
 
     if (!subscription) {
       return NextResponse.json(
@@ -172,6 +178,7 @@ export async function GET(req: NextRequest) {
     branchId: subscription.branchId,
     serviceId: subscription.package.serviceId,
     isActive: true,
+    subCategoryId: subscription.subCategoryId,
 
     // IMPORTANT:
     daysOfWeek: {
@@ -180,6 +187,7 @@ export async function GET(req: NextRequest) {
   },
 
   include: {
+    subCategory: true,
     branch: {
       select: {
         id: true,

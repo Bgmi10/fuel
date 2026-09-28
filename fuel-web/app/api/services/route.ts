@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 /* =========================
    CREATE SERVICE
 ========================= */
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -55,15 +56,17 @@ export async function POST(req: NextRequest) {
         sortOrder: true,
       },
     });
-    
-    const nextSortOrder = (lastService?.sortOrder ?? -1) + 1;
-    
+
+    const nextSortOrder =
+      (lastService?.sortOrder ?? -1) + 1;
+
     const service = await prisma.service.create({
       data: {
         name,
         thumbnailImage,
         coverImage,
         sortOrder: nextSortOrder,
+
         branches: {
           connect: branchIds.map((id: string) => ({
             id,
@@ -95,8 +98,10 @@ export async function POST(req: NextRequest) {
 /* =========================
    GET SERVICES
 ========================= */
+
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
+
   const branchId = searchParams.get("branchId");
 
   try {
@@ -112,11 +117,26 @@ export async function GET(req: NextRequest) {
           }
         : undefined,
 
-
       include: {
         branches: true,
 
-        websiteContent: true,
+        /* =========================
+           WEBSITE CONTENT
+        ========================= */
+
+        websiteContent: {
+          include: {
+            schedules: {
+              orderBy: {
+                sortOrder: "asc",
+              },
+            },
+          },
+        },
+
+        /* =========================
+           SUB CATEGORIES
+        ========================= */
 
         subCategories: {
           where: {
@@ -136,12 +156,22 @@ export async function GET(req: NextRequest) {
           },
         },
 
+        /* =========================
+           SERVICE PACKAGES
+        ========================= */
+
         packages: {
+          where: {
+            isActive: true,
+          },
+
           include: {
+            /* Public coupons only */
             coupons: {
               where: {
                 isPrivate: false,
                 isActive: true,
+
                 OR: [
                   {
                     expiresAt: null,
@@ -154,8 +184,22 @@ export async function GET(req: NextRequest) {
                 ],
               },
             },
+
+            /* =========================
+               PACKAGE -> SUBCATEGORY
+            ========================= */
+
+            subCategories: {
+              select: {
+                subCategoryId: true,
+              },
+            },
           },
         },
+
+        /* =========================
+           COUNTS
+        ========================= */
 
         _count: {
           select: {

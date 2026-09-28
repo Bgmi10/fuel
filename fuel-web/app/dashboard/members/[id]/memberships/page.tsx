@@ -614,10 +614,14 @@ export default function MembershipsPage() {
                           className="text-lime-400"
                         />
 
-                        <h2 className="text-xl font-bold">
-                          {sub.package?.name}
-                        </h2>
-
+                       <h2 className="text-xl font-bold">
+  {sub.package?.name}
+  {sub?.subCategory?.name && (
+    <span className="ml-2 text-sm font-medium text-neutral-400">
+      • {sub?.subCategory.name}
+    </span>
+  )}
+</h2>
                         <span
                           className={`rounded-full px-3 py-1 text-xs ${
                             sub.status === "ACTIVE"

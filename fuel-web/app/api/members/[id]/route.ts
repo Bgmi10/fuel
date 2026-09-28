@@ -147,6 +147,7 @@ export const GET = async (
             package: {
               include: {
                 service: true,
+                
               },
             },
 
@@ -221,6 +222,7 @@ export const GET = async (
 
           include: {
             branch: true,
+            subCategory: true,
 
             package: {
               include: {
