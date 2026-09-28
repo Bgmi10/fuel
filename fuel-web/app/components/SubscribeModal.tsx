@@ -597,7 +597,7 @@ export const SubscribeModal = ({
     setExtendModal(false);
   }, [
     service.id,
-    subCategory.id,
+    subCategory?.id,
     selectedPackage.id,
   ]);
 
@@ -1376,7 +1376,7 @@ export const SubscribeModal = ({
             service.id,
 
           subCategoryId:
-            subCategory.id,
+            subCategory?.id,
 
           packageId:
             selectedPackage.id,
@@ -1456,7 +1456,7 @@ export const SubscribeModal = ({
 
           description:
             `${service.name} - ` +
-            `${subCategory.name} - ` +
+            `${subCategory?.name} - ` +
             `${selectedPackage.name}`,
         });
       } catch (error) {
@@ -1533,7 +1533,7 @@ export const SubscribeModal = ({
             service.id,
 
           subCategoryId:
-            subCategory.id,
+            subCategory?.id,
 
           packageId:
             selectedPackage.id,
@@ -1660,7 +1660,7 @@ export const SubscribeModal = ({
 
           description:
             `${service.name} - ` +
-            `${subCategory.name} - ` +
+            `${subCategory?.name} - ` +
             `${selectedPackage.name} ` +
             `(${normalizedMembers.length} members)`,
         });
@@ -1734,7 +1734,7 @@ export const SubscribeModal = ({
                   </span>
 
                   <p className="truncate text-sm text-neutral-400">
-                    {subCategory.name}
+                    {subCategory?.name}
                   </p>
 
                   <span className="text-neutral-700">
@@ -1860,7 +1860,7 @@ export const SubscribeModal = ({
               </span>
 
               <span className="rounded-full border border-lime-400/20 bg-lime-400/10 px-2.5 py-0.5 text-[10px] text-lime-300">
-                {subCategory.name}
+                {subCategory?.name}
               </span>
 
               {selectedBranch && (
