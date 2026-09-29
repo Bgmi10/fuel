@@ -130,6 +130,8 @@ export const GET = async () => {
 
     const members = await prisma.member.findMany({
       include: {
+        branch: true,
+        coach: true,
         subscriptions: {
           take: 1,
           orderBy: {
