@@ -1036,6 +1036,7 @@ model Invoice {
     invoices            Invoice[]
     membershipTransfers MembershipTransfer[]
     employee            Employee?
+    expenses            Expense[]
     createdAt           DateTime             @default(now())
     updatedAt           DateTime             @updatedAt
   }
@@ -1246,3 +1247,15 @@ model Invoice {
     @@index([fromMemberId])
     @@index([toMemberId])
   }
+
+
+model Expense {
+  id  String        @id @unique     @default(cuid())
+  description String?
+  date   DateTime?
+  byUserId  String
+  byUser    User  @relation(fields: [byUserId], references: [id])
+  amount    Int?
+  createdAt DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+} 

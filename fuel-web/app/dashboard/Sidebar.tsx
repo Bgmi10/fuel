@@ -21,6 +21,7 @@ import {
   Wrench,
   CalendarClock,
   LayoutDashboard,
+  Receipt,
 } from "lucide-react";
 
 type NavItem = {
@@ -108,6 +109,11 @@ const navSections: NavSection[] = [
         label: "Payroll",
         href: "/dashboard/payroll",
         icon: Wallet2,
+      },
+      {
+        label: 'Expense',
+        icon: Receipt,
+        href: '/dashboard/expanse'
       },
       {
         label: "Staffs",
