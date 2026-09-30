@@ -202,3 +202,14 @@ export function calculateDifference(current: number, previous: number) {
     isNegative: change < 0,
   };
 }
+
+export const formatCurrency = (
+  amount: number
+) => {
+  return (amount / 100).toLocaleString(
+    "en-IN",
+    {
+      minimumFractionDigits: 0,
+    }
+  );
+};

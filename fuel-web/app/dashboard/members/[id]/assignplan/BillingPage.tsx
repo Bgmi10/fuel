@@ -11,7 +11,7 @@ import { ArrowLeft } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { addDaysUTC, nowUTC } from "@/app/utils/date";
-import { formatCurrency } from "../../../../../../fuelapp/src/utils/helper";
+import { formatCurrency } from "@/app/utils/helper";
 
 /*
  * ============================================================
