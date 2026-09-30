@@ -27,6 +27,7 @@ import {
   UserX,
   ArrowRightLeft,
   User,
+  Notebook,
 } from "lucide-react";
 
 type NavItem = {
@@ -159,6 +160,12 @@ const navSections: NavSection[] = [
         label: "Collection",
         href: "/dashboard/collection",
         icon: Receipt,
+      },
+      
+      {
+        label: "Invoices",
+        href: "/dashboard/invoices",
+        icon: Notebook,
       },
       {
         label: "Staffs",
