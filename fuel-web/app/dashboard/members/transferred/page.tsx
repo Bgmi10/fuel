@@ -1,8 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+
 import { Member as MemberType } from "@prisma/client";
+
 import { useRouter } from "next/navigation";
+
 import * as XLSX from "xlsx";
 
 import {
@@ -13,17 +16,33 @@ import {
   Filter,
   RefreshCcw,
   Search,
-  UserPlus,
   X,
 } from "lucide-react";
-import { MemberModal } from "../MemberModal";
+
+type TransferredSubscription = {
+  id: string;
+  packageId: string | null;
+  status: string;
+  endDate: string | Date | null;
+  updatedAt: string | Date;
+};
 
 type MemberWithRelations = MemberType & {
   currentStatus: string;
+
+  currentPlan?: string | null;
+
+  endDate?: string | Date | null;
+
+  transferredSubscription:
+    | TransferredSubscription
+    | null;
+
   branch?: {
     id: string;
     name: string;
   } | null;
+
   coach?: {
     id: string;
     name: string;
@@ -40,14 +59,6 @@ type Coach = {
   name: string;
 };
 
-const STATUS_OPTIONS = [
-  "ALL",
-  "ACTIVE",
-  "EXPIRED",
-  "FROZEN",
-  "CANCELLED",
-];
-
 const GENDER_OPTIONS = [
   "ALL",
   "MALE",
@@ -61,75 +72,118 @@ const ONBOARDING_OPTIONS = [
   "PENDING",
 ];
 
-const Member = () => {
+const Transferred = () => {
   const router = useRouter();
 
-  const [members, setMembers] = useState<MemberWithRelations[]>([]);
-  const [branches, setBranches] = useState<Branch[]>([]);
-  const [coaches, setCoaches] = useState<Coach[]>([]);
+  const [members, setMembers] = useState<
+    MemberWithRelations[]
+  >([]);
 
-  const [loading, setLoading] = useState(true);
-  const [loadingFilters, setLoadingFilters] = useState(false);
+  const [branches, setBranches] = useState<
+    Branch[]
+  >([]);
 
-  const [search, setSearch] = useState("");
+  const [coaches, setCoaches] = useState<
+    Coach[]
+  >([]);
 
-  const [status, setStatus] = useState("ALL");
-  const [branchId, setBranchId] = useState("ALL");
-  const [gender, setGender] = useState("ALL");
-  const [onboarding, setOnboarding] = useState("ALL");
-  const [coachId, setCoachId] = useState("ALL");
+  const [loading, setLoading] =
+    useState(true);
 
-  const [joinedFrom, setJoinedFrom] = useState("");
-  const [joinedTo, setJoinedTo] = useState("");
+  const [loadingFilters, setLoadingFilters] =
+    useState(false);
 
-  const [open, setOpen] = useState(false);
+  const [search, setSearch] =
+    useState("");
 
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [exporting, setExporting] = useState(false);
+  const [branchId, setBranchId] =
+    useState("ALL");
 
-  const [showFilters, setShowFilters] = useState(false);
+  const [gender, setGender] =
+    useState("ALL");
 
-  const fetchMembers = async () => {
-    setLoading(true);
+  const [onboarding, setOnboarding] =
+    useState("ALL");
 
-    try {
-      const res = await fetch("/api/members/active");
+  const [coachId, setCoachId] =
+    useState("ALL");
 
-      if (!res.ok) {
-        throw new Error("Failed to fetch members");
+  const [joinedFrom, setJoinedFrom] =
+    useState("");
+
+  const [joinedTo, setJoinedTo] =
+    useState("");
+
+  const [selectedIds, setSelectedIds] =
+    useState<string[]>([]);
+
+  const [exporting, setExporting] =
+    useState(false);
+
+  const [showFilters, setShowFilters] =
+    useState(false);
+
+  /**
+   * =====================================================
+   * FETCH TRANSFERRED MEMBERS
+   * =====================================================
+   */
+
+  const fetchTransferredMembers =
+    async () => {
+      setLoading(true);
+
+      try {
+        const response = await fetch(
+          "/api/members/transferred",
+          {
+            cache: "no-store",
+          }
+        );
+
+        if (!response.ok) {
+          throw new Error(
+            "Failed to fetch transferred members"
+          );
+        }
+
+        const data =
+          await response.json();
+
+        setMembers(
+          data.members || []
+        );
+      } catch (error) {
+        console.error(
+          "Failed to fetch transferred members:",
+          error
+        );
+      } finally {
+        setLoading(false);
       }
+    };
 
-      const data = await res.json();
-
-      setMembers(data.members || []);
-    } catch (error) {
-      console.error("Failed to fetch members:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  /**
+   * =====================================================
+   * FILTER DATA
+   * =====================================================
+   */
 
   const fetchFilterData = async () => {
     setLoadingFilters(true);
 
     try {
-      /*
-       * These endpoints assume your application already exposes:
-       *
-       * GET /api/branches
-       * GET /api/users
-       *
-       * If your existing branch/user endpoints use different paths,
-       * change only these two fetch calls.
-       */
-
-      const [branchesRes, usersRes] = await Promise.all([
+      const [
+        branchesRes,
+        usersRes,
+      ] = await Promise.all([
         fetch("/api/branches"),
         fetch("/api/users"),
       ]);
 
       if (branchesRes.ok) {
-        const branchData = await branchesRes.json();
+        const branchData =
+          await branchesRes.json();
 
         setBranches(
           branchData.branches ||
@@ -139,7 +193,8 @@ const Member = () => {
       }
 
       if (usersRes.ok) {
-        const userData = await usersRes.json();
+        const userData =
+          await usersRes.json();
 
         const users =
           userData.users ||
@@ -154,116 +209,114 @@ const Member = () => {
         );
       }
     } catch (error) {
-      console.error("Failed to fetch filter data:", error);
+      console.error(
+        "Failed to fetch filter data:",
+        error
+      );
     } finally {
       setLoadingFilters(false);
     }
   };
 
   useEffect(() => {
-    fetchMembers();
+    fetchTransferredMembers();
     fetchFilterData();
   }, []);
 
-  const statusStyles: Record<string, string> = {
-    ACTIVE: "bg-green-500/20 text-green-400",
-    EXPIRED: "bg-red-500/20 text-red-400",
-    FROZEN: "bg-blue-500/20 text-blue-400",
-    CANCELLED: "bg-yellow-500/20 text-yellow-400",
-    NONE: "bg-neutral-700 text-neutral-400",
-  };
+  /**
+   * =====================================================
+   * FILTERED MEMBERS
+   * =====================================================
+   */
 
   const filtered = useMemo(() => {
-    const normalizedSearch = search
-      .trim()
-      .toLowerCase();
+    const normalizedSearch =
+      search.trim().toLowerCase();
 
-    return members.filter((member) => {
-      /* ---------------------------------------------
-         SEARCH
-      --------------------------------------------- */
+    return members.filter(
+      (member) => {
+        /**
+         * SEARCH
+         */
+        const matchesSearch =
+          !normalizedSearch ||
+          member.name
+            ?.toLowerCase()
+            .includes(normalizedSearch) ||
+          member.phone
+            ?.toLowerCase()
+            .includes(normalizedSearch);
 
-      const matchesSearch =
-        !normalizedSearch ||
-        member.name
-          ?.toLowerCase()
-          .includes(normalizedSearch) ||
-        member.phone
-          ?.toLowerCase()
-          .includes(normalizedSearch);
+        /**
+         * BRANCH
+         */
+        const matchesBranch =
+          branchId === "ALL" ||
+          member.branchId === branchId;
 
-      /* ---------------------------------------------
-         STATUS
-      --------------------------------------------- */
+        /**
+         * GENDER
+         */
+        const matchesGender =
+          gender === "ALL" ||
+          member.gender?.toUpperCase() ===
+            gender;
 
-      const matchesStatus =
-        status === "ALL" ||
-        member.currentStatus === status;
+        /**
+         * ONBOARDING
+         */
+        const matchesOnboarding =
+          onboarding === "ALL" ||
+          (onboarding ===
+            "COMPLETED" &&
+            member.onBoardCompleted ===
+              true) ||
+          (onboarding ===
+            "PENDING" &&
+            member.onBoardCompleted ===
+              false);
 
-      /* ---------------------------------------------
-         BRANCH
-      --------------------------------------------- */
+        /**
+         * COACH
+         */
+        const matchesCoach =
+          coachId === "ALL" ||
+          member.coachId === coachId;
 
-      const matchesBranch =
-        branchId === "ALL" ||
-        member.branchId === branchId;
+        /**
+         * JOINED DATE
+         */
+        const createdDate =
+          new Date(member.createdAt);
 
-      /* ---------------------------------------------
-         GENDER
-      --------------------------------------------- */
+        const matchesFromDate =
+          !joinedFrom ||
+          createdDate >=
+            new Date(
+              `${joinedFrom}T00:00:00`
+            );
 
-      const matchesGender =
-        gender === "ALL" ||
-        member.gender?.toUpperCase() === gender;
+        const matchesToDate =
+          !joinedTo ||
+          createdDate <=
+            new Date(
+              `${joinedTo}T23:59:59.999`
+            );
 
-      /* ---------------------------------------------
-         ONBOARDING
-      --------------------------------------------- */
-
-      const matchesOnboarding =
-        onboarding === "ALL" ||
-        (onboarding === "COMPLETED" &&
-          member.onBoardCompleted === true) ||
-        (onboarding === "PENDING" &&
-          member.onBoardCompleted === false);
-
-      /* ---------------------------------------------
-         COACH
-      --------------------------------------------- */
-
-      const matchesCoach =
-        coachId === "ALL" ||
-        member.coachId === coachId;
-
-      /* ---------------------------------------------
-         JOINED DATE
-      --------------------------------------------- */
-
-      const createdDate = new Date(member.createdAt);
-
-      const matchesFromDate =
-        !joinedFrom ||
-        createdDate >= new Date(`${joinedFrom}T00:00:00`);
-
-      const matchesToDate =
-        !joinedTo ||
-        createdDate <= new Date(`${joinedTo}T23:59:59.999`);
-
-      return (
-        matchesSearch &&
-        matchesStatus &&
-        matchesBranch &&
-        matchesGender &&
-        matchesOnboarding &&
-        matchesCoach &&
-        matchesFromDate &&
-        matchesToDate
-      );
-    });
+        return (
+          matchesSearch &&
+          matchesBranch &&
+          matchesGender &&
+          matchesOnboarding &&
+          matchesCoach &&
+          matchesFromDate &&
+          matchesToDate
+        );
+      }
+    );
   }, [
     members,
     search,
-    status,
     branchId,
     gender,
     onboarding,
@@ -272,17 +325,24 @@ const Member = () => {
     joinedTo,
   ]);
 
-  /* ---------------------------------------------
-     SELECTED MEMBERS
-  --------------------------------------------- */
+  /**
+   * =====================================================
+   * SELECTED MEMBERS
+   * =====================================================
+   */
 
   const selectedMembers = useMemo(() => {
-    const selectedSet = new Set(selectedIds);
+    const selectedSet =
+      new Set(selectedIds);
 
-    return filtered.filter((member) =>
-      selectedSet.has(member.id)
+    return filtered.filter(
+      (member) =>
+        selectedSet.has(member.id)
     );
-  }, [filtered, selectedIds]);
+  }, [
+    filtered,
+    selectedIds,
+  ]);
 
   const allFilteredSelected =
     filtered.length > 0 &&
@@ -296,23 +356,31 @@ const Member = () => {
     setSelectedIds((current) => {
       if (current.includes(id)) {
         return current.filter(
-          (memberId) => memberId !== id
+          (memberId) =>
+            memberId !== id
         );
       }
 
-      return [...current, id];
+      return [
+        ...current,
+        id,
+      ];
     });
   };
 
   const toggleAllFiltered = () => {
     if (allFilteredSelected) {
-      const filteredIds = new Set(
-        filtered.map((member) => member.id)
-      );
+      const filteredIds =
+        new Set(
+          filtered.map(
+            (member) => member.id
+          )
+        );
 
       setSelectedIds((current) =>
         current.filter(
-          (id) => !filteredIds.has(id)
+          (id) =>
+            !filteredIds.has(id)
         )
       );
 
@@ -320,23 +388,27 @@ const Member = () => {
     }
 
     setSelectedIds((current) => {
-      const existing = new Set(current);
+      const existing =
+        new Set(current);
 
-      filtered.forEach((member) => {
-        existing.add(member.id);
-      });
+      filtered.forEach(
+        (member) => {
+          existing.add(member.id);
+        }
+      );
 
       return Array.from(existing);
     });
   };
 
-  /* ---------------------------------------------
-     CLEAR FILTERS
-  --------------------------------------------- */
+  /**
+   * =====================================================
+   * CLEAR FILTERS
+   * =====================================================
+   */
 
   const clearFilters = () => {
     setSearch("");
-    setStatus("ALL");
     setBranchId("ALL");
     setGender("ALL");
     setOnboarding("ALL");
@@ -347,7 +419,6 @@ const Member = () => {
 
   const hasActiveFilters =
     search.trim() !== "" ||
-    status !== "ALL" ||
     branchId !== "ALL" ||
     gender !== "ALL" ||
     onboarding !== "ALL" ||
@@ -355,9 +426,11 @@ const Member = () => {
     joinedFrom !== "" ||
     joinedTo !== "";
 
-  /* ---------------------------------------------
-     EXCEL EXPORT
-  --------------------------------------------- */
+  /**
+   * =====================================================
+   * EXCEL EXPORT
+   * =====================================================
+   */
 
   const exportToExcel = () => {
     const rowsToExport =
@@ -367,77 +440,126 @@ const Member = () => {
 
     if (rowsToExport.length === 0) {
       window.alert(
-        "There are no members to export."
+        "There are no transferred subscriptions to export."
       );
+
       return;
     }
 
     setExporting(true);
 
     try {
-      const excelRows = rowsToExport.map(
-        (member, index) => ({
-          "S.No": index + 1,
+      const excelRows =
+        rowsToExport.map(
+          (member, index) => {
+            const subscription =
+              member.transferredSubscription;
 
-          "Member ID": member.id,
+            return {
+              "S.No": index + 1,
 
-          "Name": member.name,
+              "Member ID":
+                member.id,
 
-          "Phone": member.phone,
+              Name:
+                member.name,
 
-          "Email": member.email || "",
+              Phone:
+                member.phone,
 
-          "Date of Birth": member.dob || "",
+              Email:
+                member.email || "",
 
-          "Gender": member.gender || "",
+              "Date of Birth":
+                member.dob || "",
 
-          "Age": member.age ?? "",
+              Gender:
+                member.gender || "",
 
-          "Weight": member.weight ?? "",
+              Age:
+                member.age ?? "",
 
-          "Height": member.height ?? "",
+              Weight:
+                member.weight ?? "",
 
-          "Branch":
-            member.branch?.name || "",
+              Height:
+                member.height ?? "",
 
-          "Coach":
-            member.coach?.name || "",
+              Branch:
+                member.branch?.name || "",
 
-          "Status":
-            member.currentStatus || "",
+              Coach:
+                member.coach?.name || "",
 
-          "Member Status":
-            member.status || "",
+              Status:
+                "TRANSFERRED",
 
-          "Onboarding":
-            member.onBoardCompleted
-              ? "Completed"
-              : "Pending",
+              Onboarding:
+                member.onBoardCompleted
+                  ? "Completed"
+                  : "Pending",
 
-          "Emergency Contact":
-            member.emergencyContact || "",
+              "Subscription ID":
+                subscription?.id || "",
 
-          "Address":
-            member.address || "",
+              "Package ID":
+                subscription?.packageId ||
+                "",
 
-          "Referral Code":
-            member.referralCode || "",
+              "Subscription Status":
+                subscription?.status ||
+                "TRANSFERRED",
 
-          "Joined Date":
-            new Date(
-              member.createdAt
-            ).toLocaleDateString("en-IN"),
+              "Subscription End Date":
+                subscription?.endDate
+                  ? new Date(
+                      subscription.endDate
+                    ).toLocaleDateString(
+                      "en-IN"
+                    )
+                  : "",
 
-          "Updated Date":
-            new Date(
-              member.updatedAt
-            ).toLocaleDateString("en-IN"),
-        })
-      );
+              "Transferred Updated At":
+                subscription?.updatedAt
+                  ? new Date(
+                      subscription.updatedAt
+                    ).toLocaleString(
+                      "en-IN"
+                    )
+                  : "",
 
-      /* -----------------------------------------
-         MEMBERS SHEET
-      ----------------------------------------- */
+              "Emergency Contact":
+                member.emergencyContact ||
+                "",
+
+              Address:
+                member.address || "",
+
+              "Referral Code":
+                member.referralCode || "",
+
+              "Joined Date":
+                new Date(
+                  member.createdAt
+                ).toLocaleDateString(
+                  "en-IN"
+                ),
+
+              "Updated Date":
+                new Date(
+                  member.updatedAt
+                ).toLocaleDateString(
+                  "en-IN"
+                ),
+            };
+          }
+        );
+
+      /**
+       * =================================================
+       * TRANSFERRED SUBSCRIPTIONS SHEET
+       * =================================================
+       */
 
       const membersSheet =
         XLSX.utils.json_to_sheet(
@@ -459,7 +581,11 @@ const Member = () => {
         { wch: 22 },
         { wch: 16 },
         { wch: 16 },
-        { wch: 16 },
+        { wch: 28 },
+        { wch: 24 },
+        { wch: 22 },
+        { wch: 22 },
+        { wch: 24 },
         { wch: 20 },
         { wch: 35 },
         { wch: 20 },
@@ -468,55 +594,126 @@ const Member = () => {
       ];
 
       if (excelRows.length > 0) {
-        membersSheet["!autofilter"] = {
-          ref: `A1:T${excelRows.length + 1}`,
+        const columnCount =
+          Object.keys(
+            excelRows[0]
+          ).length;
+
+        const lastColumn =
+          XLSX.utils.encode_col(
+            columnCount - 1
+          );
+
+        membersSheet[
+          "!autofilter"
+        ] = {
+          ref: `A1:${lastColumn}${
+            excelRows.length + 1
+          }`,
         };
       }
 
-      /* -----------------------------------------
-         FILTER SUMMARY SHEET
-      ----------------------------------------- */
+      /**
+       * =================================================
+       * FILTER SUMMARY
+       * =================================================
+       */
 
       const selectedMode =
         selectedMembers.length > 0
-          ? "Selected members"
-          : "All filtered members";
+          ? "Selected transferred subscriptions"
+          : "All filtered transferred subscriptions";
 
       const selectedBranch =
         branchId === "ALL"
           ? "All branches"
           : branches.find(
               (branch) =>
-                branch.id === branchId
-            )?.name || branchId;
+                branch.id ===
+                branchId
+            )?.name ||
+            branchId;
 
       const selectedCoach =
         coachId === "ALL"
           ? "All coaches"
           : coaches.find(
               (coach) =>
-                coach.id === coachId
-            )?.name || coachId;
+                coach.id ===
+                coachId
+            )?.name ||
+            coachId;
 
       const filterRows = [
-        ["Member Export"],
+        [
+          "Transferred Subscription Export",
+        ],
+
         [],
-        ["Exported At", new Date().toLocaleString("en-IN")],
-        ["Records Exported", rowsToExport.length],
-        ["Export Type", selectedMode],
+
+        [
+          "Exported At",
+          new Date().toLocaleString(
+            "en-IN"
+          ),
+        ],
+
+        [
+          "Records Exported",
+          rowsToExport.length,
+        ],
+
+        [
+          "Export Type",
+          selectedMode,
+        ],
+
         [],
-        ["Applied Filters", "Value"],
-        ["Search", search || "All"],
-        ["Status", status],
-        ["Branch", selectedBranch],
-        ["Gender", gender],
+
+        [
+          "Applied Filters",
+          "Value",
+        ],
+
+        [
+          "Search",
+          search || "All",
+        ],
+
+        [
+          "Subscription Status",
+          "TRANSFERRED",
+        ],
+
+        [
+          "Branch",
+          selectedBranch,
+        ],
+
+        [
+          "Gender",
+          gender,
+        ],
+
         [
           "Onboarding",
           onboarding,
         ],
-        ["Coach", selectedCoach],
-        ["Joined From", joinedFrom || "All"],
-        ["Joined To", joinedTo || "All"],
+
+        [
+          "Coach",
+          selectedCoach,
+        ],
+
+        [
+          "Joined From",
+          joinedFrom || "All",
+        ],
+
+        [
+          "Joined To",
+          joinedTo || "All",
+        ],
       ];
 
       const filterSheet =
@@ -525,13 +722,15 @@ const Member = () => {
         );
 
       filterSheet["!cols"] = [
-        { wch: 25 },
-        { wch: 35 },
+        { wch: 30 },
+        { wch: 40 },
       ];
 
-      /* -----------------------------------------
-         WORKBOOK
-      ----------------------------------------- */
+      /**
+       * =================================================
+       * WORKBOOK
+       * =================================================
+       */
 
       const workbook =
         XLSX.utils.book_new();
@@ -539,7 +738,7 @@ const Member = () => {
       XLSX.utils.book_append_sheet(
         workbook,
         membersSheet,
-        "Members"
+        "Transferred"
       );
 
       XLSX.utils.book_append_sheet(
@@ -548,24 +747,30 @@ const Member = () => {
         "Applied Filters"
       );
 
-      /* -----------------------------------------
-         FILE NAME
-      ----------------------------------------- */
+      /**
+       * =================================================
+       * FILE NAME
+       * =================================================
+       */
 
       const now = new Date();
 
       const datePart =
-        now.toISOString()
+        now
+          .toISOString()
           .slice(0, 10);
 
       const timePart =
         now
           .toTimeString()
           .slice(0, 8)
-          .replace(/:/g, "-");
+          .replace(
+            /:/g,
+            "-"
+          );
 
       const filename =
-        `members_${datePart}_${timePart}.xlsx`;
+        `transferred_${datePart}_${timePart}.xlsx`;
 
       XLSX.writeFile(
         workbook,
@@ -583,7 +788,7 @@ const Member = () => {
       );
 
       window.alert(
-        "Failed to export members."
+        "Failed to export transferred subscriptions."
       );
     } finally {
       setExporting(false);
@@ -592,28 +797,27 @@ const Member = () => {
 
   return (
     <div className="min-h-screen bg-black p-6 text-white">
-
       {/* =====================================================
           HEADER
       ===================================================== */}
 
       <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-
         <div>
           <h1 className="text-2xl font-bold">
-            Members
+            Transferred Subscriptions
           </h1>
 
           <p className="mt-1 text-sm text-neutral-500">
-            Manage your gym members
+            Members whose subscription has been transferred.
           </p>
         </div>
 
         <div className="flex flex-wrap gap-2">
-
           <button
             type="button"
-            onClick={fetchMembers}
+            onClick={
+              fetchTransferredMembers
+            }
             disabled={loading}
             className="inline-flex items-center gap-2 rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-2 text-sm font-medium text-neutral-300 transition hover:bg-neutral-800 disabled:opacity-50"
           >
@@ -646,17 +850,6 @@ const Member = () => {
                 ? `Export ${selectedMembers.length}`
                 : `Export ${filtered.length}`}
           </button>
-
-          <button
-            type="button"
-            onClick={() => setOpen(true)}
-            className="inline-flex items-center gap-2 rounded-lg bg-lime-400 px-4 py-2 text-sm font-semibold text-black transition hover:bg-lime-300"
-          >
-            <UserPlus size={16} />
-
-            Add Member
-          </button>
-
         </div>
       </div>
 
@@ -665,11 +858,8 @@ const Member = () => {
       ===================================================== */}
 
       <div className="mb-4 rounded-2xl border border-neutral-800 bg-neutral-900 p-4">
-
         <div className="flex flex-col gap-3 lg:flex-row">
-
           <div className="relative flex-1">
-
             <Search
               size={17}
               className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500"
@@ -678,14 +868,13 @@ const Member = () => {
             <input
               placeholder="Search by member name or phone..."
               value={search}
-              onChange={(e) =>
+              onChange={(event) =>
                 setSearch(
-                  e.target.value
+                  event.target.value
                 )
               }
               className="w-full rounded-lg border border-neutral-800 bg-black py-2.5 pl-10 pr-4 text-sm text-white outline-none transition placeholder:text-neutral-600 focus:border-lime-400/50"
             />
-
           </div>
 
           <button
@@ -715,7 +904,6 @@ const Member = () => {
               }`}
             />
           </button>
-
         </div>
 
         {/* =================================================
@@ -724,26 +912,7 @@ const Member = () => {
 
         {showFilters && (
           <div className="mt-4 border-t border-neutral-800 pt-4">
-
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-
-              {/* STATUS */}
-
-              <FilterSelect
-                label="Status"
-                value={status}
-                onChange={setStatus}
-                options={STATUS_OPTIONS.map(
-                  (value) => ({
-                    value,
-                    label:
-                      value === "ALL"
-                        ? "All Statuses"
-                        : value,
-                  })
-                )}
-              />
-
               {/* BRANCH */}
 
               <FilterSelect
@@ -755,6 +924,7 @@ const Member = () => {
                     value: "ALL",
                     label: "All Branches",
                   },
+
                   ...branches.map(
                     (branch) => ({
                       value: branch.id,
@@ -812,6 +982,7 @@ const Member = () => {
                     value: "ALL",
                     label: "All Coaches",
                   },
+
                   ...coaches.map(
                     (coach) => ({
                       value: coach.id,
@@ -840,7 +1011,6 @@ const Member = () => {
               {/* CLEAR */}
 
               <div className="flex items-end">
-
                 <button
                   type="button"
                   onClick={clearFilters}
@@ -853,28 +1023,17 @@ const Member = () => {
 
                   Clear Filters
                 </button>
-
               </div>
-
             </div>
-
           </div>
         )}
-
       </div>
-
-      {/* =====================================================
-          STATUS QUICK FILTERS
-      ===================================================== */}
-
-      
 
       {/* =====================================================
           RESULT SUMMARY
       ===================================================== */}
 
       <div className="mb-4 flex flex-col gap-2 text-xs text-neutral-500 sm:flex-row sm:items-center sm:justify-between">
-
         <div>
           Showing{" "}
           <span className="font-semibold text-white">
@@ -884,19 +1043,20 @@ const Member = () => {
           <span className="font-semibold text-white">
             {members.length}
           </span>{" "}
-          members
+          transferred subscriptions
         </div>
 
         {selectedMembers.length > 0 && (
           <div className="text-lime-300">
-            {selectedMembers.length} member
-            {selectedMembers.length !== 1
+            {selectedMembers.length}{" "}
+            subscription
+            {selectedMembers.length !==
+            1
               ? "s"
               : ""}{" "}
             selected
           </div>
         )}
-
       </div>
 
       {/* =====================================================
@@ -904,17 +1064,11 @@ const Member = () => {
       ===================================================== */}
 
       <div className="overflow-hidden rounded-2xl border border-neutral-800 bg-neutral-900">
-
         <div className="overflow-x-auto">
-
-          <table className="w-full min-w-[1000px] text-sm">
-
+          <table className="w-full min-w-[1200px] text-sm">
             <thead className="border-b border-neutral-800 text-xs uppercase tracking-wide text-neutral-500">
-
               <tr>
-
                 <th className="w-12 px-4 py-4 text-center">
-
                   <input
                     type="checkbox"
                     checked={
@@ -928,19 +1082,14 @@ const Member = () => {
                     }
                     className="h-4 w-4 cursor-pointer accent-lime-400"
                   />
-
                 </th>
 
                 <th className="px-4 py-4 text-left">
-                  Name
+                  Member
                 </th>
 
                 <th className="px-4 py-4 text-left">
                   Phone
-                </th>
-
-                <th className="px-4 py-4 text-left">
-                  DOB
                 </th>
 
                 <th className="px-4 py-4 text-left">
@@ -952,29 +1101,37 @@ const Member = () => {
                 </th>
 
                 <th className="px-4 py-4 text-left">
+                  Package
+                </th>
+
+                <th className="px-4 py-4 text-left">
+                  Subscription
+                </th>
+
+                <th className="px-4 py-4 text-left">
+                  End Date
+                </th>
+
+                <th className="px-4 py-4 text-left">
                   Joined
                 </th>
 
                 <th className="px-4 py-4 text-left">
                   Onboarding
                 </th>
-
-                <th className="px-4 py-4 text-left">
-                  Status
-                </th>
-
               </tr>
-
             </thead>
 
             <tbody>
-
               {filtered.map(
                 (member) => {
                   const isSelected =
                     selectedIds.includes(
                       member.id
                     );
+
+                  const subscription =
+                    member.transferredSubscription;
 
                   return (
                     <tr
@@ -985,7 +1142,6 @@ const Member = () => {
                           : "hover:bg-neutral-800/40"
                       }`}
                     >
-
                       {/* CHECKBOX */}
 
                       <td
@@ -994,7 +1150,6 @@ const Member = () => {
                           event.stopPropagation()
                         }
                       >
-
                         <input
                           type="checkbox"
                           checked={
@@ -1007,10 +1162,9 @@ const Member = () => {
                           }
                           className="h-4 w-4 cursor-pointer accent-lime-400"
                         />
-
                       </td>
 
-                      {/* NAME */}
+                      {/* MEMBER */}
 
                       <td
                         className="cursor-pointer px-4 py-4"
@@ -1020,17 +1174,18 @@ const Member = () => {
                           )
                         }
                       >
-
                         <div className="font-medium text-white">
                           {member.name}
                         </div>
 
-                        {member.age != null && (
+                        {member.age !=
+                          null && (
                           <div className="mt-0.5 text-xs text-neutral-600">
+                            {member.age}{" "}
+                            ·{" "}
                             {member.gender}
                           </div>
                         )}
-
                       </td>
 
                       {/* PHONE */}
@@ -1044,23 +1199,6 @@ const Member = () => {
                         }
                       >
                         {member.phone}
-                      </td>
-
-                      {/* EMAIL */}
-
-                      <td
-                        className="cursor-pointer px-4 py-4 text-neutral-400"
-                        onClick={() =>
-                          router.push(
-                            `/dashboard/members/${member.id}`
-                          )
-                        }
-                      >
-                         {new Date(
-                          member?.dob ?? ""
-                        ).toLocaleDateString(
-                          "en-IN"
-                        )}
                       </td>
 
                       {/* BRANCH */}
@@ -1091,6 +1229,56 @@ const Member = () => {
                           "-"}
                       </td>
 
+                      {/* PACKAGE */}
+
+                      <td
+                        className="cursor-pointer px-4 py-4"
+                        onClick={() =>
+                          router.push(
+                            `/dashboard/members/${member.id}`
+                          )
+                        }
+                      >
+                        <div className="font-medium text-neutral-200">
+                          {subscription?.packageId ||
+                            "-"}
+                        </div>
+                      </td>
+
+                      {/* SUBSCRIPTION STATUS */}
+
+                      <td
+                        className="cursor-pointer px-4 py-4"
+                        onClick={() =>
+                          router.push(
+                            `/dashboard/members/${member.id}`
+                          )
+                        }
+                      >
+                        <span className="inline-flex rounded-md bg-orange-500/20 px-2 py-1 text-xs font-medium text-orange-400">
+                          TRANSFERRED
+                        </span>
+                      </td>
+
+                      {/* END DATE */}
+
+                      <td
+                        className="cursor-pointer px-4 py-4 text-xs text-neutral-400"
+                        onClick={() =>
+                          router.push(
+                            `/dashboard/members/${member.id}`
+                          )
+                        }
+                      >
+                        {subscription?.endDate
+                          ? new Date(
+                              subscription.endDate
+                            ).toLocaleDateString(
+                              "en-IN"
+                            )
+                          : "-"}
+                      </td>
+
                       {/* JOINED */}
 
                       <td
@@ -1118,7 +1306,6 @@ const Member = () => {
                           )
                         }
                       >
-
                         <span
                           className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs ${
                             member.onBoardCompleted
@@ -1126,52 +1313,23 @@ const Member = () => {
                               : "bg-orange-500/20 text-orange-400"
                           }`}
                         >
-
                           {member.onBoardCompleted && (
-                            <Check size={12} />
+                            <Check
+                              size={12}
+                            />
                           )}
 
                           {member.onBoardCompleted
                             ? "Completed"
                             : "Pending"}
-
                         </span>
-
                       </td>
-
-                      {/* STATUS */}
-
-                      <td
-                        className="cursor-pointer px-4 py-4"
-                        onClick={() =>
-                          router.push(
-                            `/dashboard/members/${member.id}`
-                          )
-                        }
-                      >
-
-                        <span
-                          className={`rounded-md px-2 py-1 text-xs ${
-                            statusStyles[
-                              member.currentStatus
-                            ] ||
-                            statusStyles.NONE
-                          }`}
-                        >
-                          {member.currentStatus}
-                        </span>
-
-                      </td>
-
                     </tr>
                   );
                 }
               )}
-
             </tbody>
-
           </table>
-
         </div>
 
         {/* =================================================
@@ -1181,7 +1339,6 @@ const Member = () => {
         {!loading &&
           filtered.length === 0 && (
             <div className="px-6 py-16 text-center">
-
               <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-neutral-800">
                 <Search
                   size={20}
@@ -1190,17 +1347,15 @@ const Member = () => {
               </div>
 
               <p className="text-sm font-medium text-white">
-                No members found
+                No transferred subscriptions found
               </p>
 
               <p className="mt-1 text-xs text-neutral-500">
                 Try changing your search or
                 filters.
               </p>
-
             </div>
           )}
-
       </div>
 
       {/* =====================================================
@@ -1209,30 +1364,9 @@ const Member = () => {
 
       {loading && (
         <div className="mt-4 text-sm text-neutral-500">
-          Loading members...
+          Loading transferred subscriptions...
         </div>
       )}
-
-      {/* =====================================================
-          MEMBER MODAL
-      ===================================================== */}
-
-      {open && (
-        <MemberModal
-          open={open}
-          setOpen={setOpen}
-          onSuccess={() => {
-            window.alert(
-              "Member created successfully"
-            );
-
-            setOpen(false);
-
-            fetchMembers();
-          }}
-        />
-      )}
-
     </div>
   );
 };
@@ -1244,7 +1378,10 @@ const Member = () => {
 type FilterSelectProps = {
   label: string;
   value: string;
-  onChange: (value: string) => void;
+  onChange: (
+    value: string
+  ) => void;
+
   options: {
     value: string;
     label: string;
@@ -1266,18 +1403,22 @@ const FilterSelect = ({
       <select
         value={value}
         onChange={(event) =>
-          onChange(event.target.value)
+          onChange(
+            event.target.value
+          )
         }
         className="h-[42px] w-full rounded-lg border border-neutral-800 bg-black px-3 text-sm text-white outline-none focus:border-lime-400/50"
       >
-        {options.map((option) => (
-          <option
-            key={option.value}
-            value={option.value}
-          >
-            {option.label}
-          </option>
-        ))}
+        {options.map(
+          (option) => (
+            <option
+              key={option.value}
+              value={option.value}
+            >
+              {option.label}
+            </option>
+          )
+        )}
       </select>
     </div>
   );
@@ -1290,7 +1431,9 @@ const FilterSelect = ({
 type DateFilterProps = {
   label: string;
   value: string;
-  onChange: (value: string) => void;
+  onChange: (
+    value: string
+  ) => void;
 };
 
 const DateFilter = ({
@@ -1305,7 +1448,6 @@ const DateFilter = ({
       </label>
 
       <div className="relative">
-
         <Calendar
           size={15}
           className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500"
@@ -1313,9 +1455,6 @@ const DateFilter = ({
 
         <input
           type="date"
-          style={{ 
-            colorScheme: ""
-          }}
           value={value}
           onChange={(event) =>
             onChange(
@@ -1324,11 +1463,9 @@ const DateFilter = ({
           }
           className="h-[42px] w-full rounded-lg border border-neutral-800 bg-black pl-9 pr-3 text-sm text-white outline-none focus:border-lime-400/50"
         />
-
       </div>
     </div>
   );
 };
 
-
-export default Member;
+export default Transferred;

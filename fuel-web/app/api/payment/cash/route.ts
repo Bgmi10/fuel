@@ -50,13 +50,12 @@ export const POST = async (req: NextRequest) => {
       !branchId ||
       !memberId ||
       !serviceId ||
-      !subCategoryId ||
       !packageId
     ) {
       return NextResponse.json({
         success: false,
         message:
-          "Service, sub category, package, branch and member are required",
+          "Service, package, branch and member are required",
       });
     }
 
@@ -145,20 +144,9 @@ export const POST = async (req: NextRequest) => {
     // Make sure sub category belongs to selected service.
     // =====================================================
 
-    const subCategory = await prisma.serviceSubCategory.findFirst({
-      where: {
-        id: subCategoryId,
-        serviceId: serviceId,
-      },
-    });
 
-    if (!subCategory) {
-      return NextResponse.json({
-        success: false,
-        message:
-          "Selected sub category does not belong to the selected service",
-      });
-    }
+
+   
 
     // =====================================================
     // PACKAGE
@@ -180,13 +168,6 @@ export const POST = async (req: NextRequest) => {
 
         // Package must belong to selected service
         serviceId: serviceId,
-
-        // Package must be connected to selected sub category
-        subCategories: {
-          some: {
-            subCategoryId: subCategoryId,
-          },
-        },
 
         // Only active packages can be billed
         isActive: true,
@@ -215,6 +196,8 @@ export const POST = async (req: NextRequest) => {
     }
 
     // =====================================================
+
+
     // BRANCH
     // =====================================================
 
@@ -235,11 +218,11 @@ export const POST = async (req: NextRequest) => {
     // PRICE CALCULATION
     // =====================================================
 
-    const packageAmount = plan.price * 100;
+    const packageAmount = plan.price;
 
     const totalDiscount =
-      Number(discountAmount * 100) +
-      Number(referralDiscountAmount * 100);
+      Number(discountAmount) +
+      Number(referralDiscountAmount);
 
     const finalAmount =
       packageAmount - totalDiscount;
@@ -281,7 +264,7 @@ export const POST = async (req: NextRequest) => {
     );
 
     const numericPaidAmount =
-      Number(paidAmount * 100) || 0;
+      Number(paidAmount) || 0;
 
     if (numericPaidAmount > invoiceTotal) {
       return NextResponse.json({
@@ -438,7 +421,7 @@ export const POST = async (req: NextRequest) => {
           // STATUS
           // =================================================
 
-          subCategoryId,
+          subCategoryId: subCategoryId === "" ? null : subCategoryId,
           status: invoiceStatus,
 
           notes,
@@ -497,7 +480,8 @@ export const POST = async (req: NextRequest) => {
             plan.totalSessions,
 
           branchId: branch.id,
-          subCategoryId,
+          subCategoryId: subCategoryId === "" ? null : subCategoryId,
+
 
           invoiceId: invoice.id,
 

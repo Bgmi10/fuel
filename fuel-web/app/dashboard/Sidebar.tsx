@@ -22,12 +22,18 @@ import {
   CalendarClock,
   LayoutDashboard,
   Receipt,
+  UserRound,
+  UserCheck,
+  UserX,
+  ArrowRightLeft,
+  User,
 } from "lucide-react";
 
 type NavItem = {
   label: string;
   href: string;
   icon: React.ElementType;
+  children?: NavItem[];
 };
 
 type NavSection = {
@@ -58,6 +64,33 @@ const navSections: NavSection[] = [
         label: "Members",
         href: "/dashboard/members",
         icon: Users,
+        children: [
+          {
+            label: "All Members",
+            href: "/dashboard/members",
+            icon: UserRound,
+          },
+          {
+            label: "Active Members",
+            href: "/dashboard/members/active",
+            icon: UserCheck,
+          },
+          {
+            label: "Inactive Members",
+            href: "/dashboard/members/inactive",
+            icon: UserX,
+          },
+          {
+            label: "Transferred Members",
+            href: "/dashboard/members/transferred",
+            icon: ArrowRightLeft,
+          },
+          {
+            label: "Frozen Members",
+            href: "/dashboard/members/frozen",
+            icon: ArrowRightLeft,
+          },
+        ],
       },
       {
         label: "Manage Slots",
@@ -76,44 +109,56 @@ const navSections: NavSection[] = [
       },
     ],
   },
+
   {
     label: "Workout Broadcasting",
-  
-        items: [
-          {
-            label: "Fuel TV",
-            href: "/dashboard/tv",
-            icon: MonitorPlay,
-          },
-          {
-            label: "Workout Videos",
-            href: "/dashboard/workout-videos",
-            icon: Video,
-          },
-          {
-            label: "Workout Programs",
-            href: "/dashboard/workout-programs",
-            icon: ListChecks,
-          },
-          {
-            label: "Broadcast Schedule",
-            href: "/dashboard/workout-schedules",
-            icon: CalendarClock,
-          },
+    items: [
+      {
+        label: "Fuel TV",
+        href: "/dashboard/tv",
+        icon: MonitorPlay,
+      },
+      {
+        label: "Workout Videos",
+        href: "/dashboard/workout-videos",
+        icon: Video,
+      },
+      {
+        label: "Workout Programs",
+        href: "/dashboard/workout-programs",
+        icon: ListChecks,
+      },
+      {
+        label: "Broadcast Schedule",
+        href: "/dashboard/workout-schedules",
+        icon: CalendarClock,
+      },
     ],
   },
+
   {
     label: "Administration",
     items: [
+      {
+        label: "Memberships",
+        href: "/dashboard/memberships",
+        icon: User,
+      },
       {
         label: "Payroll",
         href: "/dashboard/payroll",
         icon: Wallet2,
       },
       {
-        label: 'Expense',
+        label: "Expense",
+        href: "/dashboard/expanse",
         icon: Receipt,
-        href: '/dashboard/expanse'
+      },
+      
+      {
+        label: "Collection",
+        href: "/dashboard/collection",
+        icon: Receipt,
       },
       {
         label: "Staffs",
@@ -166,47 +211,99 @@ export default function Sidebar() {
 
             <div className="space-y-2">
               {section.items.map((item) => {
+                const hasChildren = !!item.children?.length;
+
                 const isActive =
-                  pathname === item.href;
+                  pathname === item.href ||
+                  (hasChildren &&
+                    pathname.startsWith(`${item.href}/`));
 
                 const Icon = item.icon;
 
                 return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={`
-                      group relative flex items-center gap-3 overflow-hidden
-                      rounded-xl px-4 py-3 text-sm font-medium
-                      transition-all duration-300
-                      ${
-                        isActive
-                          ? "bg-neutral-900 text-lime-400"
-                          : "text-neutral-300 hover:bg-neutral-900 hover:text-lime-400"
-                      }
-                    `}
-                  >
-                    {!isActive && (
-                      <div className="absolute inset-0 bg-gradient-to-r from-lime-400/5 via-lime-400/10 to-transparent opacity-0 transition duration-500 group-hover:opacity-100" />
+                  <div key={item.href}>
+                    {/* Parent item */}
+                    <Link
+                      href={item.href}
+                      className={`
+                        group relative flex items-center gap-3 overflow-hidden
+                        rounded-xl px-4 py-3 text-sm font-medium
+                        transition-all duration-300
+                        ${
+                          isActive
+                            ? "bg-neutral-900 text-lime-400"
+                            : "text-neutral-300 hover:bg-neutral-900 hover:text-lime-400"
+                        }
+                      `}
+                    >
+                      {!isActive && (
+                        <div className="absolute inset-0 bg-gradient-to-r from-lime-400/5 via-lime-400/10 to-transparent opacity-0 transition duration-500 group-hover:opacity-100" />
+                      )}
+
+                      <Icon
+                        size={18}
+                        className={`
+                          relative z-10 transition-all duration-300
+                          ${
+                            isActive
+                              ? "text-lime-400"
+                              : "text-neutral-500 group-hover:text-lime-400"
+                          }
+                        `}
+                      />
+
+                      <span className="relative z-10">
+                        {item.label}
+                      </span>
+
+                      {isActive && (
+                        <div className="absolute right-0 top-2 h-8 w-1 rounded-l-full bg-lime-400" />
+                      )}
+                    </Link>
+
+                    {/* Sub tabs */}
+                    {hasChildren && isActive && (
+                      <div className="ml-5 mt-1 space-y-1 border-l border-neutral-800 pl-3">
+                        {item.children!.map((child) => {
+                          const ChildIcon = child.icon;
+
+                          const isChildActive =
+                            pathname === child.href;
+
+                          return (
+                            <Link
+                              key={child.href}
+                              href={child.href}
+                              className={`
+                                group flex items-center gap-2.5 rounded-lg
+                                px-3 py-2 text-xs font-medium
+                                transition-all duration-200
+                                ${
+                                  isChildActive
+                                    ? "bg-neutral-900 text-lime-400"
+                                    : "text-neutral-500 hover:bg-neutral-900/70 hover:text-neutral-200"
+                                }
+                              `}
+                            >
+                              <ChildIcon
+                                size={15}
+                                className={`
+                                  transition-colors
+                                  ${
+                                    isChildActive
+                                      ? "text-lime-400"
+                                      : "text-neutral-600 group-hover:text-lime-400"
+                                  }
+                                `}
+                              />
+
+                              <span>{child.label}</span>
+                            </Link>
+                          );
+                        })}
+                      </div>
                     )}
-
-                    <Icon
-                      size={18}
-                      className={`relative z-10 transition-all duration-300 ${
-                        isActive
-                          ? "text-lime-400"
-                          : "text-neutral-500 group-hover:text-lime-400"
-                      }`}
-                    />
-
-                    <span className="relative z-10">
-                      {item.label}
-                    </span>
-
-                    {isActive && (
-                      <div className="absolute right-0 top-2 h-8 w-1 rounded-l-full bg-lime-400" />
-                    )}
-                  </Link>
+                  </div>
                 );
               })}
             </div>

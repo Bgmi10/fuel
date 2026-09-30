@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { MemberModal } from "./MemberModal";
 import { Member as MemberType } from "@prisma/client";
 import { useRouter } from "next/navigation";
 import * as XLSX from "xlsx";
@@ -17,6 +16,7 @@ import {
   UserPlus,
   X,
 } from "lucide-react";
+import { MemberModal } from "../MemberModal";
 
 type MemberWithRelations = MemberType & {
   currentStatus: string;
@@ -61,7 +61,7 @@ const ONBOARDING_OPTIONS = [
   "PENDING",
 ];
 
-export const Member = () => {
+const Member = () => {
   const router = useRouter();
 
   const [members, setMembers] = useState<MemberWithRelations[]>([]);
@@ -93,7 +93,7 @@ export const Member = () => {
     setLoading(true);
 
     try {
-      const res = await fetch("/api/members");
+      const res = await fetch("/api/members/inactive");
 
       if (!res.ok) {
         throw new Error("Failed to fetch members");
@@ -1329,3 +1329,6 @@ const DateFilter = ({
     </div>
   );
 };
+
+
+export default Member;

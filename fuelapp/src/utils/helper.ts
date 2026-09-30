@@ -9,6 +9,18 @@ export const formatDate = (date: any) => {
     }).format(new Date(date));
 };
 
+
+export const formatCurrency = (
+  amount: number
+) => {
+  return (amount / 100).toLocaleString(
+    "en-IN",
+    {
+      minimumFractionDigits: 0,
+    }
+  );
+};
+
 export const generateReferralCode = (
   name: string
 ) => {

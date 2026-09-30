@@ -16,6 +16,18 @@ import {
   useParams,
   useRouter,
 } from "next/navigation";
+import { formatCurrency } from "../../../../../../../../fuelapp/src/utils/helper";
+import { Branch, Payment, Service, ServicePackage, ServiceSubCategory } from "@prisma/client";
+
+
+
+// fetch the subscription
+// load the service 
+// if sub cat load them
+// package load them
+// branch
+
+// payment method
 
 type SubscriptionData = {
   id: string;
@@ -25,12 +37,18 @@ type SubscriptionData = {
   branchName: string;
   startDate: string;
   endDate: string;
+  branch: Branch
   status:
     | "ACTIVE"
     | "EXPIRED"
     | "CANCELLED"
     | "FROZEN";
-};
+    subcategory: ServiceSubCategory;
+   payment: Payment[];
+   package: ServicePackage & {
+    service: Service
+   }
+}
 
 function formatDateInput(value: string) {
   const date = new Date(value);
@@ -109,6 +127,25 @@ function calculateDuration(
 export default function EditMembershipPage() {
   const router = useRouter();
 
+  const [selectedService, setSelectedService] =
+    useState("");
+
+  const [selectedSubCategory, setSelectedSubCategory] =
+    useState("");
+
+  const [selectedPackage, setSelectedPackage] =
+    useState("");
+    const [branches, setBranches] = useState<Branch[] | null>(null)
+
+
+  const [selectedBranch, setSelectedBranch] =
+    useState("");
+
+    const [paymentMode, setPaymentMode] = useState<string>("");
+  
+  const [services, setServices] = useState<Service[]>();
+
+
   const params = useParams<{
     id: string;
     membershipId: string;
@@ -157,7 +194,30 @@ export default function EditMembershipPage() {
     startDate !== initialStartDate ||
     endDate !== initialEndDate;
 
+
+    const fetchServices = async () => {
+      try {
+        const res = await fetch('/api/services');
+        const data = await res.json();
+        setServices(data.services);
+      } catch (e) {
+        console.log(e)
+      }
+    }
+
+    
+    const fetchBranches = async () => {
+      try {
+        const res = await fetch('/api/branches');
+        const data = await res.json();
+        setBranches(data.branches);
+      } catch (e) {
+        console.log(e)
+      }
+    }
+
   useEffect(() => {
+
     if (!subscriptionId) {
       return;
     }
@@ -206,9 +266,14 @@ export default function EditMembershipPage() {
               currentSubscription.endDate
             );
 
+          setSelectedService(currentSubscription?.package.service.name)
+          setSelectedSubCategory(currentSubscription?.subcategory?.name);
+          setSelectedBranch(currentSubscription?.branch?.name);
           setSubscription(
             currentSubscription
-          );
+          ); 
+
+          setPaymentMode(currentSubscription.payment?.[0].paymentMode) // here it was n so, need to conside the edge cases. for now go with 1 
 
           setStartDate(
             formattedStartDate
@@ -248,7 +313,8 @@ export default function EditMembershipPage() {
       };
 
     void fetchSubscription();
-
+    void fetchServices();
+    void fetchBranches();
     return () => {
       controller.abort();
     };
@@ -462,23 +528,230 @@ export default function EditMembershipPage() {
               </div>
             </div>
 
-            <div className="mt-5 flex items-start gap-3 rounded-2xl border border-lime-400/20 bg-lime-400/5 p-4">
-              <CalendarDays
-                size={20}
-                className="mt-0.5 shrink-0 text-lime-400"
-              />
+            
+            <div className="bg-neutral-900 border border-neutral-800 rounded-3xl p-6 mt-5">
 
-              <div>
-                <p className="text-sm font-medium text-white">
-                  Updated membership duration
-                </p>
+<h3 className="text-lg font-semibold mb-5">
+  Membership Selection
+</h3>
 
-                <p className="mt-1 text-sm text-neutral-400">
-                  {durationInDays > 0
-                    ? `${durationInDays} calendar days, including the start and end dates.`
-                    : "Select a valid date range."}
-                </p>
-              </div>
+<div className="grid md:grid-cols-2 gap-5">
+
+  {/* SERVICE */}
+
+  <div>
+    <label className="text-sm text-neutral-400 mb-2 block">
+      Service
+    </label>
+
+    <select
+      value={
+        selectedService
+      }
+      onChange={(e) =>{
+        setSelectedService(
+          e.target.value
+        )}
+      }
+      className="w-full h-12 rounded-2xl bg-neutral-950 border border-neutral-800 px-4 text-white outline-none focus:border-lime-400"
+    >
+      <option value="">
+        Select Service
+      </option>
+
+   
+    </select>
+  </div>
+
+  {/* SUB CATEGORY */}
+
+  {/* <div>
+    <label className="text-sm text-neutral-400 mb-2 block">
+      Sub Category
+    </label>
+
+    <select
+      value={
+        selectedSubCategory
+      }
+      disabled={
+        !selectedService ||
+        subCategories.length ===
+          0
+      }
+      onChange={(e) =>
+        setSelectedSubCategory(
+          e.target.value
+        )
+      }
+      className="w-full h-12 rounded-2xl bg-neutral-950 border border-neutral-800 px-4 text-white outline-none focus:border-lime-400 disabled:opacity-50"
+    >
+      <option value="">
+        {subCategories.length ===
+        0
+          ? "No Sub Categories"
+          : "Select Sub Category"}
+      </option>
+
+      {subCategories.map(
+        (subCategory) => (
+          <option
+            key={
+              subCategory.id
+            }
+            value={
+              subCategory.id
+            }
+          >
+            {
+              subCategory.name
+            }
+          </option>
+        )
+      )}
+    </select>
+  </div> */}
+
+  {/* PACKAGE */}
+
+  {/* <div>
+    <label className="text-sm text-neutral-400 mb-2 block">
+      Package
+    </label>
+
+    <select
+      value={
+        selectedPackage
+      }
+      disabled={
+        !selectedService ||
+        (subCategories.length >
+          0 &&
+          !selectedSubCategory)
+      }
+      onChange={(e) =>
+        setSelectedPackage(
+          e.target.value
+        )
+      }
+      className="w-full h-12 rounded-2xl bg-neutral-950 border border-neutral-800 px-4 text-white outline-none focus:border-lime-400 disabled:opacity-50"
+    >
+      <option value="">
+        {!selectedService
+          ? "Select Service First"
+          : subCategories.length >
+              0 &&
+            !selectedSubCategory
+          ? "Select Sub Category First"
+          : packages.length ===
+            0
+          ? "No Packages Available"
+          : "Select Package"}
+      </option>
+
+      {packages.map(
+        (pkg) => (
+          <option
+            key={pkg.id}
+            value={pkg.id}
+          >
+            {pkg.name} — ₹
+            {formatCurrency(
+              pkg.price
+            )}
+          </option>
+        )
+      )}
+    </select>
+  </div> */}
+
+  {/* BRANCH */}
+
+  <div>
+    <label className="text-sm text-neutral-400 mb-2 block">
+      Branch
+    </label>
+
+    <select
+      value={
+        selectedBranch
+      }
+      disabled={
+        !selectedService
+      }
+      onChange={(e) =>
+        setSelectedBranch(
+          e.target.value
+        )
+      }
+      className="w-full h-12 rounded-2xl bg-neutral-950 border border-neutral-800 px-4 text-white outline-none focus:border-lime-400 disabled:opacity-50"
+    >
+      <option value="">
+        Select Branch
+      </option>
+
+      {branches?.map(
+        (branch: Branch) => (
+          <option
+            key={
+              branch.id
+            }
+            value={
+              branch.id
+            }
+          >
+            {
+              branch.name
+            }
+          </option>
+        )
+      )}
+    </select>
+  </div>
+
+  {/* 
+  T METHOD */}
+
+  <div>
+    <label className="text-sm text-neutral-400 mb-2 block">
+      Payment Method
+    </label>
+
+    <select
+      value={
+        paymentMode
+      }
+      onChange={(e) =>
+        setPaymentMode(
+          e.target.value
+        )
+      }
+      className="w-full h-12 rounded-2xl bg-neutral-950 border border-neutral-800 px-4 text-white outline-none focus:border-lime-400"
+    >
+      <option value="Cash">
+        Cash
+      </option>
+
+      <option value="UPI">
+        UPI
+      </option>
+
+      <option value="Card">
+        Card
+      </option>
+
+      <option value="Bank Transfer">
+        Bank Transfer
+      </option>
+
+      <option value="Razorpay">
+        Razorpay
+      </option>
+    </select>
+  </div>
+
+</div>
+</div>
             </div>
 
             <div className="mt-4 flex items-start gap-3 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4">
@@ -543,6 +816,5 @@ export default function EditMembershipPage() {
           </div>
         </div>
       </div>
-    </div>
   );
 }

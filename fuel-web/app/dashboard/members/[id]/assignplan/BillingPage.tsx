@@ -11,6 +11,7 @@ import { ArrowLeft } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { addDaysUTC, nowUTC } from "@/app/utils/date";
+import { formatCurrency } from "../../../../../../fuelapp/src/utils/helper";
 
 /*
  * ============================================================
@@ -664,16 +665,7 @@ const BillingPage = ({
    * ============================================================
    */
 
-  const formatCurrency = (
-    amount: number
-  ) => {
-    return (amount / 100).toLocaleString(
-      "en-IN",
-      {
-        minimumFractionDigits: 0,
-      }
-    );
-  };
+ 
 
   /*
    * ============================================================
