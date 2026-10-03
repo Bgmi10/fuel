@@ -117,6 +117,7 @@ type CreateForm = {
   subCategoryId: string;
   sessionCount: string;
   sessions: SessionForm[];
+  isActive: boolean;
 };
 
 type EditForm = {
@@ -128,6 +129,7 @@ type EditForm = {
   branchId: string;
   serviceId: string;
   subCategoryId: string;
+  isActive: boolean;
 };
 
 const createEmptySession = (): SessionForm => ({
@@ -143,6 +145,7 @@ const initialCreateForm = (): CreateForm => ({
   sessionCount: "1",
   daysOfWeek: [...ALL_WEEKDAYS],
   sessions: [createEmptySession()],
+  isActive: true,
 });
 
 const initialEditForm = (): EditForm => ({
@@ -154,6 +157,7 @@ const initialEditForm = (): EditForm => ({
   branchId: "",
   serviceId: "",
   subCategoryId: "",
+  isActive: true,
 });
 
 export default function Page() {
@@ -547,6 +551,7 @@ export default function Page() {
      * Make sure the selected subcategory
      * actually belongs to the selected service.
      */
+
     if (createForm.subCategoryId) {
       const validSubCategory =
         availableCreateSubCategories.some(
@@ -572,6 +577,7 @@ export default function Page() {
 
       const payload = {
         branchId: createForm.branchId,
+
         serviceId: createForm.serviceId,
 
         subCategoryId:
@@ -586,6 +592,9 @@ export default function Page() {
             createForm.sessionCount,
             10
           ),
+
+        isActive:
+          createForm.isActive,
 
         sessions:
           createForm.sessions.map(
@@ -602,6 +611,8 @@ export default function Page() {
                   session.capacity,
                   10
                 ),
+              isActive:
+                createForm.isActive,
             })
           ),
       };
@@ -663,6 +674,7 @@ export default function Page() {
       serviceId: slot.serviceId,
       subCategoryId:
         slot.subCategoryId ?? "",
+      isActive: slot.isActive,
       daysOfWeek:
         slot.daysOfWeek?.length > 0
           ? [...slot.daysOfWeek]
@@ -760,6 +772,7 @@ export default function Page() {
      * Validate subcategory against
      * the currently selected service.
      */
+
     if (editForm.subCategoryId) {
       const validSubCategory =
         availableEditSubCategories.some(
@@ -795,6 +808,9 @@ export default function Page() {
             capacity: Number(
               editForm.capacity
             ),
+
+            isActive:
+              editForm.isActive,
 
             subCategoryId:
               editForm.subCategoryId ||
@@ -833,13 +849,13 @@ export default function Page() {
 
   /*
    * -------------------------------------------------------
-   * DISABLE SLOT
+   * DELETE SLOT
    * -------------------------------------------------------
    */
 
   const deleteSlot = async (id: string) => {
     const confirmed = confirm(
-      "Are you sure you want to disable this slot?"
+      "Are you sure you want to delete this slot?"
     );
 
     if (!confirmed) {
@@ -874,6 +890,65 @@ export default function Page() {
           ? error.message
           : "Failed to disable slot"
       );
+    }
+  };
+
+  /*
+   * -------------------------------------------------------
+   * TOGGLE ACTIVE / DISABLED
+   * -------------------------------------------------------
+   */
+
+  const toggleSlotActive = async (
+    slot: Slot
+  ) => {
+    const nextIsActive = !slot.isActive;
+
+    try {
+      setActionLoading(true);
+
+      const res = await fetch(
+        `/api/slot/${slot.id}`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify({
+            isActive: nextIsActive,
+          }),
+        }
+      );
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(
+          data.message ||
+            `Failed to ${
+              nextIsActive
+                ? "activate"
+                : "disable"
+            } slot`
+        );
+      }
+
+      await fetchSlots();
+    } catch (error) {
+      console.error(error);
+
+      alert(
+        error instanceof Error
+          ? error.message
+          : `Failed to ${
+              nextIsActive
+                ? "activate"
+                : "disable"
+            } slot`
+      );
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -925,9 +1000,25 @@ export default function Page() {
                 {/* SESSION INFORMATION */}
 
                 <div className="min-w-0">
-                  <h2 className="text-lg font-bold tracking-tight text-white sm:text-xl">
-                    {slot.name}
-                  </h2>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <h2 className="text-lg font-bold tracking-tight text-white sm:text-xl">
+                      {slot.name}
+                    </h2>
+
+                    {/* ACTIVE STATUS */}
+
+                    <span
+                      className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                        slot.isActive
+                          ? "bg-lime-400/10 text-lime-400"
+                          : "bg-red-400/10 text-red-400"
+                      }`}
+                    >
+                      {slot.isActive
+                        ? "Active"
+                        : "Disabled"}
+                    </span>
+                  </div>
 
                   {/* SESSION TIMING */}
 
@@ -1017,6 +1108,11 @@ export default function Page() {
                       ?.bookings ?? 0}
                     )
                   </button>
+
+                  {/* ACTIVE / DISABLED */}
+
+
+                  {/* EDIT */}
 
                   <button
                     type="button"
@@ -1184,6 +1280,65 @@ export default function Page() {
                 </p>
               </div>
             )}
+
+            {/* ACTIVE STATUS */}
+
+            <div className="mt-5 rounded-2xl border border-neutral-800 bg-neutral-900/50 p-4">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-neutral-300">
+                    Slot Status
+                  </label>
+
+                  <p className="mt-1 text-xs text-neutral-500">
+                    Disabled slots should not be
+                    available for booking.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={
+                    createForm.isActive
+                  }
+                  onClick={() =>
+                    setCreateForm(
+                      (current) => ({
+                        ...current,
+                        isActive:
+                          !current.isActive,
+                      })
+                    )
+                  }
+                  className={`relative h-7 w-12 rounded-full transition ${
+                    createForm.isActive
+                      ? "bg-lime-400"
+                      : "bg-neutral-700"
+                  }`}
+                >
+                  <span
+                    className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow transition ${
+                      createForm.isActive
+                        ? "left-6"
+                        : "left-1"
+                    }`}
+                  />
+                </button>
+              </div>
+
+              <p
+                className={`mt-3 text-xs font-semibold ${
+                  createForm.isActive
+                    ? "text-lime-400"
+                    : "text-red-400"
+                }`}
+              >
+                {createForm.isActive
+                  ? "Active — slot can be used for booking"
+                  : "Disabled — slot will not be available for booking"}
+              </p>
+            </div>
 
             {/* OPERATING DAYS */}
 
@@ -1547,6 +1702,65 @@ export default function Page() {
                 />
               </div>
 
+              {/* STATUS */}
+
+              <div className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-neutral-300">
+                      Slot Status
+                    </label>
+
+                    <p className="mt-1 text-xs text-neutral-500">
+                      Control whether this slot
+                      is available for booking.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={
+                      editForm.isActive
+                    }
+                    onClick={() =>
+                      setEditForm(
+                        (current) => ({
+                          ...current,
+                          isActive:
+                            !current.isActive,
+                        })
+                      )
+                    }
+                    className={`relative h-7 w-12 rounded-full transition ${
+                      editForm.isActive
+                        ? "bg-lime-400"
+                        : "bg-neutral-700"
+                    }`}
+                  >
+                    <span
+                      className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow transition ${
+                        editForm.isActive
+                          ? "left-6"
+                          : "left-1"
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                <p
+                  className={`mt-3 text-xs font-semibold ${
+                    editForm.isActive
+                      ? "text-lime-400"
+                      : "text-red-400"
+                  }`}
+                >
+                  {editForm.isActive
+                    ? "Active — slot can be used for booking"
+                    : "Disabled — slot will not be available for booking"}
+                </p>
+              </div>
+
               {/* TIME */}
 
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -1868,6 +2082,8 @@ export default function Page() {
                 Cancel
               </button>
 
+              {/* EXISTING DELETE */}
+
               <button
                 type="button"
                 onClick={() =>
@@ -1883,6 +2099,8 @@ export default function Page() {
               >
                 Delete Slot
               </button>
+
+              {/* UPDATE */}
 
               <button
                 type="button"

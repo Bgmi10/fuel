@@ -423,7 +423,7 @@ export const GET = async (
     const activeSubscriptions = member.subscriptions.filter(
       (subscription) =>
         subscription.status === "ACTIVE" ||
-        subscription.status === "FROZEN"
+        subscription.status === "FROZEN" || subscription.status === "TRANSFERRED"
     );
 
     /*

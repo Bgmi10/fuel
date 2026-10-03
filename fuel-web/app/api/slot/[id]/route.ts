@@ -130,6 +130,9 @@ export async function PUT(
         ? body.name.trim()
         : "";
 
+        
+    
+
     const startTime =
       typeof body.startTime === "string"
         ? body.startTime.trim()
@@ -304,6 +307,7 @@ export async function PUT(
           startTime,
           endTime,
           capacity,
+          isActive: body.isActive,
           branchId,
           serviceId,
           daysOfWeek,

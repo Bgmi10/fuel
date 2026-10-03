@@ -25,7 +25,6 @@ class ScannerError extends Error {
     reason: string;
     message: string;
     status?: number;
-
     details?: Record<
       string,
       unknown
@@ -91,6 +90,100 @@ const isTodayAtGym = (
       new Date(),
       GYM_TIME_ZONE
     )
+  );
+};
+
+/*
+ * Convert a slot time such as:
+ *
+ * "18:00"
+ * "18:00:00"
+ *
+ * into a Date for the booking date.
+ *
+ * NOTE:
+ * This assumes slot.startTime and slot.endTime
+ * are stored as HH:mm or HH:mm:ss strings.
+ */
+const createSessionDateTime = (
+  bookingDate: Date,
+  time: string
+) => {
+  const bookingDateKey =
+    getDateKey(
+      bookingDate,
+      GYM_TIME_ZONE
+    );
+
+  const cleanTime =
+    String(time).trim();
+
+  /*
+   * Asia/Kolkata has a fixed UTC+05:30 offset.
+   *
+   * We create the UTC equivalent manually so that
+   * the session time is interpreted as gym-local time.
+   *
+   * Example:
+   *
+   * 18:00 Asia/Kolkata
+   * =
+   * 12:30 UTC
+   */
+
+  const timeParts =
+    cleanTime.split(":");
+
+  const hours = Number(
+    timeParts[0]
+  );
+
+  const minutes = Number(
+    timeParts[1] ?? 0
+  );
+
+  const seconds = Number(
+    timeParts[2] ?? 0
+  );
+
+  if (
+    !Number.isInteger(hours) ||
+    !Number.isInteger(minutes) ||
+    !Number.isInteger(seconds) ||
+    hours < 0 ||
+    hours > 23 ||
+    minutes < 0 ||
+    minutes > 59 ||
+    seconds < 0 ||
+    seconds > 59
+  ) {
+    return null;
+  }
+
+  /*
+   * bookingDateKey = YYYY-MM-DD
+   */
+  const [year, month, day] =
+    bookingDateKey
+      .split("-")
+      .map(Number);
+
+  /*
+   * Convert India time (UTC+05:30) to UTC.
+   */
+  const utcMilliseconds =
+    Date.UTC(
+      year,
+      month - 1,
+      day,
+      hours,
+      minutes,
+      seconds
+    ) -
+    5.5 * 60 * 60 * 1000;
+
+  return new Date(
+    utcMilliseconds
   );
 };
 
@@ -174,6 +267,136 @@ export async function POST(
 
               message:
                 "Booking is not valid today.",
+            });
+          }
+
+          // =========================================
+          // SESSION PASS TIME WINDOW
+          // =========================================
+          //
+          // Example:
+          //
+          // Slot:
+          // 6:00 PM - 7:00 PM
+          //
+          // Pass:
+          // 5:30 PM - 6:20 PM
+          //
+          // The pass becomes valid 30 minutes
+          // before the session starts.
+          //
+          // The pass expires 20 minutes
+          // after the session starts.
+          //
+          // The slot's endTime does NOT extend
+          // the pass validity.
+          //
+
+          const sessionStart =
+            createSessionDateTime(
+              booking.bookingDate,
+              String(
+                booking.slot
+                  .startTime
+              )
+            );
+
+          const sessionEnd =
+            createSessionDateTime(
+              booking.bookingDate,
+              String(
+                booking.slot
+                  .endTime
+              )
+            );
+
+          if (
+            !sessionStart ||
+            !sessionEnd
+          ) {
+            throw new ScannerError({
+              reason:
+                "INVALID_SLOT_TIME",
+
+              message:
+                "Session time is invalid.",
+
+              status: 500,
+            });
+          }
+
+          /*
+           * 30 minutes BEFORE session.
+           */
+          const passValidFrom =
+            new Date(
+              sessionStart.getTime() -
+                30 * 60 * 1000
+            );
+
+          /*
+           * 20 minutes AFTER session START.
+           */
+          const passValidUntil =
+            new Date(
+              sessionStart.getTime() +
+                20 * 60 * 1000
+            );
+
+          /*
+           * IMPORTANT:
+           *
+           * Use:
+           *
+           * now < passValidFrom
+           *
+           * and
+           *
+           * now > passValidUntil
+           *
+           * This means exactly at 5:30 PM
+           * the pass becomes valid.
+           *
+           * Exactly at 6:20 PM it is still valid.
+           *
+           * At 6:20:01 PM it is expired.
+           */
+
+          if (
+            now < passValidFrom
+          ) {
+            throw new ScannerError({
+              reason:
+                "SESSION_NOT_OPEN",
+
+              message:
+                "Session pass is not active yet. Please arrive within 30 minutes before your session.",
+
+              details: {
+                sessionStart,
+                sessionEnd,
+                passValidFrom,
+                passValidUntil,
+              },
+            });
+          }
+
+          if (
+            now > passValidUntil
+          ) {
+            throw new ScannerError({
+              reason:
+                "SESSION_PASS_EXPIRED",
+
+              message:
+                "Session pass has expired. Check-in is only allowed until 20 minutes after the session starts.",
+
+              details: {
+                sessionStart,
+                sessionEnd,
+                passValidFrom,
+                passValidUntil,
+              },
             });
           }
 
@@ -375,8 +598,12 @@ export async function POST(
            * at almost the same time.
            *
            * Only one request can change:
+           *
            * BOOKED + checkedInAt null
-           * into ATTENDED.
+           *
+           * into:
+           *
+           * ATTENDED + checkedInAt now
            */
           const attendanceClaim =
             await tx.slotBooking
@@ -540,6 +767,11 @@ export async function POST(
             totalSessions,
             remainingSessions,
             usedSessions,
+
+            sessionStart,
+            sessionEnd,
+            passValidFrom,
+            passValidUntil,
           };
         }
       );
@@ -550,6 +782,10 @@ export async function POST(
       totalSessions,
       remainingSessions,
       usedSessions,
+      sessionStart,
+      sessionEnd,
+      passValidFrom,
+      passValidUntil,
     } = result;
 
     return NextResponse.json({
@@ -613,6 +849,14 @@ export async function POST(
         endTime:
           updatedBooking
             .slot.endTime,
+
+        sessionStart,
+
+        sessionEnd,
+
+        passValidFrom,
+
+        passValidUntil,
       },
 
       package: {

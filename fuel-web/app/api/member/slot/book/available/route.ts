@@ -1,9 +1,6 @@
 import { getMemberFromRequest } from "@/app/utils/memberAuth";
 import { prisma } from "@/prisma";
-import {
-  NextRequest,
-  NextResponse,
-} from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import {
   SlotBookingEnum,
   SlotWeekday,
@@ -13,8 +10,7 @@ const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 export async function GET(req: NextRequest) {
   try {
-    const member =
-      await getMemberFromRequest(req);
+    const member = await getMemberFromRequest(req);
 
     if (!member) {
       return NextResponse.json(
@@ -27,8 +23,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const searchParams =
-      req.nextUrl.searchParams;
+    const searchParams = req.nextUrl.searchParams;
 
     const subscriptionId =
       searchParams.get("subscriptionId")?.trim();
@@ -36,10 +31,7 @@ export async function GET(req: NextRequest) {
     const rawBookingDate =
       searchParams.get("bookingDate")?.trim();
 
-    if (
-      !subscriptionId ||
-      !rawBookingDate
-    ) {
+    if (!subscriptionId || !rawBookingDate) {
       return NextResponse.json(
         {
           error:
@@ -52,12 +44,11 @@ export async function GET(req: NextRequest) {
     }
 
     /*
-     * Supports both:
+     * Supports:
      * 2026-07-16
      * 2026-07-16T00:00:00.000Z
      */
-    const bookingDay =
-      rawBookingDate.split("T")[0];
+    const bookingDay = rawBookingDate.split("T")[0];
 
     if (!DATE_PATTERN.test(bookingDay)) {
       return NextResponse.json(
@@ -79,9 +70,8 @@ export async function GET(req: NextRequest) {
     );
 
     if (
-      Number.isNaN(
-        bookingDayStart.getTime()
-      )
+      Number.isNaN(bookingDayStart.getTime()) ||
+      Number.isNaN(bookingDayEnd.getTime())
     ) {
       return NextResponse.json(
         {
@@ -93,12 +83,16 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    /*
+     * Calculate weekday from the booking date.
+     */
     const bookingDateObject = new Date(
       `${bookingDay}T12:00:00.000Z`
     );
-    
-    const javascriptDay = bookingDateObject.getUTCDay();
-    
+
+    const javascriptDay =
+      bookingDateObject.getUTCDay();
+
     const JAVASCRIPT_DAY_TO_SLOT_DAY: Record<
       number,
       SlotWeekday
@@ -111,50 +105,52 @@ export async function GET(req: NextRequest) {
       5: SlotWeekday.FRIDAY,
       6: SlotWeekday.SATURDAY,
     };
-    
+
     const bookingWeekday =
       JAVASCRIPT_DAY_TO_SLOT_DAY[javascriptDay];
 
     /*
-     * Verify that:
+     * Verify:
      * - subscription belongs to member
-     * - subscription is active
+     * - subscription is ACTIVE
      * - selected date is within subscription validity
      */
-    const subscription = await prisma.subscription.findFirst({
-      where: {
-        id: subscriptionId,
-        memberId: member.id,
-        status: "ACTIVE",
-        startDate: {
-          lte: bookingDayEnd,
-        },
-        endDate: {
-          gte: bookingDayStart,
-        },
-      },
-      select: {
-        id: true,
-        branchId: true,
-        packageId: true,
-    
-        package: {
-          select: {
-            serviceId: true,
-    
-            // IMPORTANT:
-            // whatever field identifies the package's subcategory
+    const subscription =
+      await prisma.subscription.findFirst({
+        where: {
+          id: subscriptionId,
+          memberId: member.id,
+          status: "ACTIVE",
+
+          startDate: {
+            lte: bookingDayEnd,
+          },
+
+          endDate: {
+            gte: bookingDayStart,
           },
         },
-        subCategoryId: true,
-        subCategory: {
-         select: {
-          name: true,
-          id: true
-         }
-        }
-      },
-    });
+
+        select: {
+          id: true,
+          branchId: true,
+          packageId: true,
+          subCategoryId: true,
+
+          package: {
+            select: {
+              serviceId: true,
+            },
+          },
+
+          subCategory: {
+            select: {
+              name: true,
+              id: true,
+            },
+          },
+        },
+      });
 
     if (!subscription) {
       return NextResponse.json(
@@ -169,51 +165,142 @@ export async function GET(req: NextRequest) {
     }
 
     /*
-     * Find slots belonging to:
+     * Find active slots belonging to:
      * - subscription branch
-     * - subscription package's service
+     * - subscription package service
+     * - subscription sub-category
+     * - selected weekday
      */
-   const slots = await prisma.slot.findMany({
-  where: {
-    branchId: subscription.branchId,
-    serviceId: subscription.package.serviceId,
-    isActive: true,
-    subCategoryId: subscription.subCategoryId,
+    const slots = await prisma.slot.findMany({
+      where: {
+        branchId: subscription.branchId,
 
-    // IMPORTANT:
-    daysOfWeek: {
-      has: bookingWeekday,
-    },
-  },
+        serviceId:
+          subscription.package.serviceId,
 
-  include: {
-    subCategory: true,
-    branch: {
-      select: {
-        id: true,
-        name: true,
+        isActive: true,
+
+        subCategoryId:
+          subscription.subCategoryId,
+
+        daysOfWeek: {
+          has: bookingWeekday,
+        },
       },
-    },
-    service: {
-      select: {
-        id: true,
-        name: true,
-      },
-    },
-  },
 
-  orderBy: {
-    startTime: "asc",
-  },
-});
+      include: {
+        subCategory: true,
+
+        branch: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+
+        service: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+
+      orderBy: {
+        startTime: "asc",
+      },
+    });
 
     if (slots.length === 0) {
       return NextResponse.json([]);
     }
 
-    const slotIds = slots.map(
-      (slot) => slot.id
-    );
+    /*
+     * ============================================================
+     * 24-HOUR BOOKING RULE
+     * ============================================================
+     *
+     * Booking is allowed only when the session starts
+     * at least 24 hours from the current time.
+     *
+     * Example:
+     *
+     * Current time: 2026-07-15 10:00
+     *
+     * Session:      2026-07-16 10:00
+     * -> Allowed
+     *
+     * Session:      2026-07-16 09:59
+     * -> Not allowed
+     *
+     * IMPORTANT:
+     * This assumes slot.startTime is stored as "HH:mm"
+     * or "HH:mm:ss".
+     */
+
+    const now = new Date();
+
+    const minimumBookingTime =
+      new Date(
+        now.getTime() + 24 * 60 * 60 * 1000
+      );
+
+    const slotsWithinBookingWindow =
+      slots.filter((slot) => {
+        /*
+         * Convert slot.startTime into a session
+         * datetime for the selected booking day.
+         *
+         * Example:
+         * bookingDay = "2026-07-16"
+         * startTime  = "10:30"
+         *
+         * sessionStart =
+         * 2026-07-16T10:30:00.000Z
+         */
+
+        const startTime = String(
+          slot.startTime
+        ).trim();
+
+        const sessionStart = new Date(
+          `${bookingDay}T${startTime}:00.000Z`
+        );
+
+        /*
+         * Ignore invalid slot times.
+         */
+        if (
+          Number.isNaN(
+            sessionStart.getTime()
+          )
+        ) {
+          return false;
+        }
+
+        /*
+         * Session must be >= 24 hours from now.
+         */
+        return (
+          sessionStart.getTime() >=
+          minimumBookingTime.getTime()
+        );
+      });
+
+    if (
+      slotsWithinBookingWindow.length === 0
+    ) {
+      return NextResponse.json([]);
+    }
+
+    /*
+     * Get slot IDs only after applying
+     * the 24-hour restriction.
+     */
+    const slotIds =
+      slotsWithinBookingWindow.map(
+        (slot) => slot.id
+      );
 
     /*
      * Count bookings separately for every slot
@@ -250,25 +337,34 @@ export async function GET(req: NextRequest) {
       ])
     );
 
+    /*
+     * Add booking and availability information.
+     */
     const slotsWithAvailability =
-      slots.map((slot) => {
-        const booked =
-          bookingCountMap.get(slot.id) ??
-          0;
+      slotsWithinBookingWindow.map(
+        (slot) => {
+          const booked =
+            bookingCountMap.get(
+              slot.id
+            ) ?? 0;
 
-        const available = Math.max(
-          slot.capacity - booked,
-          0
-        );
+          const available = Math.max(
+            slot.capacity - booked,
+            0
+          );
 
-        return {
-          ...slot,
-          booked,
-          available,
-          isFull:
-            booked >= slot.capacity,
-        };
-      });
+          return {
+            ...slot,
+
+            booked,
+
+            available,
+
+            isFull:
+              booked >= slot.capacity,
+          };
+        }
+      );
 
     return NextResponse.json(
       slotsWithAvailability

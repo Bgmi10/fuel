@@ -66,10 +66,6 @@ function normalizeOptionalId(value: unknown): string | null {
 export async function GET() {
   try {
     const slots = await prisma.slot.findMany({
-      where: {
-        isActive: true,
-      },
-
       include: {
         branch: true,
 
