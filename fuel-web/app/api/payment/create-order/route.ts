@@ -76,18 +76,7 @@ export const POST = async (req: NextRequest) => {
 
     // =====================================================
     // SUBCATEGORY VALIDATION
-    // =====================================================
-
-    if (!subCategoryId) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "Subcategory is required for this membership",
-        },
-        { status: 400 }
-      );
-    }
+    // ====
 
     // =====================================================
     // MEMBER VALIDATION
@@ -242,70 +231,22 @@ export const POST = async (req: NextRequest) => {
         },
       });
 
-    if (!selectedSubCategory) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Subcategory not found",
-        },
-        { status: 404 }
-      );
-    }
 
     // =====================================================
     // SUBCATEGORY MUST BE ACTIVE
     // =====================================================
 
-    if (!selectedSubCategory.isActive) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "This subcategory is currently unavailable",
-        },
-        { status: 400 }
-      );
-    }
 
     // =====================================================
     // PACKAGE ↔ SUBCATEGORY VALIDATION
     // =====================================================
 
-    const packageBelongsToSubCategory =
-      selectedPackage.subCategories.some(
-        (relation) =>
-          relation.subCategoryId ===
-          subCategoryId
-      );
-
-    if (!packageBelongsToSubCategory) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "Selected package does not belong to the selected subcategory",
-        },
-        { status: 400 }
-      );
-    }
+   
 
     // =====================================================
     // SERVICE ↔ SUBCATEGORY VALIDATION
     // =====================================================
 
-    if (
-      selectedSubCategory.serviceId !==
-      selectedPackage.serviceId
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "Subcategory does not belong to the selected service",
-        },
-        { status: 400 }
-      );
-    }
 
     // =====================================================
     // BRANCH
@@ -521,7 +462,7 @@ export const POST = async (req: NextRequest) => {
 
             // IMPORTANT
             subCategoryId:
-              selectedSubCategory.id,
+              selectedSubCategory?.id ?? null,
 
             serviceId:
               selectedPackage.serviceId,
@@ -583,7 +524,7 @@ export const POST = async (req: NextRequest) => {
           // Persist the selected subcategory
           // on the invoice.
           subCategoryId:
-            selectedSubCategory.id,
+            selectedSubCategory?.id ?? null,
 
           salesRepId:
             user?.id || null,
@@ -778,10 +719,10 @@ export const POST = async (req: NextRequest) => {
 
       subCategory: {
         id:
-          selectedSubCategory.id,
+          selectedSubCategory?.id ?? null,
 
         name:
-          selectedSubCategory.name,
+          selectedSubCategory?.name ?? null,
       },
 
       package: {

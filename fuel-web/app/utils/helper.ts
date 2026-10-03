@@ -72,7 +72,6 @@ export type GSTBreakdownFormatted = {
  *
  * @param totalAmount Total amount in rupees (e.g., 1000 for ₹1000)
  */
-
 export const calculateGSTBreakdown = async (
   amount: number
 ): Promise<GSTBreakdown> => {
@@ -85,47 +84,34 @@ export const calculateGSTBreakdown = async (
   const sgstPercentage =
     setting?.sgstPercentage ?? 2.5;
 
-  const cgst = +(
-    amount *
-    (cgstPercentage / 100)
-  ).toFixed(2);
+  // amount is in paise
+  const cgst = Math.round(
+    amount * (cgstPercentage / 100)
+  );
 
-  const sgst = +(
-    amount *
-    (sgstPercentage / 100)
-  ).toFixed(2);
+  const sgst = Math.round(
+    amount * (sgstPercentage / 100)
+  );
 
-  const totalTax = +(
-    cgst + sgst
-  ).toFixed(2);
+  const totalTax =
+    cgst + sgst;
 
   return {
     baseFee: amount,
-
     cgst,
-
     sgst,
-
     totalTax,
-
-    amount: +(amount + totalTax),
-
+    amount: amount + totalTax,
     cgstPercentage,
-
     sgstPercentage,
   };
 };
-/**
- * Same as calculateGSTBreakdown but returns string values formatted to 2 decimals.
- * Useful for email template params (strings render predictably in templates).
- *
- * @param totalAmount Total amount in rupees
- */
+
 export const calculateGSTBreakdownFormatted = async (
   totalAmount: number
 ): Promise<GSTBreakdownFormatted> => {
-
-  const breakdown = await calculateGSTBreakdown(totalAmount);
+  const breakdown =
+    await calculateGSTBreakdown(totalAmount);
 
   return {
     baseFee: breakdown.baseFee.toFixed(2),
@@ -135,6 +121,8 @@ export const calculateGSTBreakdownFormatted = async (
     amount: breakdown.amount.toFixed(2),
   };
 };
+
+
 /**
  * Convert paise (Razorpay format) to rupees.
  *

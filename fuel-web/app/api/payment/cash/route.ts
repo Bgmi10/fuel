@@ -221,8 +221,10 @@ export const POST = async (req: NextRequest) => {
     const packageAmount = plan.price;
 
     const totalDiscount =
-      Number(discountAmount) +
-      Number(referralDiscountAmount);
+  Number(discountAmount) +
+  Number(referralDiscountAmount);
+
+  
 
     const finalAmount =
       packageAmount - totalDiscount;
@@ -259,12 +261,14 @@ export const POST = async (req: NextRequest) => {
     // CUSTOMER PAYABLE
     // =====================================================
 
-    const invoiceTotal = Math.round(
+    const invoiceTotal = 
       finalAmount + totalTax
-    );
 
-    const numericPaidAmount =
-      Number(paidAmount) || 0;
+      const numericPaidAmount =
+  Number(paidAmount) || 0;
+
+
+    
 
     if (numericPaidAmount > invoiceTotal) {
       return NextResponse.json({
@@ -274,9 +278,8 @@ export const POST = async (req: NextRequest) => {
       });
     }
 
-    const balanceAmount = Math.max(
-      invoiceTotal - numericPaidAmount,
-      0
+    const balanceAmount = Number(
+      invoiceTotal - numericPaidAmount
     );
 
     // =====================================================

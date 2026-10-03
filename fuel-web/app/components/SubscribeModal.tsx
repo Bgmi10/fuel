@@ -274,7 +274,7 @@ export const SubscribeModal = ({
 
   /* =======================================================
    * SETTINGS
-   * ===================================================== */
+   * ======================================================= */
 
   const [
     settings,
@@ -308,7 +308,7 @@ export const SubscribeModal = ({
 
   /* =======================================================
    * EXTENSION
-   * ===================================================== */
+   * ======================================================= */
 
   const [
     extendModal,
@@ -324,7 +324,7 @@ export const SubscribeModal = ({
 
   /* =======================================================
    * COUPONS
-   * ===================================================== */
+   * ======================================================= */
 
   const [
     couponLoading,
@@ -357,7 +357,7 @@ export const SubscribeModal = ({
 
   /* =======================================================
    * AUTO SELECT BRANCH
-   * ===================================================== */
+   * ======================================================= */
 
   useEffect(() => {
     if (
@@ -380,7 +380,7 @@ export const SubscribeModal = ({
 
   /* =======================================================
    * FETCH PUBLIC CHECKOUT DATA
-   * ===================================================== */
+   * ======================================================= */
 
   useEffect(() => {
     if (!open) {
@@ -551,7 +551,7 @@ export const SubscribeModal = ({
 
   /* =======================================================
    * GROUP DISCOUNT ELIGIBILITY
-   * ===================================================== */
+   * ======================================================= */
 
   const groupDiscountApplicable =
     useMemo(() => {
@@ -635,7 +635,7 @@ export const SubscribeModal = ({
 
   /* =======================================================
    * BRANCH
-   * ===================================================== */
+   * ======================================================= */
 
   const selectedBranch =
     useMemo(() => {
@@ -651,7 +651,7 @@ export const SubscribeModal = ({
 
   /* =======================================================
    * INDIVIDUAL VALIDATION
-   * ===================================================== */
+   * ======================================================= */
 
   const individualPhoneValid =
     useMemo(() => {
@@ -669,7 +669,7 @@ export const SubscribeModal = ({
 
   /* =======================================================
    * MEMBER COUNT
-   * ===================================================== */
+   * ======================================================= */
 
   const memberCount =
     1 + groupMembers.length;
@@ -680,7 +680,7 @@ export const SubscribeModal = ({
 
   /* =======================================================
    * COUPON DISCOUNT
-   * ===================================================== */
+   * ======================================================= */
 
   const couponDiscountAmount =
     useMemo(() => {
@@ -746,7 +746,7 @@ export const SubscribeModal = ({
 
   /* =======================================================
    * INDIVIDUAL PRICE
-   * ===================================================== */
+   * ======================================================= */
 
   const individualFinalPrice =
     Math.max(
@@ -785,7 +785,7 @@ export const SubscribeModal = ({
 
   /* =======================================================
    * GROUP PRICE
-   * ===================================================== */
+   * ======================================================= */
 
   const groupMemberCount =
     memberCount;
@@ -858,6 +858,24 @@ export const SubscribeModal = ({
     groupFinalPricePerMember +
     groupGstPerMember;
 
+  /*
+   * IMPORTANT:
+   *
+   * This is the ORIGINAL package price + ORIGINAL GST.
+   *
+   * It must be used as the strike price when showing
+   * the group-discounted price.
+   *
+   * The previous UI incorrectly used:
+   *
+   * selectedPackage.price + groupGstPerMember
+   *
+   * which calculates GST AFTER the group discount.
+   *
+   * The strike price should represent the original
+   * GST-inclusive price before the group discount.
+   */
+
   const groupOriginalGstPerMember =
     Math.round(
       Number(
@@ -902,7 +920,7 @@ export const SubscribeModal = ({
 
   /* =======================================================
    * DISPLAYED TOTALS
-   * ===================================================== */
+   * ======================================================= */
 
   const displayedInvoiceTotal =
     isGroupCheckout
@@ -916,7 +934,7 @@ export const SubscribeModal = ({
 
   /* =======================================================
    * COUPON FILTERING
-   * ===================================================== */
+   * ======================================================= */
 
   const packageCoupons =
     useMemo(() => {
@@ -944,7 +962,7 @@ export const SubscribeModal = ({
 
   /* =======================================================
    * COUPON HANDLER
-   * ===================================================== */
+   * ======================================================= */
 
   const validateAndApplyCoupon =
     async (
@@ -1031,8 +1049,8 @@ export const SubscribeModal = ({
     };
 
   /* =======================================================
-   * MEMBER COUNT
-   * ===================================================== */
+   * CHANGE MEMBER COUNT
+   * ======================================================= */
 
   const changeMemberCount = (
     direction: -1 | 1
@@ -1089,7 +1107,7 @@ export const SubscribeModal = ({
 
   /* =======================================================
    * UPDATE GROUP MEMBER
-   * ===================================================== */
+   * ======================================================= */
 
   const updateGroupMember = (
     index: number,
@@ -1117,7 +1135,7 @@ export const SubscribeModal = ({
 
   /* =======================================================
    * GROUP VALIDATION
-   * ===================================================== */
+   * ======================================================= */
 
   const validateGroupMembers =
     () => {
@@ -1250,7 +1268,7 @@ export const SubscribeModal = ({
 
   /* =======================================================
    * RAZORPAY
-   * ===================================================== */
+   * ======================================================= */
 
   const openRazorpay = ({
     orderId,
@@ -1345,21 +1363,6 @@ export const SubscribeModal = ({
       setLoading(true);
 
       try {
-        /*
-         * ===================================================
-         * INDIVIDUAL CHECKOUT PAYLOAD
-         * ===================================================
-         *
-         * The backend now knows exactly:
-         *
-         * service
-         * sub-category
-         * package
-         * branch
-         *
-         * instead of having to infer sub-category.
-         */
-
         const payload = {
           name:
             form.name.trim(),
@@ -1521,12 +1524,6 @@ export const SubscribeModal = ({
               })
             ),
           ];
-
-        /*
-         * ===================================================
-         * GROUP CHECKOUT PAYLOAD
-         * ===================================================
-         */
 
         const payload = {
           serviceId:
@@ -2024,12 +2021,12 @@ export const SubscribeModal = ({
                   </div>
 
                   <div className="shrink-0 text-right">
+                    {/* FIX:
+                        Original price INCLUDING original GST */}
                     <p className="text-xs font-medium text-neutral-500 line-through">
                       ₹
                       {formatMoney(
-                        Number(
-                          selectedPackage.price
-                        )
+                        groupOriginalInvoicePerMember
                       )}
                     </p>
 
@@ -2217,12 +2214,12 @@ export const SubscribeModal = ({
                                 Each Person
                               </p>
 
+                              {/* FIX:
+                                  Original price INCLUDING original GST */}
                               <p className="text-xs font-medium text-neutral-500 line-through">
                                 ₹
                                 {formatMoney(
-                                  Number(
-                                    selectedPackage.price
-                                  )
+                                  groupOriginalInvoicePerMember
                                 )}
                               </p>
 
