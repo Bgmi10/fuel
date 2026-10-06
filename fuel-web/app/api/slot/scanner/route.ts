@@ -4,6 +4,7 @@ import {
 } from "next/server";
 
 import { prisma } from "@/prisma";
+import { Prisma } from "@prisma/client";
 
 const GYM_TIME_ZONE =
   "Asia/Kolkata";
@@ -703,6 +704,22 @@ export async function POST(
           }
 
           // =========================================
+// MARK GYM ATTENDANCE
+// =========================================
+
+        await tx.memberAttendance.create({
+          data: {
+            memberId: booking.memberId,
+            branchId: booking.branchId,
+            subscriptionId: booking.subscriptionId,
+            slotBookingId: booking.id,
+            slotId: booking.slotId,
+            checkInAt: now,
+            dateKey: getDateKey(now, GYM_TIME_ZONE),
+            sessionDeducted,
+          },
+        });
+          // =========================================
           // FRESH RESULT
           // =========================================
 
@@ -913,6 +930,21 @@ export async function POST(
       },
     });
   } catch (error) {
+
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2002"
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          reason: "ALREADY_CHECKED_IN",
+          message: "Session already verified.",
+        },
+        { status: 409 }
+      );
+    }
+    
     if (
       error instanceof
       ScannerError

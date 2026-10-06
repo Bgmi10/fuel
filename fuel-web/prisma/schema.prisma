@@ -127,6 +127,7 @@
     users         User[]
     slots         Slot[]
     slotBookings  SlotBooking[]
+    memberAttendances MemberAttendance[]
     tvDevices     TvDevice[]
 
     createdAt                DateTime                   @default(now())
@@ -393,6 +394,7 @@
     status         SlotBookingEnum @default(BOOKED)
     createdAt      DateTime        @default(now())
     updatedAt      DateTime        @updatedAt
+    attendance MemberAttendance?
 
     @@unique([memberId, slotId, bookingDate])
     @@index([slotId, bookingDate])
@@ -470,6 +472,7 @@
     status MemberStatus @default(ACTIVE)
 
     subscriptions Subscription[]
+    attendances MemberAttendance[]
 
     invoices Invoice[]
 
@@ -849,6 +852,7 @@
   outgoingMembershipTransfers MembershipTransfer[]  @relation("MembershipTransferSource")
 
   incomingTransfer MembershipTransfer?  @relation("TransferDestination")
+  attendances MemberAttendance[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1262,3 +1266,36 @@ model Expense {
   createdAt DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 } 
+
+model MemberAttendance {
+  id String @id @default(cuid())
+
+  memberId String
+  member   Member @relation(fields: [memberId], references: [id])
+
+  branchId String
+  branch   Branch @relation(fields: [branchId], references: [id])
+
+  subscriptionId String
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id])
+
+  // One attendance row per booking. This also acts as a duplicate guard.
+  // Nullable so walk-in / manual check-ins can be added later.
+  slotBookingId String?      @unique
+  slotBooking   SlotBooking? @relation(fields: [slotBookingId], references: [id])
+
+  slotId String?
+
+  checkInAt DateTime @default(now())
+
+  // Gym-local day (Asia/Kolkata), "YYYY-MM-DD", for easy daily reports
+  dateKey String
+
+  sessionDeducted Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@index([memberId, dateKey])
+  @@index([branchId, dateKey])
+  @@index([subscriptionId])
+}

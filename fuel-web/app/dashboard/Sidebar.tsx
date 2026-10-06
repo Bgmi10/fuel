@@ -103,6 +103,12 @@ const navSections: NavSection[] = [
         href: "/dashboard/attendance",
         icon: ClipboardCheck,
       },
+      
+      {
+        label: "Member Attendance",
+        href: "/dashboard/member-attendance",
+        icon: ClipboardCheck,
+      },
       {
         label: "Branches",
         href: "/dashboard/branches",
