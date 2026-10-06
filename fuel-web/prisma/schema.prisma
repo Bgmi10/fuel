@@ -817,8 +817,8 @@
   package   ServicePackage @relation(fields: [packageId], references: [id])
 
   invoiceId String? @unique
-  invoice   Invoice? @relation(fields: [invoiceId], references: [id])
-
+  invoice   Invoice? @relation("SubscriptionPrimaryInvoice", fields: [invoiceId], references: [id])
+  invoices Invoice[] @relation("SubscriptionInvoices")
   // ADD THIS
   subCategoryId String?
   subCategory   ServiceSubCategory? @relation(fields: [subCategoryId], references: [id], onDelete: SetNull)
@@ -887,7 +887,9 @@ model Invoice {
   subCategoryId String?
   subCategory   ServiceSubCategory? @relation(fields: [subCategoryId], references: [id], onDelete: SetNull)
 
-  subscription Subscription?
+  subscription Subscription? @relation("SubscriptionPrimaryInvoice")
+  linkedSubscriptionId String?
+  linkedSubscription   Subscription? @relation("SubscriptionInvoices", fields: [linkedSubscriptionId], references: [id])
 
   salesRepId String?
   salesRep   User? @relation(fields: [salesRepId], references: [id])
@@ -935,6 +937,7 @@ model Invoice {
   updatedAt DateTime @updatedAt
 
   // Recommended
+  @@index([linkedSubscriptionId])
   @@index([subCategoryId])
 }
 
