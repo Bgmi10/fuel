@@ -1,3 +1,4 @@
+import axios from "axios";
 import { sendEmail } from "@/src/lib/services/email";
 import { prisma } from "@/prisma";
 import { NextRequest, NextResponse } from "next/server";
@@ -80,36 +81,71 @@ export async function POST(req: NextRequest) {
       });
 
       // =======================================================
-      // EMAIL ONLY
+      // SEND OTP VIA SMS
       // =======================================================
 
-      if (!member.email) {
-        return NextResponse.json(
-          {
-            success: false,
-            message: "Member does not have an email address",
+      let smsSent = false;
+
+      try {
+        const apiKey = process.env.APITXT_API_KEY;
+
+        if (!apiKey) {
+          throw new Error("APITXT_API_KEY is not configured");
+        }
+
+        await axios.get("https://apitxt.com/api/sendOTP", {
+          params: {
+            authkey: apiKey,
+            mobile: `91${phone}`,
+            otp,
           },
-          { status: 400 }
+        });
+
+        smsSent = true;
+      } catch (error: any) {
+        console.error(
+          "SMS OTP ERROR:",
+          error.response?.data || error.message
         );
       }
 
-      try {
-        await sendEmail({
-          to: member.email.trim().toLowerCase(),
-          templateId: 2,
-          name: member.name,
-          params: {
-            otp,
-            name: member.name,
-          },
-        });
-      } catch (error) {
-        console.error("EMAIL OTP ERROR:", error);
+      // =======================================================
+      // SEND OTP VIA EMAIL
+      // =======================================================
 
+      let emailSent = false;
+
+      if (member.email) {
+        try {
+          await sendEmail({
+            to: member.email.trim().toLowerCase(),
+            templateId: 2,
+            name: member.name,
+            params: {
+              otp,
+              name: member.name,
+            },
+          });
+
+          emailSent = true;
+        } catch (error) {
+          console.error("EMAIL OTP ERROR:", error);
+        }
+      }
+
+      // =======================================================
+      // CHECK WHETHER AT LEAST ONE CHANNEL SUCCEEDED
+      // =======================================================
+
+      if (!smsSent && !emailSent) {
         return NextResponse.json(
           {
             success: false,
-            message: "Failed to send OTP email",
+            message: "Failed to send OTP",
+            channels: {
+              sms: false,
+              email: false,
+            },
           },
           { status: 500 }
         );
@@ -117,10 +153,10 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({
         success: true,
-        message: "OTP sent successfully to email",
+        message: "OTP sent successfully",
         channels: {
-          sms: false,
-          email: true,
+          sms: smsSent,
+          email: emailSent,
         },
       });
     }
@@ -195,6 +231,10 @@ export async function POST(req: NextRequest) {
         },
       });
     }
+
+    // =========================================================
+    // INVALID TYPE
+    // =========================================================
 
     return NextResponse.json(
       {
