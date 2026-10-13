@@ -1,14 +1,31 @@
 import { prisma } from "@/prisma";
-import { NextResponse } from "next/server";
+import { getUserFromRequest } from "@/app/utils/auth";
+import { SubscriptionStatus } from "@prisma/client";
+import { NextRequest, NextResponse } from "next/server";
 
-export async function GET() {
+export const dynamic = "force-dynamic";
+
+export async function GET(request: NextRequest) {
   try {
+    const user = await getUserFromRequest(request);
+
+    if (!user?.id) {
+      return NextResponse.json(
+        {
+          success: false,
+          count: 0,
+          members: [],
+          message: "You must be logged in.",
+        },
+        { status: 401 }
+      );
+    }
+
     const members = await prisma.member.findMany({
       where: {
+        ...(user.branchId ? { branchId: user.branchId } : {}),
         subscriptions: {
-          some: {
-            status: "FROZEN",
-          },
+          some: { status: SubscriptionStatus.FROZEN },
         },
       },
 
@@ -16,36 +33,56 @@ export async function GET() {
         branch: true,
         coach: true,
 
-        // Only return the frozen subscription(s)
+        // only the frozen subscription(s)
         subscriptions: {
-          where: {
-            status: "FROZEN",
-          },
-          orderBy: {
-            endDate: "desc",
-          },
-          take: 1,
+          where: { status: SubscriptionStatus.FROZEN },
         },
       },
 
-      orderBy: {
-        createdAt: "desc",
-      },
+      orderBy: { createdAt: "desc" },
     });
 
-    const enriched = members.map(({ subscriptions, ...member }) => {
-      const subscription = subscriptions[0] ?? null;
+    const time = (value: Date | null) => (value ? value.getTime() : 0);
+
+    const enriched = members.map((member) => {
+      const {
+        otpCode,
+        otpType,
+        otpExpiresAt,
+        otpVerifiedAt,
+        onBoardingForm,
+        subscriptions,
+        ...safe
+      } = member;
+
+      // If a member has several frozen memberships, show the most recent freeze
+      const subscription =
+        [...subscriptions].sort(
+          (a, b) =>
+            time(b.freezeStart) - time(a.freezeStart) ||
+            b.endDate.getTime() - a.endDate.getTime()
+        )[0] ?? null;
 
       return {
-        ...member,
+        ...safe,
 
         currentStatus: "FROZEN",
 
-        currentPlan: subscription?.packageId ?? null,
-
+        membershipName: subscription?.packageName ?? null,
+        serviceName: subscription?.serviceName ?? null,
+        freezeStart: subscription?.freezeStart ?? null,
+        freezeEnd: subscription?.freezeEnd ?? null,
         endDate: subscription?.endDate ?? null,
+        frozenCount: subscriptions.length,
 
-        frozenSubscription: subscription,
+        frozenSubscription: subscription
+          ? {
+              id: subscription.id,
+              packageId: subscription.packageId,
+              status: subscription.status,
+              endDate: subscription.endDate,
+            }
+          : null,
       };
     });
 
@@ -64,9 +101,7 @@ export async function GET() {
         members: [],
         message: "Failed to fetch frozen members",
       },
-      {
-        status: 500,
-      }
+      { status: 500 }
     );
   }
 }

@@ -3,7 +3,12 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const GET = async () => {
   try {
-    const branches = await prisma.branch.findMany({});
+    const branches = await prisma.branch.findMany({
+      include: {
+        tvDevices: true,
+        
+      }
+    });
 
     return NextResponse.json({ success: true, branches });
   } catch (e) {

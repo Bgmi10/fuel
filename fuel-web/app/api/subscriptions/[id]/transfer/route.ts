@@ -22,6 +22,7 @@ class TransferError extends Error {
 type RequestBody = {
   toMemberId?: string;
   paymentMode?: string;
+  /** RUPEES, as entered in the transfer modal. Converted to paise below. */
   paidAmount?: number;
   notes?: string;
   reason?: string;
@@ -38,6 +39,13 @@ const allowedTransferRoles = new Set([
   "MANAGER",
   "STAFF",
 ]);
+
+/**
+ * The quote and the modal work in RUPEES. The database stores
+ * money in PAISE, so convert once, right before saving.
+ */
+const toPaise = (rupees: number | null | undefined) =>
+  Math.round(Number(rupees ?? 0) * 100);
 
 export async function POST(
   request: NextRequest,
@@ -76,9 +84,6 @@ export async function POST(
     const body =
       (await request.json()) as RequestBody;
 
-
-    console.log(body.paidAmount, typeof body.paidAmount);
-
     const toMemberId =
       body.toMemberId?.trim();
 
@@ -96,6 +101,14 @@ export async function POST(
         "Please enter the reason for the transfer."
       );
     }
+
+    // Amount collected: rupees from the modal -> paise for the DB.
+    const amountCollectedPaise =
+      typeof body.paidAmount === "number" &&
+      Number.isFinite(body.paidAmount) &&
+      body.paidAmount >= 0
+        ? toPaise(body.paidAmount)
+        : null;
 
     const result = await prisma.$transaction(
       async (tx) => {
@@ -181,6 +194,7 @@ export async function POST(
          * and central settings inside this transaction.
          *
          * Never trust a fee provided by the frontend.
+         * (quote amounts are in RUPEES)
          */
         let quote;
 
@@ -275,7 +289,25 @@ export async function POST(
         }
 
         /*
-         * Store the complete transfer-fee snapshot.
+         * MembershipTransfer.toSubscriptionId is UNIQUE and powers
+         * Subscription.incomingTransfer.
+         *
+         * If this membership was transferred before (A -> B, now
+         * B -> C), release the old link first so only the LATEST
+         * transfer is the "incoming" one.
+         */
+        await tx.membershipTransfer.updateMany({
+          where: {
+            toSubscriptionId: subscriptionId,
+          },
+
+          data: {
+            toSubscriptionId: null,
+          },
+        });
+
+        /*
+         * Store the complete transfer-fee snapshot, in PAISE.
          *
          * Future changes to central settings will not
          * affect this historical transfer record.
@@ -286,13 +318,17 @@ export async function POST(
               subscriptionId,
 
               fromMemberId,
-              amountCollected: body?.paidAmount,
-              notes: body?.notes,
-              paymentMode: body?.paymentMode,
 
+              amountCollected:
+                amountCollectedPaise,
+              notes: body.notes?.trim() || null,
+              paymentMode: body.paymentMode || null,
 
               toMemberId:
                 receivingMember.id,
+
+              toSubscriptionId:
+                subscriptionId,
 
               reason,
 
@@ -311,23 +347,25 @@ export async function POST(
               feeSlabMaxDays:
                 quote.slab.maxDays,
 
+              // ---- money: rupees -> paise ----
               baseTransferFee:
-                quote.baseTransferFee,
+                toPaise(quote.baseTransferFee),
 
+              cgstAmount:
+                toPaise(quote.cgstAmount),
+
+              sgstAmount:
+                toPaise(quote.sgstAmount),
+
+              transferFee:
+                toPaise(quote.transferFee),
+
+              // percentages are NOT money, store as-is
               cgstPercentage:
                 quote.cgstPercentage,
 
               sgstPercentage:
                 quote.sgstPercentage,
-
-              cgstAmount:
-                quote.cgstAmount,
-
-              sgstAmount:
-                quote.sgstAmount,
-
-              transferFee:
-                quote.transferFee,
 
               transferredById:
                 user.id,
@@ -356,6 +394,8 @@ export async function POST(
 
           reason,
 
+          // Response keeps the quote's RUPEE values, so the
+          // transfer modal that reads it keeps working.
           fee: {
             remainingDays:
               quote.remainingDays,

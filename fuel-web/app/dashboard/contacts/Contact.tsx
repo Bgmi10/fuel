@@ -2,12 +2,14 @@
 
 import { useEffect, useState } from "react";
 
+
 type Inquiry = {
   id: string;
   name: string;
   phone: string;
   email?: string;
   message?: string;
+  preferredTimeToContact?: string | null;
   status: "PENDING" | "CONTACTED" | "RESOLVED";
   source: "WEB" | "INSTAGRAM" | "REFERRAL" | "WALKIN";
   createdAt: string;
@@ -140,6 +142,7 @@ export const Contact = () => {
             <tr>
               <th className="p-4">Name</th>
               <th>Phone</th>
+              <th>Preferred Time</th>
               <th>Email</th>
               <th>Message</th>
               <th>Source</th>
@@ -162,6 +165,10 @@ export const Contact = () => {
                 <td className="text-neutral-300">
                   {i.phone}
                 </td>
+
+                <td className="text-neutral-300 text-xs whitespace-nowrap">
+  {i.preferredTimeToContact || "-"}
+</td>
 
                 <td className="text-neutral-400 text-xs">
                   {i.email || "-"}

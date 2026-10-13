@@ -1,47 +1,30 @@
-import { prisma } from "@/prisma";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
-export const GET = async () => {
+import { getUserFromRequest } from "@/app/utils/auth";
+import { listMembers } from "@/src/lib/member-list";
+
+export const dynamic = "force-dynamic";
+
+export const GET = async (request: NextRequest) => {
   try {
-    const members = await prisma.member.findMany({
-      where: {
-        subscriptions: {
-          some: {
-            status: {
-              notIn: ["FROZEN", "CANCELLED", "TRANSFERRED", "EXPIRED"],
-            },
-          },
-        },
-      },
+    const user = await getUserFromRequest(request);
 
-      include: {
-        branch: true,
-        coach: true,
+    if (!user?.id) {
+      return NextResponse.json(
+        { success: false, message: "You must be logged in." },
+        { status: 401 }
+      );
+    }
 
-        subscriptions: true
-      },
-    });
+    const members = await listMembers("active", user.branchId ?? null);
 
-    const enriched = members.map((m) => {
-      const sub = m.subscriptions[0];
+    return NextResponse.json({ success: true, members });
+  } catch (error) {
+    console.error("Failed to load active members:", error);
 
-      return {
-        ...m,
-        currentStatus: "ACTIVE",
-        currentPlan: sub?.packageId || null,
-        endDate: sub?.endDate || null,
-      };
-    });
-
-    return NextResponse.json({
-      success: true,
-      members: enriched,
-    });
-  } catch (e) {
-    console.log(e);
-
-    return NextResponse.json({
-      success: false,
-    });
+    return NextResponse.json(
+      { success: false, message: "Failed to load members." },
+      { status: 500 }
+    );
   }
 };

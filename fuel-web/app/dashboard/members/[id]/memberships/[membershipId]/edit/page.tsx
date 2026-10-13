@@ -7,7 +7,9 @@ import {
   CheckCircle2,
   Download,
   Loader2,
+  Lock,
   Save,
+  Wallet,
 } from "lucide-react";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -100,7 +102,6 @@ type GstSetting = { cgstPercentage: number; sgstPercentage: number } | null;
  * payment rows, never from the stored paidAmount/balanceAmount.
  *
  * TOTAL PAYABLE = finalAmount + totalTax - discountAmount
- * (exactly what the billing history page shows as Final Amount)
  * ============================================================ */
 
 const money = (paise: number) => `₹${paiseToRupees(paise || 0)}`;
@@ -118,6 +119,16 @@ const invoiceTotal = (invoice: Invoice) =>
 
 const invoiceBalance = (invoice: Invoice) =>
   Math.max(invoiceTotal(invoice) - sumPaid(invoice.payments), 0);
+
+/**
+ * Offline payment modes. Package downgrades / lower amounts are only
+ * allowed when EVERY paid payment used one of these.
+ * (Must match the route.)
+ */
+const OFFLINE_PAYMENT_MODES = new Set(["cash", "gpay"]);
+
+const isOfflineMode = (mode: string | null | undefined) =>
+  OFFLINE_PAYMENT_MODES.has((mode ?? "").trim().toLowerCase());
 
 /**
  * Same GST rule as the route:
@@ -243,6 +254,9 @@ export default function EditMembershipPage() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
 
+  // Optional manual total in RUPEES (GST included). Offline-paid only.
+  const [customTotalInput, setCustomTotalInput] = useState("");
+
   const [initialService, setInitialService] = useState("");
   const [initialSubCategory, setInitialSubCategory] = useState("");
   const [initialPackage, setInitialPackage] = useState("");
@@ -279,6 +293,7 @@ export default function EditMembershipPage() {
       setSelectedBranch(branchId);
       setStartDate(formattedStart);
       setEndDate(formattedEnd);
+      setCustomTotalInput("");
 
       setInitialService(serviceId);
       setInitialSubCategory(subCategoryId);
@@ -478,6 +493,43 @@ export default function EditMembershipPage() {
   const totalCollectedPaise = originalPaidPaise + upgradePaidPaise;
 
   /* ----------------------------------------------------------
+   * OFFLINE-ONLY RULE
+   * Downgrades / lower amounts are allowed only when every PAID
+   * payment on this membership was Cash or GPay.
+   * ---------------------------------------------------------- */
+
+  const onlineModesUsed = useMemo(() => {
+    const payments = [
+      ...(subscription?.invoice?.payments ?? []),
+      ...upgradeInvoices.flatMap((inv) => inv.payments),
+    ];
+
+    return Array.from(
+      new Set(
+        payments
+          .filter((p) => p.status === "PAID" && !isOfflineMode(p.paymentMode))
+          .map((p) => p.paymentMode)
+      )
+    );
+  }, [subscription, upgradeInvoices]);
+
+  const offlineEligible = onlineModesUsed.length === 0;
+
+  /** null = blank, NaN = invalid, number = paise */
+  const customTotalPaise = useMemo(() => {
+    const text = customTotalInput.trim();
+    if (!text) return null;
+
+    const value = Number(text);
+    if (!Number.isFinite(value) || value <= 0) return Number.NaN;
+
+    return Math.round(value * 100);
+  }, [customTotalInput]);
+
+  const customTotalActive =
+    offlineEligible && customTotalPaise !== null && !Number.isNaN(customTotalPaise);
+
+  /* ----------------------------------------------------------
    * BILLING PREVIEW (the server stays authoritative)
    * ---------------------------------------------------------- */
 
@@ -512,15 +564,25 @@ export default function EditMembershipPage() {
 
     const billedSoFar = invoiceTotal(invoice) + upgradeBilledPaise;
 
-    // Same rule as the server: no package change = billing untouched.
-    const actualAmount = packageChanged ? newTotal : billedSoFar;
+    // No package change and no custom total = billing untouched.
+    const actualAmount =
+      customTotalActive && customTotalPaise !== null
+        ? customTotalPaise
+        : packageChanged
+          ? newTotal
+          : billedSoFar;
 
     // > 0: a NEW upgrade invoice will be raised
-    // < 0: unpaid upgrade balances will shrink
+    // < 0: total is being lowered
     const upgradeDelta = actualAmount - billedSoFar;
 
-    // Cheapest total allowed without a refund/credit workflow
+    // Cheapest total allowed when an online payment exists
     const floor = invoiceTotal(invoice) + upgradePaidPaise;
+
+    // Offline-paid: whatever was collected above the new total is refunded
+    const refundDue = offlineEligible
+      ? Math.max(totalCollectedPaise - actualAmount, 0)
+      : 0;
 
     return {
       packageChanged,
@@ -535,7 +597,8 @@ export default function EditMembershipPage() {
       actualAmount,
       upgradeDelta,
       floor,
-      belowPaid: actualAmount < floor,
+      refundDue,
+      belowPaid: !offlineEligible && actualAmount < floor,
       balance: Math.max(actualAmount - totalCollectedPaise, 0),
     };
   }, [
@@ -545,6 +608,9 @@ export default function EditMembershipPage() {
     upgradeBilledPaise,
     upgradePaidPaise,
     totalCollectedPaise,
+    offlineEligible,
+    customTotalActive,
+    customTotalPaise,
   ]);
 
   /* ----------------------------------------------------------
@@ -591,7 +657,8 @@ export default function EditMembershipPage() {
     selectedPackage !== initialPackage ||
     selectedBranch !== initialBranch ||
     startDate !== initialStartDate ||
-    endDate !== initialEndDate;
+    endDate !== initialEndDate ||
+    (offlineEligible && customTotalInput.trim() !== "");
 
   /* ----------------------------------------------------------
    * SAVE
@@ -615,10 +682,28 @@ export default function EditMembershipPage() {
       return setError("End date cannot be before the start date.");
     }
 
+    if (
+      offlineEligible &&
+      customTotalInput.trim() !== "" &&
+      (customTotalPaise === null || Number.isNaN(customTotalPaise))
+    ) {
+      return setError("Enter a valid custom total greater than zero.");
+    }
+
     if (billingPreview?.belowPaid) {
       return setError(
-        `The selected membership total is below ${money(billingPreview.floor)} (original invoice plus amounts already paid on upgrade invoices). A refund or credit decision is required.`
+        `This membership has an online payment (${onlineModesUsed.join(", ")}), so the total cannot go below ${money(billingPreview.floor)}. Lowering below the paid amount is only allowed when every payment was made via Cash or GPay.`
       );
+    }
+
+    if (billingPreview && billingPreview.refundDue > 0) {
+      const confirmed = window.confirm(
+        `This lowers the membership total below what was collected.\n\n` +
+          `You must hand ${money(billingPreview.refundDue)} back to the member (offline refund). ` +
+          `The matching payment(s) will be marked REFUNDED.\n\nContinue?`
+      );
+
+      if (!confirmed) return;
     }
 
     try {
@@ -634,6 +719,7 @@ export default function EditMembershipPage() {
           branchId: selectedBranch,
           startDate,
           endDate,
+          customTotal: customTotalActive ? customTotalPaise : undefined,
         }),
       });
 
@@ -903,8 +989,9 @@ export default function EditMembershipPage() {
               <div className="mb-6">
                 <h3 className="text-lg font-semibold">Invoices</h3>
                 <p className="mt-1 text-sm text-neutral-500">
-                  The original invoice is never changed. Package upgrades are
-                  billed on separate invoices.
+                  Package upgrades are billed on separate invoices. Lowering a
+                  total below what was paid is only possible when every payment
+                  was made via Cash or GPay.
                 </p>
               </div>
 
@@ -1014,7 +1101,8 @@ export default function EditMembershipPage() {
                 <div>
                   <h3 className="text-lg font-semibold">Payment History</h3>
                   <p className="mt-1 text-sm text-neutral-500">
-                    Historical payments are never changed by membership editing.
+                    Payments are only changed when an offline (Cash/GPay) refund
+                    is recorded after lowering the membership.
                   </p>
                 </div>
 
@@ -1044,52 +1132,67 @@ export default function EditMembershipPage() {
                     </thead>
 
                     <tbody>
-                      {allPayments.map((payment) => (
-                        <tr
-                          key={payment.id}
-                          className="border-b border-neutral-900 last:border-0"
-                        >
-                          <td className="py-4 pr-4 font-medium">
-                            {payment.receiptNumber}
-                          </td>
-                          <td className="py-4 pr-4 text-neutral-400">
-                            {formatPaymentDate(payment.paidAt)}
-                          </td>
-                          <td className="py-4 pr-4 text-neutral-400">
-                            <span className="block">{payment.invoiceNumber}</span>
-                            <span className="text-xs text-neutral-600">
-                              {payment.invoiceLabel}
-                            </span>
-                          </td>
-                          <td className="py-4 pr-4 text-neutral-400">
-                            {payment.paymentMode}
-                          </td>
-                          <td className="py-4 pr-4">
-                            <span className="rounded-full border border-neutral-700 bg-neutral-900 px-2.5 py-1 text-xs text-neutral-300">
-                              {payment.paymentType}
-                            </span>
-                          </td>
-                          <td className="py-4 pr-4 text-right font-semibold">
-                            {money(payment.amount)}
-                          </td>
-                          <td className="py-4 text-right">
-                            {payment.status === "PAID" && (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  window.open(
-                                    `/api/receipt/${payment.id}`,
-                                    "_blank"
-                                  )
-                                }
-                                className="h-9 rounded-xl border border-neutral-700 px-3 text-xs"
-                              >
-                                Receipt
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
+                      {allPayments.map((payment) => {
+                        const notPaid = payment.status !== "PAID";
+
+                        return (
+                          <tr
+                            key={payment.id}
+                            className="border-b border-neutral-900 last:border-0"
+                          >
+                            <td className="py-4 pr-4 font-medium">
+                              {payment.receiptNumber}
+                            </td>
+                            <td className="py-4 pr-4 text-neutral-400">
+                              {formatPaymentDate(payment.paidAt)}
+                            </td>
+                            <td className="py-4 pr-4 text-neutral-400">
+                              <span className="block">
+                                {payment.invoiceNumber}
+                              </span>
+                              <span className="text-xs text-neutral-600">
+                                {payment.invoiceLabel}
+                              </span>
+                            </td>
+                            <td className="py-4 pr-4 text-neutral-400">
+                              {payment.paymentMode}
+                            </td>
+                            <td className="py-4 pr-4">
+                              <span className="rounded-full border border-neutral-700 bg-neutral-900 px-2.5 py-1 text-xs text-neutral-300">
+                                {payment.paymentType}
+                              </span>
+                              {notPaid && (
+                                <span className="ml-2 rounded-full border border-red-500/30 bg-red-500/10 px-2.5 py-1 text-xs text-red-300">
+                                  {payment.status}
+                                </span>
+                              )}
+                            </td>
+                            <td
+                              className={`py-4 pr-4 text-right font-semibold ${
+                                notPaid ? "text-neutral-500 line-through" : ""
+                              }`}
+                            >
+                              {money(payment.amount)}
+                            </td>
+                            <td className="py-4 text-right">
+                              {payment.status === "PAID" && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    window.open(
+                                      `/api/receipt/${payment.id}`,
+                                      "_blank"
+                                    )
+                                  }
+                                  className="h-9 rounded-xl border border-neutral-700 px-3 text-xs"
+                                >
+                                  Receipt
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -1114,6 +1217,23 @@ export default function EditMembershipPage() {
 
               {billingPreview ? (
                 <div className="space-y-4">
+                  {/* OFFLINE / ONLINE RULE BADGE */}
+
+                  {offlineEligible ? (
+                    <div className="flex items-start gap-2 rounded-2xl border border-lime-500/30 bg-lime-500/10 p-3 text-xs text-lime-300">
+                      <Wallet size={16} className="mt-0.5 shrink-0" />
+                      All payments were Cash / GPay. Downgrades, lower totals
+                      and a custom amount are allowed.
+                    </div>
+                  ) : (
+                    <div className="flex items-start gap-2 rounded-2xl border border-neutral-700 bg-neutral-900 p-3 text-xs text-neutral-300">
+                      <Lock size={16} className="mt-0.5 shrink-0" />
+                      Online payment found ({onlineModesUsed.join(", ")}).
+                      Downgrades below the paid amount and custom amounts are
+                      locked.
+                    </div>
+                  )}
+
                   <div className="flex justify-between gap-4 text-sm">
                     <span className="text-neutral-500">Package</span>
                     <span className="text-right font-medium">
@@ -1163,12 +1283,42 @@ export default function EditMembershipPage() {
                     </div>
                   </div>
 
+                  {/* CUSTOM TOTAL (offline only) */}
+
+                  {offlineEligible && (
+                    <div>
+                      <label className="mb-2 block text-sm text-neutral-400">
+                        Custom total (₹, GST included) — optional
+                      </label>
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        min="0"
+                        step="0.01"
+                        value={customTotalInput}
+                        disabled={saving}
+                        onChange={(e) => setCustomTotalInput(e.target.value)}
+                        placeholder="Leave blank to use the package price"
+                        className={inputClass}
+                      />
+                      {customTotalInput.trim() !== "" &&
+                        (customTotalPaise === null ||
+                          Number.isNaN(customTotalPaise)) && (
+                          <p className="mt-1 text-xs text-red-300">
+                            Enter an amount greater than zero.
+                          </p>
+                        )}
+                    </div>
+                  )}
+
                   <div className="rounded-2xl border border-neutral-700 bg-black p-4">
                     <div className="flex justify-between gap-4">
                       <span className="font-medium">
                         Actual Price
                         <span className="block text-xs font-normal text-neutral-600">
-                          GST included
+                          {customTotalActive
+                            ? "Custom amount, GST included"
+                            : "GST included"}
                         </span>
                       </span>
                       <span className="text-xl font-bold">
@@ -1205,12 +1355,30 @@ export default function EditMembershipPage() {
                     </div>
                   </div>
 
+                  {billingPreview.refundDue > 0 && (
+                    <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4">
+                      <div className="flex justify-between gap-4">
+                        <div>
+                          <p className="font-medium text-red-300">
+                            Refund to Member
+                          </p>
+                          <p className="mt-1 text-xs text-red-300/70">
+                            Hand back in cash / GPay
+                          </p>
+                        </div>
+                        <span className="text-xl font-bold text-red-300">
+                          {money(billingPreview.refundDue)}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
                   {billingPreview.belowPaid ? (
                     <div className="flex items-start gap-2 rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-xs text-red-300">
                       <AlertCircle size={16} className="mt-0.5 shrink-0" />
-                      This total is below {money(billingPreview.floor)}{" "}
-                      (original invoice + amounts already paid on upgrade
-                      invoices). A refund or credit decision is needed first.
+                      This total is below {money(billingPreview.floor)}. An
+                      online payment exists on this membership, so it can only
+                      be lowered by reducing unpaid upgrade balances.
                     </div>
                   ) : billingPreview.upgradeDelta > 0 ? (
                     <div className="rounded-2xl border border-blue-500/30 bg-blue-500/10 p-4 text-xs text-blue-300">
@@ -1219,15 +1387,18 @@ export default function EditMembershipPage() {
                         {money(billingPreview.upgradeDelta)}
                       </span>{" "}
                       (GST included). Collect it from the Invoices card after
-                      saving. The original invoice and payments stay untouched.
+                      saving.
                     </div>
                   ) : billingPreview.upgradeDelta < 0 ? (
                     <div className="rounded-2xl border border-blue-500/30 bg-blue-500/10 p-4 text-xs text-blue-300">
-                      Saving will reduce unpaid upgrade invoice balances by{" "}
+                      Saving will lower the membership total by{" "}
                       <span className="font-semibold">
                         {money(-billingPreview.upgradeDelta)}
                       </span>
-                      .
+                      . Unpaid balances are reduced first
+                      {billingPreview.refundDue > 0
+                        ? `, then ${money(billingPreview.refundDue)} of the offline payment is marked as refunded.`
+                        : "."}
                     </div>
                   ) : null}
 

@@ -1,8 +1,13 @@
 "use client";
 
 import { paiseToRupees } from "@/app/utils/helper";
-import { Invoice, Payment, Subscription } from "@prisma/client";
-import { ArrowLeft, Download } from "lucide-react";
+import {
+  Invoice,
+  MembershipTransfer,
+  Payment,
+  Subscription,
+} from "@prisma/client";
+import { ArrowLeft, ArrowRightLeft, Download } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CollectBalanceModal } from "../../../CollectBalanceModal";
@@ -11,8 +16,14 @@ type InvoiceWithPayments = Invoice & {
   payments: Payment[];
 };
 
+type IncomingTransfer = MembershipTransfer & {
+  fromMember: { id: string; name: string; phone?: string | null };
+  transferInvoice: InvoiceWithPayments | null;
+};
+
 type SubscriptionType = Subscription & {
   invoice: InvoiceWithPayments | null;
+  incomingTransfer?: IncomingTransfer | null;
 };
 
 /* ============================================================
@@ -48,6 +59,60 @@ const statusClass = (status: string) =>
     : status === "CANCELLED"
     ? "bg-neutral-700/30 text-neutral-400"
     : "bg-red-400/15 text-red-400";
+
+/* ============================================================
+ * TRANSFER BILL HELPERS (same maths as the transfer-bill route)
+ * ============================================================ */
+
+function transferBill(transfer: IncomingTransfer) {
+  const total = Math.max(transfer.transferFee || 0, 0);
+
+  const hasSplit =
+    transfer.cgstAmount !== null &&
+    transfer.cgstAmount !== undefined &&
+    transfer.sgstAmount !== null &&
+    transfer.sgstAmount !== undefined;
+
+  const tax = hasSplit
+    ? Math.round(transfer.cgstAmount ?? 0) + Math.round(transfer.sgstAmount ?? 0)
+    : Math.max(total - (transfer.baseTransferFee || 0), 0);
+
+  const cgst = hasSplit
+    ? Math.round(transfer.cgstAmount ?? 0)
+    : Math.round(tax / 2);
+
+  const sgst = hasSplit ? Math.round(transfer.sgstAmount ?? 0) : tax - cgst;
+
+  const base = Math.max(total - tax, 0);
+
+  const payments = transfer.transferInvoice?.payments ?? [];
+
+  const paid = payments.length
+    ? sumPaid(payments)
+    : transfer.amountCollected ?? 0;
+
+  const balance = Math.max(total - paid, 0);
+
+  const paymentMode =
+    transfer.paymentMode ||
+    payments.find((p) => p.status === "PAID")?.paymentMode ||
+    "-";
+
+  const billNumber =
+    transfer.transferInvoice?.invoiceNumber ??
+    `TRF-${transfer.id.slice(-8).toUpperCase()}`;
+
+  const status =
+    total === 0
+      ? "NO FEE"
+      : paid >= total
+      ? "FULLY_PAID"
+      : paid > 0
+      ? "PARTIAL_PAID"
+      : "PENDING";
+
+  return { total, tax, cgst, sgst, base, paid, balance, paymentMode, billNumber, status };
+}
 
 export default function Page() {
   const { membershipId: id } = useParams();
@@ -122,6 +187,206 @@ export default function Page() {
       </div>
     );
   }
+
+  /* ============================================================
+   * TRANSFERRED-IN MEMBERSHIP
+   * Only the transfer fee bill is shown. The previous owner's
+   * invoices and payments are not relevant to this member.
+   * ============================================================ */
+
+  const incomingTransfer = subscription.incomingTransfer ?? null;
+
+  if (incomingTransfer) {
+    const bill = transferBill(incomingTransfer);
+
+    return (
+      <div className="min-h-screen bg-black text-white p-6">
+        <div className="max-w-5xl mx-auto">
+
+          {/* HEADER */}
+          <div className="flex items-center gap-4 mb-8">
+            <button
+              onClick={() => router.back()}
+              className="w-11 h-11 rounded-2xl border border-neutral-800 bg-neutral-950 flex items-center justify-center"
+            >
+              <ArrowLeft size={18} />
+            </button>
+
+            <div>
+              <h1 className="text-2xl font-bold">Billing History</h1>
+
+              <p className="text-sm text-neutral-500">
+                {subscription.packageName} • {subscription.serviceName}
+              </p>
+            </div>
+          </div>
+
+          {/* TRANSFER NOTICE */}
+          <div className="mb-6 flex items-start gap-3 rounded-2xl border border-blue-500/30 bg-blue-500/10 p-4 text-sm text-blue-300">
+            <ArrowRightLeft size={18} className="mt-0.5 shrink-0" />
+            <p>
+              This membership was transferred from{" "}
+              <span className="font-semibold">
+                {incomingTransfer.fromMember.name}
+              </span>
+              . Only the transfer fee bill is shown here.
+            </p>
+          </div>
+
+          {/* SUMMARY */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+            <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-5">
+              <p className="text-xs text-neutral-500">Transfer Fee</p>
+              <p className="mt-2 text-xl font-bold">{money(bill.total)}</p>
+              <p className="mt-1 text-xs text-neutral-600">GST included</p>
+            </div>
+
+            <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-5">
+              <p className="text-xs text-neutral-500">Total Paid</p>
+              <p className="mt-2 text-xl font-bold text-lime-400">
+                {money(bill.paid)}
+              </p>
+            </div>
+
+            <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-5">
+              <p className="text-xs text-neutral-500">Total Balance</p>
+              <p className="mt-2 text-xl font-bold text-yellow-400">
+                {money(bill.balance)}
+              </p>
+            </div>
+          </div>
+
+          {/* TRANSFER BILL */}
+          <div className="bg-neutral-900 border border-neutral-800 rounded-3xl p-6">
+            <div className="flex items-start justify-between flex-wrap gap-4">
+              <div>
+                <p className="text-xs uppercase tracking-wider text-neutral-500">
+                  Transfer Bill
+                </p>
+
+                <h2 className="text-xl font-bold mt-1">Membership Transfer Fee</h2>
+
+                <p className="text-sm text-neutral-400 mt-1">
+                  {bill.billNumber} • {subscription.serviceName} •{" "}
+                  {subscription.packageName}
+                </p>
+
+                <p className="text-xs text-neutral-600 mt-1">
+                  Transferred on{" "}
+                  {new Date(incomingTransfer.createdAt).toLocaleDateString("en-IN")}
+                </p>
+
+                <div className="mt-3">
+                  <span
+                    className={`px-3 py-1 rounded-full text-xs ${
+                      bill.status === "NO FEE"
+                        ? "bg-neutral-700/30 text-neutral-400"
+                        : statusClass(bill.status)
+                    }`}
+                  >
+                    {bill.status.replace("_", " ")}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex gap-2 items-center">
+                <button
+                  onClick={() =>
+                    window.open(
+                      `/api/transfer-bill/${incomingTransfer.id}`,
+                      "_blank"
+                    )
+                  }
+                  className="h-10 px-4 rounded-xl border border-neutral-700 flex items-center gap-2"
+                >
+                  <Download size={16} />
+                  Download Transfer Bill
+                </button>
+              </div>
+            </div>
+
+            {/* FEE BREAKDOWN */}
+            <div className="flex flex-wrap gap-2 mt-6">
+              <div className="bg-neutral-950 p-4 rounded-2xl">
+                <p className="text-xs text-neutral-500">Fee (Before Tax)</p>
+                <p className="mt-2 font-medium">{money(bill.base)}</p>
+              </div>
+
+              <div className="bg-neutral-950 p-4 rounded-2xl">
+                <p className="text-xs text-neutral-500">
+                  CGST
+                  {incomingTransfer.cgstPercentage
+                    ? ` (${incomingTransfer.cgstPercentage}%)`
+                    : ""}
+                </p>
+                <p className="mt-2 font-medium">{money(bill.cgst)}</p>
+              </div>
+
+              <div className="bg-neutral-950 p-4 rounded-2xl">
+                <p className="text-xs text-neutral-500">
+                  SGST
+                  {incomingTransfer.sgstPercentage
+                    ? ` (${incomingTransfer.sgstPercentage}%)`
+                    : ""}
+                </p>
+                <p className="mt-2 font-medium">{money(bill.sgst)}</p>
+              </div>
+
+              <div className="bg-neutral-950 p-4 rounded-2xl">
+                <p className="text-xs text-neutral-500">Total Transfer Fee</p>
+                <p className="mt-2 font-medium text-red-400">{money(bill.total)}</p>
+              </div>
+
+              <div className="bg-neutral-950 p-4 rounded-2xl">
+                <p className="text-xs text-neutral-500">Paid</p>
+                <p className="mt-2 font-medium text-lime-400">{money(bill.paid)}</p>
+              </div>
+
+              <div className="bg-neutral-950 p-4 rounded-2xl">
+                <p className="text-xs text-neutral-500">Balance</p>
+                <p className="mt-2 font-medium text-yellow-400">
+                  {money(bill.balance)}
+                </p>
+              </div>
+            </div>
+
+            {/* TRANSFER DETAILS */}
+            <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+              <div className="bg-neutral-950 border border-neutral-800 rounded-2xl p-4">
+                <p className="text-xs text-neutral-500">Transferred From</p>
+                <p className="mt-1 font-medium">
+                  {incomingTransfer.fromMember.name}
+                </p>
+              </div>
+
+              <div className="bg-neutral-950 border border-neutral-800 rounded-2xl p-4">
+                <p className="text-xs text-neutral-500">Payment Mode</p>
+                <p className="mt-1 font-medium">{bill.paymentMode}</p>
+              </div>
+
+              <div className="bg-neutral-950 border border-neutral-800 rounded-2xl p-4">
+                <p className="text-xs text-neutral-500">Remaining Days at Transfer</p>
+                <p className="mt-1 font-medium">
+                  {incomingTransfer.remainingDays ?? "-"}
+                </p>
+              </div>
+
+              <div className="bg-neutral-950 border border-neutral-800 rounded-2xl p-4">
+                <p className="text-xs text-neutral-500">Fee Slab</p>
+                <p className="mt-1 font-medium">
+                  {incomingTransfer.feeSlabLabel || "-"}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  /* ============================================================
+   * NORMAL MEMBERSHIP (unchanged)
+   * ============================================================ */
 
   return (
     <div className="min-h-screen bg-black text-white p-6">

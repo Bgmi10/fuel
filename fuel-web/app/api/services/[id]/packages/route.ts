@@ -421,7 +421,7 @@ export const GET = async (
         },
 
         orderBy: {
-          createdAt: "desc",
+          sortOrder: "asc",
         },
 
         include: {

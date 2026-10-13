@@ -357,10 +357,6 @@ export async function DELETE(
         where: {
           id,
         },
-        select: {
-          id: true,
-          isActive: true,
-        },
       });
 
     if (!existingSlot) {
@@ -374,24 +370,16 @@ export async function DELETE(
       );
     }
 
-    if (!existingSlot.isActive) {
-      return NextResponse.json({
-        message: "Slot is already inactive",
-      });
-    }
 
     const deactivatedSlot =
-      await prisma.slot.update({
+      await prisma.slot.delete({
         where: {
           id,
-        },
-        data: {
-          isActive: false,
-        },
+        }
       });
 
     return NextResponse.json({
-      message: "Slot deactivated successfully",
+      message: "Slot deleted successfully",
       slot: deactivatedSlot,
     });
   } catch (error) {

@@ -481,8 +481,7 @@ async function startServer() {
                   .findFirst({
                     where: {
                       id: deviceId,
-                      deviceToken:
-                        tokenHash,
+                    
                     },
 
                     select: {

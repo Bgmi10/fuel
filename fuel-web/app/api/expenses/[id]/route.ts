@@ -1,6 +1,9 @@
 import { getSession } from "@/app/utils/auth";
 import { prisma } from "@/prisma";
+import { ExpenseType } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
+
+const EXPENSE_TYPES = Object.values(ExpenseType) as string[];
 
 type RouteContext = {
   params: Promise<{
@@ -8,19 +11,13 @@ type RouteContext = {
   }>;
 };
 
-export async function PUT(
-  request: NextRequest,
-  { params }: RouteContext
-) {
+export async function PUT(request: NextRequest, { params }: RouteContext) {
   try {
     const user = await getSession();
 
     if (!user) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "Not authenticated",
-        },
+        { success: false, message: "Not authenticated" },
         { status: 401 }
       );
     }
@@ -28,18 +25,12 @@ export async function PUT(
     const { id } = await params;
 
     const existingExpense = await prisma.expense.findFirst({
-      where: {
-        id,
-        byUserId: user.id,
-      },
+      where: { id, byUserId: user.id },
     });
 
     if (!existingExpense) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "Expense not found",
-        },
+        { success: false, message: "Expense not found" },
         { status: 404 }
       );
     }
@@ -47,30 +38,40 @@ export async function PUT(
     const body = await request.json();
 
     const description =
-      typeof body.description === "string"
-        ? body.description.trim()
-        : "";
+      typeof body.description === "string" ? body.description.trim() : "";
 
     const amount = Number(body.amount);
 
     if (!description) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "Description is required",
-        },
+        { success: false, message: "Description is required" },
         { status: 400 }
       );
     }
 
     if (!Number.isFinite(amount) || amount <= 0) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "Amount must be greater than 0",
-        },
+        { success: false, message: "Amount must be greater than 0" },
         { status: 400 }
       );
+    }
+
+    // If no type is sent, the existing one is kept.
+    let expenseType: ExpenseType | undefined;
+
+    if (
+      body.expenseType !== undefined &&
+      body.expenseType !== null &&
+      body.expenseType !== ""
+    ) {
+      if (!EXPENSE_TYPES.includes(body.expenseType)) {
+        return NextResponse.json(
+          { success: false, message: "Invalid expense type" },
+          { status: 400 }
+        );
+      }
+
+      expenseType = body.expenseType as ExpenseType;
     }
 
     let expenseDate: Date | null = null;
@@ -80,56 +81,40 @@ export async function PUT(
 
       if (Number.isNaN(expenseDate.getTime())) {
         return NextResponse.json(
-          {
-            success: false,
-            message: "Invalid date",
-          },
+          { success: false, message: "Invalid date" },
           { status: 400 }
         );
       }
     }
 
     const expense = await prisma.expense.update({
-      where: {
-        id,
-      },
+      where: { id },
       data: {
         description,
         amount: Math.round(amount),
         date: expenseDate,
+        ...(expenseType ? { expenseType } : {}),
       },
     });
 
-    return NextResponse.json({
-      success: true,
-      expense,
-    });
+    return NextResponse.json({ success: true, expense });
   } catch (error) {
     console.error("PUT expense error:", error);
 
     return NextResponse.json(
-      {
-        success: false,
-        message: "Failed to update expense",
-      },
+      { success: false, message: "Failed to update expense" },
       { status: 500 }
     );
   }
 }
 
-export async function DELETE(
-  request: NextRequest,
-  { params }: RouteContext
-) {
+export async function DELETE(request: NextRequest, { params }: RouteContext) {
   try {
     const user = await getSession();
 
     if (!user) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "Not authenticated",
-        },
+        { success: false, message: "Not authenticated" },
         { status: 401 }
       );
     }
@@ -137,27 +122,17 @@ export async function DELETE(
     const { id } = await params;
 
     const existingExpense = await prisma.expense.findFirst({
-      where: {
-        id,
-        byUserId: user.id,
-      },
+      where: { id, byUserId: user.id },
     });
 
     if (!existingExpense) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "Expense not found",
-        },
+        { success: false, message: "Expense not found" },
         { status: 404 }
       );
     }
 
-    await prisma.expense.delete({
-      where: {
-        id,
-      },
-    });
+    await prisma.expense.delete({ where: { id } });
 
     return NextResponse.json({
       success: true,
@@ -167,10 +142,7 @@ export async function DELETE(
     console.error("DELETE expense error:", error);
 
     return NextResponse.json(
-      {
-        success: false,
-        message: "Failed to delete expense",
-      },
+      { success: false, message: "Failed to delete expense" },
       { status: 500 }
     );
   }

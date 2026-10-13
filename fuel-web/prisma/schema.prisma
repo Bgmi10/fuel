@@ -1,813 +1,1018 @@
-  generator client {
-    provider = "prisma-client-js"
-  }
+generator client {
+  provider = "prisma-client-js"
+}
 
-  datasource db {
-    provider = "postgresql"
-    url      = env("DATABASE_URL")
-  }
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
 
-  model ContactInquiry {
-    id String @id @default(cuid())
 
-    name    String
-    phone   String
-    email   String?
-    message String?
+model ContactInquiry {
+  id String @id @default(cuid())
 
-    status InquiryStatus @default(PENDING)
+  name    String
+  phone   String
+  email   String?
+  message String?
 
-    source LeadSource @default(WEB)
+  preferredTimeToContact String?
 
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
-  }
+  status InquiryStatus @default(PENDING)
 
-  model TrialBooking {
-    id String @id @default(cuid())
+  source LeadSource @default(WEB)
 
-    name  String
-    phone String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
 
-    goal          FitnessGoal?
-    preferredTime TimeSlot?
 
-    scheduledDate DateTime?
+model TrialBooking {
+  id String @id @default(cuid())
 
-    status TrialStatus @default(PENDING)
+  name  String
+  phone String
 
-    whatsappStatus WhatsAppStatus @default(NOT_SENT)
+  goal          FitnessGoal?
+  preferredTime TimeSlot?
 
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
-  }
+  scheduledDate DateTime?
 
-  enum InquiryStatus {
-    PENDING
-    CONTACTED
-    RESOLVED
-  }
+  status TrialStatus @default(PENDING)
 
-  enum TrialStatus {
-    PENDING
-    SCHEDULED
-    CONFIRMED_BY_ADMIN
-    CONFIRMED_BY_USER
-    CANCELLED_BY_USER
-  }
+  whatsappStatus WhatsAppStatus @default(NOT_SENT)
 
-  enum WhatsAppStatus {
-    NOT_SENT
-    SENT
-    DELIVERED
-    REPLIED
-  }
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
 
-  enum LeadSource {
-    WEB
-    INSTAGRAM
-    REFERRAL
-    WALKIN
-  }
+enum InquiryStatus {
+  PENDING
+  CONTACTED
+  RESOLVED
+}
 
-  enum FitnessGoal {
-    FAT_LOSS
-    MUSCLE_GAIN
-    STRENGTH
-    GENERAL_FITNESS
-  }
+enum TrialStatus {
+  PENDING
+  SCHEDULED
+  CONFIRMED_BY_ADMIN
+  CONFIRMED_BY_USER
+  CANCELLED_BY_USER
+}
 
-  enum TimeSlot {
-    MORNING
-    AFTERNOON
-    EVENING
-  }
+enum WhatsAppStatus {
+  NOT_SENT
+  SENT
+  DELIVERED
+  REPLIED
+}
 
-  model Setting {
-    id String @id @default(cuid())
+enum LeadSource {
+  WEB
+  INSTAGRAM
+  REFERRAL
+  WALKIN
+}
 
-    cgstPercentage Float
-    sgstPercentage Float
+enum FitnessGoal {
+  FAT_LOSS
+  MUSCLE_GAIN
+  STRENGTH
+  GENERAL_FITNESS
+}
 
-    referralRewardType ReferralRewardType @default(FIXED_AMOUNT)
+enum TimeSlot {
+  MORNING
+  AFTERNOON
+  EVENING
+}
 
-    referralRewardAmount Float?
+model Setting {
+  id String @id @default(cuid())
 
-    referralRewardPercentage Float?
+  cgstPercentage Float
+  sgstPercentage Float
 
-    referralMembershipDays Int?
+  referralRewardType ReferralRewardType @default(FIXED_AMOUNT)
 
-    groupJoiningEnabled Boolean @default(false)
+  referralRewardAmount Float?
 
-    groupJoiningMaxMembers Int @default(10)
+  referralRewardPercentage Float?
 
-    groupDiscountApplicability Json @default("[]")
+  referralMembershipDays Int?
 
-    groupDiscountRules Json @default("[]")
+  groupJoiningEnabled Boolean @default(false)
 
-    membershipTransferFeeRules Json @default("[]")
-  }
+  groupJoiningMaxMembers Int @default(10)
 
-  model Branch {
-    id String @id @default(cuid())
+  groupDiscountApplicability Json @default("[]")
 
-    name      String
-    address   String
-    phone     String
-    gstNumber String
+  groupDiscountRules Json @default("[]")
 
-    terms        String?
-    supportEmail String?
-    supportPhone String?
+  membershipTransferFeeRules Json @default("[]")
+}
 
-    members       Member[]
-    services      Service[]
-    subscriptions Subscription[]
-    invoices      Invoice[]
-    users         User[]
-    slots         Slot[]
-    slotBookings  SlotBooking[]
-    memberAttendances MemberAttendance[]
-    tvDevices     TvDevice[]
+model Branch {
+  id String @id @default(cuid())
 
-    createdAt                DateTime                   @default(now())
-  }
+  name      String
+  address   String
+  phone     String
+  gstNumber String
 
-  // ============================================================
-  // WORKOUT VIDEO LIBRARY
-  // ============================================================
+  terms        String?
+  supportEmail String?
+  supportPhone String?
 
-  model WorkoutVideo {
-    id String @id @default(cuid())
+  members           Member[]
+  services          Service[]
+  subscriptions     Subscription[]
+  invoices          Invoice[]
+  users             User[]
+  slots             Slot[]
+  slotBookings      SlotBooking[]
+  memberAttendances MemberAttendance[]
+  tvDevices         TvDevice[]
+  workoutBroadcasts WorkoutBroadcast[]
 
-    name            String
-    videoUrl        String
-    thumbnailUrl    String?
-    durationSeconds Int?
+  createdAt DateTime @default(now())
+}
 
-    isActive Boolean @default(true)
+// ============================================================
+// FUEL TV: WORKOUT LIBRARY, PROGRAMS, SCHEDULES, BROADCASTS
+//
+// Conventions:
+//   - dateKey = "YYYY-MM-DD" in Asia/Kolkata. It is THE calendar
+//     date. Never derive the day from a DateTime again.
+//   - Timer fields are in seconds, except pausedTotalMs (ms).
+//   - Broadcast data is a SNAPSHOT: nothing here changes when the
+//     library, program or schedule changes later.
+// ============================================================
+
+enum WorkoutIntensity {
+  LOW
+  MEDIUM
+  HIGH
+}
 
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
-
-    programItems WorkoutProgramItem[]
-  }
-
-  model WorkoutProgram {
-    id String @id @default(cuid())
-
-    name        String
-    description String?
-    isActive    Boolean @default(true)
-
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
-
-    items       WorkoutProgramItem[]
-    assignments WorkoutProgramAssignment[]
-  }
-
-  model WorkoutProgramItem {
-    id String @id @default(cuid())
-
-    programId String
-    videoId   String
-    sortOrder Int
-
-    program WorkoutProgram @relation(fields: [programId], references: [id], onDelete: Cascade)
-
-    video WorkoutVideo @relation(fields: [videoId], references: [id])
-
-    @@unique([programId, sortOrder])
-    @@index([programId])
-    @@index([videoId])
-  }
-
-  model WorkoutProgramAssignment {
-    id String @id @default(cuid())
-
-    programId String
-    branchId  String
-
-    scheduledAt DateTime
-
-    status WorkoutProgramAssignmentStatus @default(SCHEDULED)
-
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
-
-    program WorkoutProgram @relation(fields: [programId], references: [id], onDelete: Cascade)
-
-
-    @@index([branchId, scheduledAt])
-    @@index([programId])
-  }
-
-  enum WorkoutProgramAssignmentStatus {
-    DRAFT
-    SCHEDULED
-    LIVE
-    COMPLETED
-    CANCELLED
-  }
-
-  model TvDevice {
-    id          String @id @default(cuid())
-    name        String
-    deviceToken String @unique
-    branchId    String
-    branch      Branch @relation(fields: [branchId], references: [id])
-
-    isOnline   Boolean   @default(false)
-    lastSeenAt DateTime?
-    pairedAt   DateTime  @default(now())
-    createdAt  DateTime  @default(now())
-    updatedAt  DateTime  @updatedAt
-  }
-
-  model TvPairingSession {
-    id          String          @id @default(cuid())
-    pairingCode String          @unique
-    socketId    String?
-    status      TvPairingStatus @default(WAITING)
-    expiresAt   DateTime
-    createdAt   DateTime        @default(now())
-
-    deviceId String?
-  }
-
-  enum TvPairingStatus {
-    WAITING
-    PAIRED
-    EXPIRED
-    CANCELLED
-  }
-
-  model Service {
-    id        String @id @default(cuid())
-    sortOrder Int    @default(0)
-    name      String
-
-    thumbnailImage String?
-    coverImage     String?
-
-    branches Branch[]
-    packages ServicePackage[]
-    slots    Slot[]
-    isActive  Boolean  @default(true)
-    websiteContent ServiceWebsiteContent?
-    subCategories  ServiceSubCategory[]
-
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
-  }
-
-  model ServiceWebsiteContent {
-    id String @id @default(cuid())
-
-    serviceId String @unique
-
-    service Service @relation(fields: [serviceId],references: [id],onDelete: Cascade)
-
-    // Website-facing content
-    title       String?
-    tagline     String?
-    description String? @db.Text
-
-    // Existing website content fields
-    eyebrow  String?
-    heroTitle String?
-    intro    Json?
-    closing  String?
-    benefits Json?
-    idealFor Json?
-
-    // Website-level timings
-    schedules ServiceSchedule[]
-
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
-  }
-
-  model ServiceSubCategory {
-    id String @id @default(cuid())
-
-    serviceId String
-    service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
-  tagline String?
-    name        String
-    description String?
-    image       String?
-    sortOrder   Int @default(0)
-    isActive    Boolean @default(true)
-  slots     Slot[]
-    schedules ServiceSchedule[]
-      invoices      Invoice[]
+// ------------------------------------------------------------
+// 1. LIBRARY (centralised)
+// ------------------------------------------------------------
+
+model WorkoutVideo {
+  id String @id @default(cuid())
+
+  name            String
+  videoUrl        String
+  thumbnailUrl    String?
+  durationSeconds Int?
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  programItems       WorkoutProgramItem[]
+  scheduleExercises  WorkoutScheduleExercise[]
+  broadcastExercises WorkoutBroadcastExercise[]
+
+  @@index([isActive])
+  @@index([name])
+}
+
+// ------------------------------------------------------------
+// 2. PROGRAMS (centralised)
+// ------------------------------------------------------------
+
+model WorkoutProgram {
+  id String @id @default(cuid())
+
+  name        String
+  subtitle    String?
+  description String?
+  intensity   WorkoutIntensity?
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items     WorkoutProgramItem[]
+  schedules WorkoutSchedule[]
+}
+
+model WorkoutProgramItem {
+  id String @id @default(cuid())
+
+  programId String
+  videoId   String
+  sortOrder Int
+
+  program WorkoutProgram @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  // Restrict: a library video used by a program cannot be hard-deleted.
+  // The UI should offer "disable" (isActive = false) instead.
+  video WorkoutVideo @relation(fields: [videoId], references: [id], onDelete: Restrict)
+
+  // PATCH must replace items inside one transaction (deleteMany + createMany).
+  @@unique([programId, sortOrder])
+  @@index([programId])
+  @@index([videoId])
+}
+
+// ------------------------------------------------------------
+// 3. SCHEDULES (centralised, not branch specific)
+// ------------------------------------------------------------
+
+model WorkoutSchedule {
+  id String @id @default(cuid())
+
+  dateKey   String // "2026-10-11"
+  programId String
+
+  // Timer settings (seconds unless noted)
+  demonstrationSeconds    Int?
+  warmupSeconds           Int?
+  prepareSeconds          Int?
+  workSeconds             Int?
+  restSeconds             Int?
+  sets                    Int?
+  cycles                  Int?
+  restBetweenCycleSeconds Int?
+  coolDownSeconds         Int?
+  nextSessionStartsAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Restrict: a program used by a schedule cannot be deleted.
+  program    WorkoutProgram            @relation(fields: [programId], references: [id], onDelete: Restrict)
+  exercises  WorkoutScheduleExercise[]
+  broadcasts WorkoutBroadcast[]
+
+  @@index([dateKey])
+  @@index([programId])
+}
+
+model WorkoutScheduleExercise {
+  id         String @id @default(cuid())
+  scheduleId String
+  sortOrder  Int
+
+  // Exactly one of these is set:
+  //   videoId      -> library exercise
+  //   exerciseName -> manual exercise (name only, no video)
+  videoId      String?
+  exerciseName String?
+
+  schedule WorkoutSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  video    WorkoutVideo?   @relation(fields: [videoId], references: [id], onDelete: SetNull)
+
+  @@unique([scheduleId, sortOrder])
+  @@index([scheduleId])
+  @@index([videoId])
+}
+
+// ------------------------------------------------------------
+// 4. BROADCASTS (branch wise)
+// ------------------------------------------------------------
+
+enum WorkoutBroadcastMode {
+  SCHEDULE
+  TIMER_ONLY
+}
+
+enum WorkoutBroadcastStatus {
+  DRAFT
+  SCHEDULED
+  LIVE
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+model WorkoutBroadcast {
+  id       String @id @default(cuid())
+  branchId String
+
+  dateKey String // "2026-10-11"
+
+  mode   WorkoutBroadcastMode
+  status WorkoutBroadcastStatus @default(DRAFT)
+
+  // Origin only. SetNull so deleting a schedule never blocks or erases history.
+  scheduleId String?
+
+  title       String?
+  subtitle    String?
+  description String?
+  intensity   WorkoutIntensity?
+
+  // Timer snapshot (editable per broadcast)
+  demonstrationSeconds    Int?
+  warmupSeconds           Int?
+  prepareSeconds          Int?
+  workSeconds             Int?
+  restSeconds             Int?
+  sets                    Int?
+  cycles                  Int?
+  restBetweenCycleSeconds Int?
+  coolDownSeconds         Int?
+  nextSessionStartsAt     DateTime?
+
+  // Run state. TVs derive the current phase from these:
+  //   elapsedMs = (pausedAt ?? now) - startedAt - pausedTotalMs
+  startedAt     DateTime?
+  pausedAt      DateTime?
+  pausedTotalMs Int       @default(0)
+  endedAt       DateTime?
+
+  // Incremented on every state change. TVs ignore anything older
+  // than the version they already applied.
+  version Int @default(1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  branch   Branch           @relation(fields: [branchId], references: [id])
+  schedule WorkoutSchedule? @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+
+  exercises WorkoutBroadcastExercise[]
+  tvs       WorkoutBroadcastTV[]
+
+  @@index([branchId, dateKey])
+  @@index([branchId, status])
+  @@index([scheduleId])
+}
+
+model WorkoutBroadcastExercise {
+  id          String @id @default(cuid())
+  broadcastId String
+  sortOrder   Int
+
+  // Snapshot taken when the broadcast is saved. The TV plays from
+  // these columns, never from WorkoutVideo.
+  exerciseName    String // always set; manual name or copied video name
+  videoUrl        String? // null => manual (name-only) exercise
+  thumbnailUrl    String?
+  durationSeconds Int?
+
+  // Origin reference only (replace-from-library in the UI).
+  videoId String?
+
+  broadcast WorkoutBroadcast @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
+  video     WorkoutVideo?    @relation(fields: [videoId], references: [id], onDelete: SetNull)
+
+  tvExercises WorkoutBroadcastTVExercise[]
+
+  @@unique([broadcastId, sortOrder])
+  @@index([broadcastId])
+  @@index([videoId])
+}
+
+model WorkoutBroadcastTV {
+  id          String @id @default(cuid())
+  broadcastId String
+  tvDeviceId  String
+
+  broadcast WorkoutBroadcast @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
+  tvDevice  TvDevice         @relation(fields: [tvDeviceId], references: [id], onDelete: Cascade)
+
+  exercises WorkoutBroadcastTVExercise[]
+
+  @@unique([broadcastId, tvDeviceId])
+  @@index([tvDeviceId])
+}
+
+// Which of the broadcast's exercises this TV plays, in what order.
+// An empty list is invalid in SCHEDULE mode; the service must reject it.
+model WorkoutBroadcastTVExercise {
+  id            String @id @default(cuid())
+  broadcastTVId String
+  exerciseId    String
+  sortOrder     Int
+
+  broadcastTV WorkoutBroadcastTV       @relation(fields: [broadcastTVId], references: [id], onDelete: Cascade)
+  exercise    WorkoutBroadcastExercise @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
+
+  @@unique([broadcastTVId, exerciseId])
+  @@unique([broadcastTVId, sortOrder])
+}
+
+// ------------------------------------------------------------
+// 5. TV DEVICES
+// ------------------------------------------------------------
+
+model TvDevice {
+  id       String @id @default(cuid())
+  name     String
+  branchId String
+  branch   Branch @relation(fields: [branchId], references: [id])
+
+  // SHA-256 hash of the device token. The raw token exists only on the TV.
+  // @map keeps the existing DB column, so no data migration is needed.
+  tokenHash String @unique @map("deviceToken")
+
+  isOnline   Boolean   @default(false)
+  lastSeenAt DateTime?
+  pairedAt   DateTime  @default(now())
+  revokedAt  DateTime? // set to block a lost or stolen TV
+
+  broadcastTVs WorkoutBroadcastTV[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([branchId])
+}
+
+model TvPairingSession {
+  id          String          @id @default(cuid())
+  pairingCode String          @unique
+  socketId    String?
+  status      TvPairingStatus @default(WAITING)
+  expiresAt   DateTime
+  createdAt   DateTime        @default(now())
+
+  deviceId String?
+
+  @@index([expiresAt])
+}
+
+enum TvPairingStatus {
+  WAITING
+  PAIRED
+  EXPIRED
+  CANCELLED
+}
+
+// ============================================================
+// END OF FUEL TV MODELS
+// ============================================================
+
+model Service {
+  id        String @id @default(cuid())
+  sortOrder Int    @default(0)
+  name      String
+
+  thumbnailImage String?
+  coverImage     String?
+
+  branches       Branch[]
+  packages       ServicePackage[]
+  slots          Slot[]
+  isActive       Boolean                @default(true)
+  websiteContent ServiceWebsiteContent?
+  subCategories  ServiceSubCategory[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ServiceWebsiteContent {
+  id String @id @default(cuid())
+
+  serviceId String @unique
+
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  // Website-facing content
+  title       String?
+  tagline     String?
+  description String? @db.Text
+
+  // Existing website content fields
+  eyebrow   String?
+  heroTitle String?
+  intro     Json?
+  closing   String?
+  benefits  Json?
+  idealFor  Json?
+
+  // Website-level timings
+  schedules ServiceSchedule[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ServiceSubCategory {
+  id String @id @default(cuid())
+
+  serviceId     String
+  service       Service           @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  tagline       String?
+  name          String
+  description   String?
+  image         String?
+  sortOrder     Int               @default(0)
+  isActive      Boolean           @default(true)
+  slots         Slot[]
+  schedules     ServiceSchedule[]
+  invoices      Invoice[]
   subscriptions Subscription[]
 
-  packages ServicePackageSubCategory[]
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
+  packages  ServicePackageSubCategory[]
+  createdAt DateTime                    @default(now())
+  updatedAt DateTime                    @updatedAt
 
-    @@index([serviceId])
-  }
+  @@index([serviceId])
+}
 
+model ServicePackageSubCategory {
+  packageId     String
+  subCategoryId String
 
+  package     ServicePackage     @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  subCategory ServiceSubCategory @relation(fields: [subCategoryId], references: [id], onDelete: Cascade)
 
+  @@id([packageId, subCategoryId])
+  @@index([subCategoryId])
+}
 
-  model ServicePackageSubCategory {
-    packageId     String
-    subCategoryId String
+model ServiceSchedule {
+  id String @id @default(cuid())
 
-    package     ServicePackage     @relation(fields: [packageId], references: [id], onDelete: Cascade)
-    subCategory ServiceSubCategory @relation(fields: [subCategoryId], references: [id], onDelete: Cascade)
-
-    @@id([packageId, subCategoryId])
-    @@index([subCategoryId])
-  }
-
-  model ServiceSchedule {
-    id String @id @default(cuid())
-
-    subCategoryId String?
+  subCategoryId String?
 
   websiteContentId String?
-    websiteContent ServiceWebsiteContent? @relation( fields: [websiteContentId], references: [id],onDelete: Cascade)
-    subCategory ServiceSubCategory? @relation(fields: [subCategoryId], references: [id], onDelete: Cascade)
-
-    label String
-    times Json
-
-    sortOrder Int @default(0)
-
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
-
-    @@index([subCategoryId])
-  }
-
-  model Slot {
-    id       String @id @default(cuid())
-    branchId String
-    branch   Branch @relation(fields: [branchId], references: [id])
-
-    serviceId  String
-    service    Service       @relation(fields: [serviceId], references: [id])
-    name       String
-    startTime  String
-    endTime    String
-    capacity   Int
-    isActive   Boolean       @default(true)
-    subCategoryId String?
-    subCategory   ServiceSubCategory? @relation( fields: [subCategoryId],references: [id],onDelete: SetNull)
-    daysOfWeek SlotWeekday[] @default([MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY, SATURDAY, SUNDAY])
-    createdAt  DateTime      @default(now())
-    bookings   SlotBooking[]
-    updatedAt  DateTime      @updatedAt
-  }
-
-  enum SlotWeekday {
-    MONDAY
-    TUESDAY
-    WEDNESDAY
-    THURSDAY
-    FRIDAY
-    SATURDAY
-    SUNDAY
-  }
-
-  model SlotBooking {
-    id             String          @id @default(cuid())
-    bookingDay     String?
-    memberId       String
-    member         Member          @relation(fields: [memberId], references: [id])
-    branchId       String
-    branch         Branch          @relation(fields: [branchId], references: [id])
-    packageId      String
-    package        ServicePackage  @relation(fields: [packageId], references: [id])
-    subscriptionId String
-    subscription   Subscription    @relation(fields: [subscriptionId], references: [id])
-    slotId         String
-    slot           Slot            @relation(fields: [slotId], references: [id])
-    bookingDate    DateTime
-    checkedInAt    DateTime?
-    status         SlotBookingEnum @default(BOOKED)
-    createdAt      DateTime        @default(now())
-    updatedAt      DateTime        @updatedAt
-    attendance MemberAttendance?
-
-    @@unique([memberId, slotId, bookingDate])
-    @@index([slotId, bookingDate])
-    @@index([memberId])
-  }
-
-  enum SlotBookingEnum {
-    BOOKED
-    ATTENDED
-    CANCELLED
-  }
-
-  model ServicePackage {
-    id String @id @default(cuid())
-
-    serviceId String
-    service   Service @relation(fields: [serviceId], references: [id])
-
-    name String
-
-    durationInDays Int
-
-    price Int
-
-    originalPrice Int?
-    coupons       Coupon[] @relation("CouponPackages")
-
-    description String?
-
-    isActive Boolean @default(true)
-
-    usageType MembershipUsageType @default(DURATION_BASED)
-
-    totalSessions Int?
-    subCategories ServicePackageSubCategory[]
-    subscriptions Subscription[]
-    invoices      Invoice[]
-    slotBookings  SlotBooking[]
+  websiteContent   ServiceWebsiteContent? @relation(fields: [websiteContentId], references: [id], onDelete: Cascade)
+  subCategory      ServiceSubCategory?    @relation(fields: [subCategoryId], references: [id], onDelete: Cascade)
+
+  label String
+  times Json
+
+  sortOrder Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([subCategoryId])
+}
+
+model Slot {
+  id       String @id @default(cuid())
+  branchId String
+  branch   Branch @relation(fields: [branchId], references: [id])
+
+  serviceId     String
+  service       Service             @relation(fields: [serviceId], references: [id])
+  name          String
+  startTime     String
+  endTime       String
+  capacity      Int
+  isActive      Boolean             @default(true)
+  subCategoryId String?
+  subCategory   ServiceSubCategory? @relation(fields: [subCategoryId], references: [id], onDelete: SetNull)
+  daysOfWeek    SlotWeekday[]       @default([MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY, SATURDAY, SUNDAY])
+  createdAt     DateTime            @default(now())
+  bookings      SlotBooking[]
+  updatedAt     DateTime            @updatedAt
+}
+
+enum SlotWeekday {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
+model SlotBooking {
+  id             String            @id @default(cuid())
+  bookingDay     String?
+  memberId       String
+  member         Member            @relation(fields: [memberId], references: [id])
+  branchId       String
+  branch         Branch            @relation(fields: [branchId], references: [id])
+  packageId      String
+  package        ServicePackage    @relation(fields: [packageId], references: [id])
+  subscriptionId String
+  subscription   Subscription      @relation(fields: [subscriptionId], references: [id])
+  slotId         String
+  slot           Slot              @relation(fields: [slotId], references: [id])
+  bookingDate    DateTime
+  checkedInAt    DateTime?
+  status         SlotBookingEnum   @default(BOOKED)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  attendance     MemberAttendance?
+
+  @@unique([memberId, slotId, bookingDate])
+  @@index([slotId, bookingDate])
+  @@index([memberId])
+}
+
+enum SlotBookingEnum {
+  BOOKED
+  ATTENDED
+  CANCELLED
+}
+
+model ServicePackage {
+  id String @id @default(cuid())
+
+  serviceId String
+  service   Service @relation(fields: [serviceId], references: [id])
+
+  name String
+  sortOrder Int @default(0)
+
+  durationInDays Int
+
+  price Int
+
+  originalPrice Int?
+  coupons       Coupon[] @relation("CouponPackages")
+
+  description String?
+
+  isActive Boolean @default(true)
+
+  usageType MembershipUsageType @default(DURATION_BASED)
+
+  totalSessions Int?
+  subCategories ServicePackageSubCategory[]
+  subscriptions Subscription[]
+  invoices      Invoice[]
+  slotBookings  SlotBooking[]
 
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
-  }
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
 
-  enum MembershipUsageType {
-    DURATION_BASED
-    SESSION_BASED
-  }
+enum MembershipUsageType {
+  DURATION_BASED
+  SESSION_BASED
+}
 
-  model Member {
-    id String @id @default(cuid())
+model Member {
+  id String @id @default(cuid())
 
-    name  String
-    phone String @unique
-    email String @unique
+  name  String
+  phone String @unique
+  email String @unique
 
-    dob                String?
-    gender             String?
-    age                Int?
-    weight             Float?
-    height             Float?
-    onBoardingForm     Json?
-    emergencyContact   String?  
-    profileImage       String?
-    address            String?
-    fitnessAssessments FitnessAssessment[]
-    onBoardCompleted   Boolean             @default(false)
-    workoutPlans       WorkoutPlan[]
-    branchId           String?
-    branch             Branch?             @relation(fields: [branchId], references: [id])
+  dob                String?
+  gender             String?
+  age                Int?
+  weight             Float?
+  height             Float?
+  onBoardingForm     Json?
+  emergencyContact   String?
+  profileImage       String?
+  address            String?
+  fitnessAssessments FitnessAssessment[]
+  onBoardCompleted   Boolean             @default(false)
+  workoutPlans       WorkoutPlan[]
+  branchId           String?
+  branch             Branch?             @relation(fields: [branchId], references: [id])
 
-    outgoingMembershipTransfers MembershipTransfer[] @relation("MembershipTransferFrom")
+  outgoingMembershipTransfers MembershipTransfer[] @relation("MembershipTransferFrom")
 
-    incomingMembershipTransfers MembershipTransfer[] @relation("MembershipTransferTo")
+  incomingMembershipTransfers MembershipTransfer[] @relation("MembershipTransferTo")
 
-    status MemberStatus @default(ACTIVE)
+  status MemberStatus @default(ACTIVE)
 
-    subscriptions Subscription[]
-    attendances MemberAttendance[]
+  subscriptions Subscription[]
+  attendances   MemberAttendance[]
 
-    invoices Invoice[]
+  invoices Invoice[]
 
-    payments Payment[]
+  payments Payment[]
 
-    dietPlans     DietPlan[]
-    foodLogs      FoodLog[]
-    referralCode  String?    @unique
-    otpCode       String?
-    otpType       OTPType?
-    otpExpiresAt  DateTime?
-    otpVerifiedAt DateTime?
+  dietPlans     DietPlan[]
+  foodLogs      FoodLog[]
+  referralCode  String?    @unique
+  otpCode       String?
+  otpType       OTPType?
+  otpExpiresAt  DateTime?
+  otpVerifiedAt DateTime?
 
-    coachId String?
+  coachId String?
 
-    coach User? @relation("MemberCoach", fields: [coachId], references: [id])
+  coach User? @relation("MemberCoach", fields: [coachId], references: [id])
 
-    notifications Notification[]
-    createdAt     DateTime       @default(now())
+  notifications Notification[]
+  createdAt     DateTime       @default(now())
 
-    referrals    Referral[]    @relation("MemberReferrals")
-    slotBookings SlotBooking[]
-    referredBy   Referral[]    @relation("ReferredMember")
-    updatedAt    DateTime      @updatedAt
-  }
+  referrals    Referral[]    @relation("MemberReferrals")
+  slotBookings SlotBooking[]
+  referredBy   Referral[]    @relation("ReferredMember")
+  updatedAt    DateTime      @updatedAt
+}
 
-  model Referral {
-    id String @id @default(cuid())
+model Referral {
+  id String @id @default(cuid())
 
-    referrerId String
-    referrer   Member @relation("MemberReferrals", fields: [referrerId], references: [id])
+  referrerId String
+  referrer   Member @relation("MemberReferrals", fields: [referrerId], references: [id])
 
-    referredMemberId String?
-    referredMember   Member? @relation("ReferredMember", fields: [referredMemberId], references: [id])
+  referredMemberId String?
+  referredMember   Member? @relation("ReferredMember", fields: [referredMemberId], references: [id])
 
-    status ReferralStatus @default(PENDING)
+  status ReferralStatus @default(PENDING)
 
-    rewardIssued  Boolean @default(false)
-    rewardClaimed Boolean @default(false)
+  rewardIssued  Boolean @default(false)
+  rewardClaimed Boolean @default(false)
 
-    rewardIssuedAt DateTime?
+  rewardIssuedAt DateTime?
 
-    claimedSubscriptionId String?
-    claimedInvoiceId      String?  @unique
-    claimedInvoice        Invoice? @relation(fields: [claimedInvoiceId], references: [id])
+  claimedSubscriptionId String?
+  claimedInvoiceId      String?  @unique
+  claimedInvoice        Invoice? @relation(fields: [claimedInvoiceId], references: [id])
 
-    rewardType ReferralRewardType?
+  rewardType ReferralRewardType?
 
-    rewardAmount Float?
+  rewardAmount Float?
 
-    rewardPercentage Float?
+  rewardPercentage Float?
 
-    rewardMembershipDays Int?
+  rewardMembershipDays Int?
 
-    createdAt DateTime @default(now())
-  }
+  createdAt DateTime @default(now())
+}
 
-  enum ReferralRewardType {
-    FIXED_AMOUNT
-    PERCENTAGE_DISCOUNT
-    MEMBERSHIP_DAYS
-  }
+enum ReferralRewardType {
+  FIXED_AMOUNT
+  PERCENTAGE_DISCOUNT
+  MEMBERSHIP_DAYS
+}
 
-  model Notification {
-    id String @id @default(cuid())
+model Notification {
+  id String @id @default(cuid())
 
-    memberId String
-    member   Member @relation(fields: [memberId], references: [id])
+  memberId String
+  member   Member @relation(fields: [memberId], references: [id])
 
-    title String
+  title String
 
-    message String
+  message String
 
-    type NotificationType
+  type NotificationType
 
-    isRead Boolean @default(false)
+  isRead Boolean @default(false)
 
-    createdAt DateTime @default(now())
-  }
+  createdAt DateTime @default(now())
+}
 
-  model Campaign {
-    id String @id @default(cuid())
+model Campaign {
+  id String @id @default(cuid())
 
-    title String
+  title String
 
-    description String
+  description String
 
-    image String?
+  image String?
 
-    startDate DateTime
+  startDate DateTime
 
-    endDate DateTime
+  endDate DateTime
 
-    isActive Boolean @default(true)
+  isActive Boolean @default(true)
 
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
-  }
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
 
-  enum NotificationType {
-    MEMBERSHIP
-    PAYMENT
-    WORKOUT
-    DIET
-    PROMOTION
-    GENERAL
-  }
+enum NotificationType {
+  MEMBERSHIP
+  PAYMENT
+  WORKOUT
+  DIET
+  PROMOTION
+  GENERAL
+}
 
-  enum ReferralStatus {
-    PENDING
-    JOINED
-    REWARDED
-  }
+enum ReferralStatus {
+  PENDING
+  JOINED
+  REWARDED
+}
 
-  model DietPlan {
-    id String @id @default(cuid())
+model DietPlan {
+  id String @id @default(cuid())
 
-    memberId String
-    member   Member @relation(fields: [memberId], references: [id])
+  memberId String
+  member   Member @relation(fields: [memberId], references: [id])
 
-    title String?
+  title String?
 
-    instructions String?
+  instructions String?
 
-    targetCalories Float
+  targetCalories Float
 
-    targetProtein Float
+  targetProtein Float
 
-    targetCarbs Float
+  targetCarbs Float
 
-    /// How the coach configured the plan
-    macroDistributionType   MacroDistributionType @default(GRAMS)
-    targetProteinPercentage Float?
-    targetCarbsPercentage   Float?
-    targetFatPercentage     Float?
+  /// How the coach configured the plan
+  macroDistributionType   MacroDistributionType @default(GRAMS)
+  targetProteinPercentage Float?
+  targetCarbsPercentage   Float?
+  targetFatPercentage     Float?
 
-    targetFat Float
+  targetFat Float
 
-    startDate DateTime
+  startDate DateTime
 
-    endDate DateTime
+  endDate DateTime
 
-    isActive Boolean @default(true)
+  isActive Boolean @default(true)
 
-    meals DietPlanMeal[]
+  meals DietPlanMeal[]
 
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
-  }
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
 
-  enum MacroDistributionType {
-    GRAMS
-    PERCENTAGE
-  }
+enum MacroDistributionType {
+  GRAMS
+  PERCENTAGE
+}
 
-  model DietPlanMeal {
-    id String @id @default(cuid())
+model DietPlanMeal {
+  id String @id @default(cuid())
 
-    dietPlanId String
+  dietPlanId String
 
-    dietPlan DietPlan @relation(fields: [dietPlanId], references: [id], onDelete: Cascade)
+  dietPlan DietPlan @relation(fields: [dietPlanId], references: [id], onDelete: Cascade)
 
-    name String
+  name String
 
-    sortOrder Int @default(0)
+  sortOrder Int @default(0)
 
-    items DietPlanMealItem[]
+  items DietPlanMealItem[]
 
-    createdAt DateTime @default(now())
-  }
+  createdAt DateTime @default(now())
+}
 
-  model FoodLog {
-    id String @id @default(cuid())
+model FoodLog {
+  id String @id @default(cuid())
 
-    memberId String
+  memberId String
 
-    member Member @relation(fields: [memberId], references: [id])
+  member Member @relation(fields: [memberId], references: [id])
 
-    logDate DateTime
+  logDate DateTime
 
-    meals FoodLogMeal[]
+  meals FoodLogMeal[]
 
-    createdAt DateTime @default(now())
+  createdAt DateTime @default(now())
 
-    @@unique([memberId, logDate])
-  }
+  @@unique([memberId, logDate])
+}
 
-  model FoodLogMeal {
-    id String @id @default(cuid())
+model FoodLogMeal {
+  id String @id @default(cuid())
 
-    foodLogId String
+  foodLogId String
 
-    foodLog FoodLog @relation(fields: [foodLogId], references: [id], onDelete: Cascade)
+  foodLog FoodLog @relation(fields: [foodLogId], references: [id], onDelete: Cascade)
 
-    name String
+  name String
 
-    sortOrder Int @default(0)
+  sortOrder Int @default(0)
 
-    items FoodLogMealItem[]
+  items FoodLogMealItem[]
 
-    createdAt DateTime @default(now())
-  }
+  createdAt DateTime @default(now())
+}
 
-  model FoodLogMealItem {
-    id                   String  @id @default(cuid())
-    copiedFromDietItemId String?
+model FoodLogMealItem {
+  id                   String  @id @default(cuid())
+  copiedFromDietItemId String?
 
-    mealId String
+  mealId String
 
-    meal FoodLogMeal @relation(fields: [mealId], references: [id], onDelete: Cascade)
+  meal FoodLogMeal @relation(fields: [mealId], references: [id], onDelete: Cascade)
 
-    externalFoodId String?
+  externalFoodId String?
 
-    foodName String
+  foodName String
 
-    brandName String?
+  brandName String?
 
-    quantity Float
+  quantity Float
 
-    servingUnit String
+  servingUnit String
 
-    calories Float
+  calories Float
 
-    servingValue        Float   @default(0)
-    nutritionMultiplier Float   @default(0)
-    protein             Float
-    consumed            Boolean @default(false)
+  servingValue        Float   @default(0)
+  nutritionMultiplier Float   @default(0)
+  protein             Float
+  consumed            Boolean @default(false)
 
-    consumedAt DateTime?
+  consumedAt DateTime?
 
-    carbs Float
+  carbs Float
 
-    fat Float
+  fat Float
 
-    createdAt DateTime @default(now())
-  }
+  createdAt DateTime @default(now())
+}
 
-  model DietPlanMealItem {
-    id String @id @default(cuid())
+model DietPlanMealItem {
+  id String @id @default(cuid())
 
-    mealId String
+  mealId String
 
-    meal DietPlanMeal @relation(fields: [mealId], references: [id], onDelete: Cascade)
+  meal DietPlanMeal @relation(fields: [mealId], references: [id], onDelete: Cascade)
 
-    externalFoodId String?
+  externalFoodId String?
 
-    foodName String
+  foodName String
 
-    brandName String?
+  brandName String?
 
-    quantity     Float
-    servingValue String
-    servingUnit  String
+  quantity     Float
+  servingValue String
+  servingUnit  String
 
-    nutritionMultiplier Float @default(0)
+  nutritionMultiplier Float @default(0)
 
-    calories Float
+  calories Float
 
-    protein Float
+  protein Float
 
-    carbs Float
+  carbs Float
 
-    fat Float
+  fat Float
 
-    createdAt DateTime @default(now())
-  }
+  createdAt DateTime @default(now())
+}
 
-  enum OTPType {
-    PHONE
-    EMAIL
-  }
+enum OTPType {
+  PHONE
+  EMAIL
+}
 
-  enum MemberStatus {
-    ACTIVE
-    BLOCKED
-  }
+enum MemberStatus {
+  ACTIVE
+  BLOCKED
+}
 
-  model WorkoutPlan {
-    id String @id @default(cuid())
+model WorkoutPlan {
+  id String @id @default(cuid())
 
-    memberId String
-    member   Member @relation(fields: [memberId], references: [id])
+  memberId String
+  member   Member @relation(fields: [memberId], references: [id])
 
-    title       String
-    description String?
+  title       String
+  description String?
 
-    startDate DateTime
-    endDate   DateTime?
+  startDate DateTime
+  endDate   DateTime?
 
-    isActive Boolean @default(true)
+  isActive Boolean @default(true)
 
-    days WorkoutDay[]
+  days WorkoutDay[]
 
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
-  }
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
 
-  model WorkoutDay {
-    id String @id @default(cuid())
+model WorkoutDay {
+  id String @id @default(cuid())
 
-    workoutPlanId String
-    workoutPlan   WorkoutPlan @relation(fields: [workoutPlanId], references: [id], onDelete: Cascade)
+  workoutPlanId String
+  workoutPlan   WorkoutPlan @relation(fields: [workoutPlanId], references: [id], onDelete: Cascade)
 
-    dayNumber Int
+  dayNumber Int
 
-    name String
+  name String
 
-    exercises WorkoutExercise[]
+  exercises WorkoutExercise[]
 
-    createdAt DateTime @default(now())
-  }
+  createdAt DateTime @default(now())
+}
 
-  model WorkoutExercise {
-    id String @id @default(cuid())
+model WorkoutExercise {
+  id String @id @default(cuid())
 
-    workoutDayId String
-    workoutDay   WorkoutDay @relation(fields: [workoutDayId], references: [id], onDelete: Cascade)
+  workoutDayId String
+  workoutDay   WorkoutDay @relation(fields: [workoutDayId], references: [id], onDelete: Cascade)
 
-    exerciseName String
+  exerciseName String
 
-    sets Int?
-    reps Int?
+  sets Int?
+  reps Int?
 
-    weight Decimal?
+  weight Decimal?
 
-    restSeconds Int?
+  restSeconds Int?
 
-    notes String?
+  notes String?
 
-    sortOrder Int @default(0)
+  sortOrder Int @default(0)
 
-    createdAt DateTime @default(now())
-  }
+  createdAt DateTime @default(now())
+}
 
-  model Subscription {
+model Subscription {
   id String @id @default(cuid())
 
   memberId String
@@ -819,40 +1024,40 @@
   packageId String
   package   ServicePackage @relation(fields: [packageId], references: [id])
 
-  invoiceId String? @unique
-  invoice   Invoice? @relation("SubscriptionPrimaryInvoice", fields: [invoiceId], references: [id])
-  invoices Invoice[] @relation("SubscriptionInvoices")
+  invoiceId     String?             @unique
+  invoice       Invoice?            @relation("SubscriptionPrimaryInvoice", fields: [invoiceId], references: [id])
+  invoices      Invoice[]           @relation("SubscriptionInvoices")
   // ADD THIS
   subCategoryId String?
   subCategory   ServiceSubCategory? @relation(fields: [subCategoryId], references: [id], onDelete: SetNull)
 
-  serviceName String
-  packageName String
+  serviceName           String
+  packageName           String
   packageDurationInDays Int
 
   originalPrice Int?
-  finalPrice Int
+  finalPrice    Int
 
   branchName String
 
-  usageType MembershipUsageType @default(DURATION_BASED)
-  totalSessions Int?
+  usageType         MembershipUsageType @default(DURATION_BASED)
+  totalSessions     Int?
   remainingSessions Int?
 
   startDate DateTime
-  endDate DateTime
+  endDate   DateTime
 
   freezeStart DateTime?
-  freezeEnd DateTime?
+  freezeEnd   DateTime?
 
   status SubscriptionStatus @default(ACTIVE)
 
   slotBookings SlotBooking[]
 
-  outgoingMembershipTransfers MembershipTransfer[]  @relation("MembershipTransferSource")
+  outgoingMembershipTransfers MembershipTransfer[] @relation("MembershipTransferSource")
 
-  incomingTransfer MembershipTransfer?  @relation("TransferDestination")
-  attendances MemberAttendance[]
+  incomingTransfer MembershipTransfer? @relation("TransferDestination")
+  attendances      MemberAttendance[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -862,13 +1067,13 @@
   @@index([subCategoryId])
 }
 
-  enum SubscriptionStatus {
-    ACTIVE
-    EXPIRED
-    CANCELLED
-    FROZEN
-    TRANSFERRED
-  }
+enum SubscriptionStatus {
+  ACTIVE
+  EXPIRED
+  CANCELLED
+  FROZEN
+  TRANSFERRED
+}
 
 model Invoice {
   id String @id @default(cuid())
@@ -891,39 +1096,39 @@ model Invoice {
   subCategoryId String?
   subCategory   ServiceSubCategory? @relation(fields: [subCategoryId], references: [id], onDelete: SetNull)
 
-  subscription Subscription? @relation("SubscriptionPrimaryInvoice")
+  subscription         Subscription? @relation("SubscriptionPrimaryInvoice")
   linkedSubscriptionId String?
   linkedSubscription   Subscription? @relation("SubscriptionInvoices", fields: [linkedSubscriptionId], references: [id])
 
   salesRepId String?
-  salesRep   User? @relation(fields: [salesRepId], references: [id])
+  salesRep   User?   @relation(fields: [salesRepId], references: [id])
 
   salesRepName String?
 
   intent InvoiceIntent
 
-  serviceName String
-  packageName String
+  serviceName           String
+  packageName           String
   packageDurationInDays Int
-  branchName String
+  branchName            String
 
   memberName  String
   memberPhone String
   memberEmail String?
 
-  packageAmount Int
+  packageAmount  Int
   discountAmount Int @default(0)
-  finalAmount Int
+  finalAmount    Int
 
   membershipTransfer MembershipTransfer? @relation("MembershipTransferInvoice")
 
-  paidAmount Int @default(0)
+  paidAmount    Int @default(0)
   balanceAmount Int
 
   cgstPercentage Float?
   sgstPercentage Float?
-  cgstAmount Float?
-  sgstAmount Float?
+  cgstAmount     Float?
+  sgstAmount     Float?
 
   referralDiscountAmount Int @default(0)
 
@@ -945,327 +1150,343 @@ model Invoice {
   @@index([subCategoryId])
 }
 
-  enum InvoiceIntent {
-    NEW
-    EXTEND
-    UPGRADE
-    TRANSFER_FEE
-  }
+enum InvoiceIntent {
+  NEW
+  EXTEND
+  UPGRADE
+  TRANSFER_FEE
+}
 
-  model Coupon {
-    id String @id @default(cuid())
-
-    code String @unique
+model Coupon {
+  id String @id @default(cuid())
+
+  code String @unique
 
-    isActive Boolean @default(true)
+  isActive Boolean @default(true)
 
-    // admin/private coupon
-    isPrivate Boolean @default(false)
+  // admin/private coupon
+  isPrivate Boolean @default(false)
 
-    // DISCOUNT
-    discountPercent    Int?
-    discountFlatAmount Int?
-    packages           ServicePackage[] @relation("CouponPackages")
-    // OPTIONAL LIMIT
-    usageLimit         Int?
-    usedCount          Int              @default(0)
+  // DISCOUNT
+  discountPercent    Int?
+  discountFlatAmount Int?
+  packages           ServicePackage[] @relation("CouponPackages")
+  // OPTIONAL LIMIT
+  usageLimit         Int?
+  usedCount          Int              @default(0)
 
-    // OPTIONAL EXPIRY
-    expiresAt DateTime?
+  // OPTIONAL EXPIRY
+  expiresAt DateTime?
 
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
-  }
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
 
-  enum InvoiceStatus {
-    PENDING
-    PARTIAL_PAID
-    FULLY_PAID
-    CANCELLED
-  }
+enum InvoiceStatus {
+  PENDING
+  PARTIAL_PAID
+  FULLY_PAID
+  CANCELLED
+}
 
-  model Payment {
-    id String @id @default(cuid())
+model Payment {
+  id String @id @default(cuid())
 
-    receiptNumber String @unique
+  receiptNumber String @unique
 
-    invoiceId String
-    invoice   Invoice @relation(fields: [invoiceId], references: [id])
+  invoiceId String
+  invoice   Invoice @relation(fields: [invoiceId], references: [id])
 
-    memberId String
-    member   Member @relation(fields: [memberId], references: [id])
+  memberId String
+  member   Member @relation(fields: [memberId], references: [id])
 
-    amount Int
+  amount Int
 
-    paymentMode String
+  paymentMode String
 
-    paymentType PaymentType
+  paymentType PaymentType
 
-    status InvoicePaymentStatus @default(PAID)
+  status InvoicePaymentStatus @default(PAID)
 
-    razorpayOrderId   String?
-    razorpayPaymentId String?
-    razorpaySignature String?
+  razorpayOrderId   String?
+  razorpayPaymentId String?
+  razorpaySignature String?
 
-    notes String?
+  notes String?
 
-    paidAt DateTime @default(now())
+  paidAt DateTime @default(now())
 
-    createdAt DateTime @default(now())
+  createdAt DateTime @default(now())
 
-    @@index([razorpayOrderId])
-  }
+  @@index([razorpayOrderId])
+}
 
-  enum PaymentType {
-    INITIAL
-    BALANCE
-    TRANSFER
-  }
+enum PaymentType {
+  INITIAL
+  BALANCE
+  TRANSFER
+}
 
-  enum InvoicePaymentStatus {
-    PAID
-    FAILED
-    REFUNDED
-    VOIDED
-  }
+enum InvoicePaymentStatus {
+  PAID
+  FAILED
+  REFUNDED
+  VOIDED
+}
 
-  model User {
-    id String @id @default(cuid())
+model User {
+  id String @id @default(cuid())
 
-    name     String
-    email    String   @unique
-    password String
-    branchId String?
-    branch   Branch?  @relation(fields: [branchId], references: [id])
-    role     UserRole
+  name     String
+  email    String   @unique
+  password String
+  branchId String?
+  branch   Branch?  @relation(fields: [branchId], references: [id])
+  role     UserRole
 
-    assignedMembers     Member[]             @relation("MemberCoach")
-    invoices            Invoice[]
-    membershipTransfers MembershipTransfer[]
-    employee            Employee?
-    expenses            Expense[]
-    createdAt           DateTime             @default(now())
-    updatedAt           DateTime             @updatedAt
-  }
+  assignedMembers     Member[]             @relation("MemberCoach")
+  invoices            Invoice[]
+  membershipTransfers MembershipTransfer[]
+  employee            Employee?
+  expenses            Expense[]
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+}
 
-  enum UserRole {
-    ADMIN
-    STAFF
-    MANAGER
-    COACH
-  }
+enum UserRole {
+  ADMIN
+  STAFF
+  MANAGER
+  COACH
+}
 
-  model Blog {
-    id String @id @default(cuid())
+model Blog {
+  id String @id @default(cuid())
 
-    title       String
-    description String
+  title       String
+  description String
 
-    coverImage String?
+  coverImage String?
 
-    content Json
+  content Json
 
-    status BlogStatus @default(DRAFT)
+  status BlogStatus @default(DRAFT)
 
-    publishedAt DateTime?
+  publishedAt DateTime?
 
-    categoryId String?
-    category   BlogCategory? @relation(fields: [categoryId], references: [id])
+  categoryId String?
+  category   BlogCategory? @relation(fields: [categoryId], references: [id])
 
-    faqs BlogFaq[]
+  faqs BlogFaq[]
 
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-    @@index([status])
-    @@index([publishedAt])
-  }
+  @@index([status])
+  @@index([publishedAt])
+}
 
-  enum BlogStatus {
-    DRAFT
-    PUBLISHED
-  }
-
-  model BlogCategory {
-    id String @id @default(cuid())
-
-    name String @unique
-
-    blogs Blog[]
-
-    createdAt DateTime @default(now())
-  }
-
-  model BlogFaq {
-    id String @id @default(cuid())
-
-    blogId String
-    blog   Blog   @relation(fields: [blogId], references: [id], onDelete: Cascade)
-
-    question String
-    answer   String @db.Text
-
-    createdAt DateTime @default(now())
-  }
-
-  model FitnessAssessment {
-    id String @id @default(cuid())
-
-    memberId String
-    member   Member @relation(fields: [memberId], references: [id])
-
-    weight            Float?
-    height            Float?
-    bodyFatPercentage Float?
-    memberNotes       String?
-
-    hba1c         Float?
-    bloodPressure String?
-
-    t3  Float?
-    t4  Float?
-    tsh Float?
-
-    chest  Float?
-    waist  Float?
-    hips   Float?
-    biceps Float?
-    thighs Float?
-    neck   Float?
-    calf   Float?
-
-    bmi Float?
-
-    notes String?
-
-    assessmentDate DateTime @default(now())
-
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
-  }
-
-  model Employee {
-    id          String       @id @default(cuid())
-    userId      String?      @unique
-    user        User?        @relation(fields: [userId], references: [id])
-    basicSalary Int?
-    salaryType  SalaryType   @default(MONTHLY)
-    bankName    String?
-    accountNo   String?
-    ifscCode    String?
-    payrolls    Payroll[]
-    attendances Attendance[]
-  }
-
-  model Attendance {
-    id         String           @id @default(uuid())
-    date       DateTime
-    employeeId String
-    employee   Employee         @relation(fields: [employeeId], references: [id])
-    checkIn    DateTime?
-    checkOut   DateTime?
-    status     AttendanceStatus @default(PRESENT)
-    createdAt  DateTime         @default(now())
-  }
-
-  enum AttendanceStatus {
-    ABSENT
-    PRESENT
-    HALFDAY
-    LEAVE
-  }
-
-  model Payroll {
-    id               String               @id @default(uuid())
-    month            Int
-    year             Int
-    employeeId       String
-    employee         Employee             @relation(fields: [employeeId], references: [id])
-    basicSalary      Int
-    incentive        Int?
-    deduction        Int?
-    advanceDeduction Int?
-    netSalary        Int
-    createdAt        DateTime             @default(now())
-    paidMethod       PayrollPaymentMethod
-  }
-
-  enum PayrollPaymentMethod {
-    CASH
-    BANK_TRANSFER
-    UPI
-  }
-
-  enum SalaryType {
-    MONTHLY
-    YEARLY
-    HOURLY
-  }
-
-  model MembershipTransfer {
-    id String @id @default(cuid())
-
-    subscriptionId String
-    subscription   Subscription @relation("MembershipTransferSource", fields: [subscriptionId], references: [id])
-
-    fromMemberId String
-    fromMember   Member @relation("MembershipTransferFrom", fields: [fromMemberId], references: [id])
-
-    toMemberId String
-    toMember   Member @relation("MembershipTransferTo", fields: [toMemberId], references: [id])
-
-    reason String?
-
-    // Remaining membership days when transferre
-    remainingDays   Int?
-    // Todo => need to add the user notes, payment mode, amount collected,  
-    notes           String?
-    amountCollected Int?
-    paymentMode     String?
-
-    // Applied configured slab snapshot
-    feeSlabId      String?
-    feeSlabLabel   String?
-    feeSlabMinDays Int?
-    feeSlabMaxDays Int?
-
-    // Fee before tax
-    baseTransferFee Int @default(0)
-
-    // Tax snapshot
-    cgstPercentage Float?
-    sgstPercentage Float?
-    cgstAmount     Float?
-    sgstAmount     Float?
-
-    // Final transfer fee including GST
-    transferInvoiceId String?  @unique
-    transferInvoice   Invoice? @relation("MembershipTransferInvoice", fields: [transferInvoiceId], references: [id])
-    transferFee       Int      @default(0)
-
-    transferredById String
-    transferredBy   User   @relation(fields: [transferredById], references: [id])
-
-    toSubscriptionId String?       @unique
-    toSubscription   Subscription? @relation("TransferDestination", fields: [toSubscriptionId], references: [id])
-    createdAt        DateTime      @default(now())
-
-    @@index([subscriptionId])
-    @@index([fromMemberId])
-    @@index([toMemberId])
-  }
-
+enum BlogStatus {
+  DRAFT
+  PUBLISHED
+}
+
+model BlogCategory {
+  id String @id @default(cuid())
+
+  name String @unique
+
+  blogs Blog[]
+
+  createdAt DateTime @default(now())
+}
+
+model BlogFaq {
+  id String @id @default(cuid())
+
+  blogId String
+  blog   Blog   @relation(fields: [blogId], references: [id], onDelete: Cascade)
+
+  question String
+  answer   String @db.Text
+
+  createdAt DateTime @default(now())
+}
+
+model FitnessAssessment {
+  id String @id @default(cuid())
+
+  memberId String
+  member   Member @relation(fields: [memberId], references: [id])
+
+  weight            Float?
+  height            Float?
+  bodyFatPercentage Float?
+  memberNotes       String?
+
+  hba1c         Float?
+  bloodPressure String?
+
+  t3  Float?
+  t4  Float?
+  tsh Float?
+
+  chest  Float?
+  waist  Float?
+  hips   Float?
+  biceps Float?
+  thighs Float?
+  neck   Float?
+  calf   Float?
+
+  bmi Float?
+
+  notes String?
+
+  assessmentDate DateTime @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Employee {
+  id          String       @id @default(cuid())
+  userId      String?      @unique
+  user        User?        @relation(fields: [userId], references: [id])
+  basicSalary Int?
+  salaryType  SalaryType   @default(MONTHLY)
+  bankName    String?
+  accountNo   String?
+  ifscCode    String?
+  payrolls    Payroll[]
+  attendances Attendance[]
+}
+
+model Attendance {
+  id         String           @id @default(uuid())
+  date       DateTime
+  employeeId String
+  employee   Employee         @relation(fields: [employeeId], references: [id])
+  checkIn    DateTime?
+  checkOut   DateTime?
+  status     AttendanceStatus @default(PRESENT)
+  createdAt  DateTime         @default(now())
+}
+
+enum AttendanceStatus {
+  ABSENT
+  PRESENT
+  HALFDAY
+  LEAVE
+}
+
+model Payroll {
+  id               String               @id @default(uuid())
+  month            Int
+  year             Int
+  employeeId       String
+  employee         Employee             @relation(fields: [employeeId], references: [id])
+  basicSalary      Int
+  incentive        Int?
+  deduction        Int?
+  advanceDeduction Int?
+  netSalary        Int
+  createdAt        DateTime             @default(now())
+  paidMethod       PayrollPaymentMethod
+}
+
+enum PayrollPaymentMethod {
+  CASH
+  BANK_TRANSFER
+  UPI
+}
+
+enum SalaryType {
+  MONTHLY
+  YEARLY
+  HOURLY
+}
+
+model MembershipTransfer {
+  id String @id @default(cuid())
+
+  subscriptionId String
+  subscription   Subscription @relation("MembershipTransferSource", fields: [subscriptionId], references: [id])
+
+  fromMemberId String
+  fromMember   Member @relation("MembershipTransferFrom", fields: [fromMemberId], references: [id])
+
+  toMemberId String
+  toMember   Member @relation("MembershipTransferTo", fields: [toMemberId], references: [id])
+
+  reason String?
+
+  // Remaining membership days when transferre
+  remainingDays   Int?
+  // Todo => need to add the user notes, payment mode, amount collected,  
+  notes           String?
+  amountCollected Int?
+  paymentMode     String?
+
+  // Applied configured slab snapshot
+  feeSlabId      String?
+  feeSlabLabel   String?
+  feeSlabMinDays Int?
+  feeSlabMaxDays Int?
+
+  // Fee before tax
+  baseTransferFee Int @default(0)
+
+  // Tax snapshot
+  cgstPercentage Float?
+  sgstPercentage Float?
+  cgstAmount     Float?
+  sgstAmount     Float?
+
+  // Final transfer fee including GST
+  transferInvoiceId String?  @unique
+  transferInvoice   Invoice? @relation("MembershipTransferInvoice", fields: [transferInvoiceId], references: [id])
+  transferFee       Int      @default(0)
+
+  transferredById String
+  transferredBy   User   @relation(fields: [transferredById], references: [id])
+
+  toSubscriptionId String?       @unique
+  toSubscription   Subscription? @relation("TransferDestination", fields: [toSubscriptionId], references: [id])
+  createdAt        DateTime      @default(now())
+
+  @@index([subscriptionId])
+  @@index([fromMemberId])
+  @@index([toMemberId])
+}
+
+
+enum ExpenseType {
+  RENT
+  UTILITIES
+  SALARY
+  EQUIPMENT
+  MAINTENANCE
+  MARKETING
+  SUPPLIES
+  INSURANCE
+  TAXES
+  OTHER
+}
 
 model Expense {
-  id  String        @id @unique     @default(cuid())
+  id          String      @id @unique @default(cuid())
   description String?
-  date   DateTime?
-  byUserId  String
-  byUser    User  @relation(fields: [byUserId], references: [id])
-  amount    Int?
-  createdAt DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
-} 
+  expenseType ExpenseType @default(OTHER)
+  date        DateTime?
+  byUserId    String
+  byUser      User        @relation(fields: [byUserId], references: [id])
+  amount      Int?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([byUserId, date])
+}
 
 model MemberAttendance {
   id String @id @default(cuid())

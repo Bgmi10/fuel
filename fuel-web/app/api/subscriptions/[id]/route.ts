@@ -17,10 +17,19 @@ type UpdateSubscriptionBody = {
   paymentMode?: string;
   /** PAISE. Optional; the edit page collects balances via CollectBalanceModal. */
   additionalPayment?: number;
+  /**
+   * PAISE, GST included. Optional manual membership total.
+   * Only accepted when every PAID payment was made offline (Cash / GPay).
+   */
+  customTotal?: number | null;
   notes?: string;
 };
 
 type InvoiceStatusValue = "PENDING" | "PARTIAL_PAID" | "FULLY_PAID" | "CANCELLED";
+
+type InvoiceWithPayments = Prisma.InvoiceGetPayload<{
+  include: { payments: true };
+}>;
 
 const allowedRoles = new Set(["ADMIN", "MANAGER"]);
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -33,6 +42,15 @@ const PAYMENT_MODES = new Set([
   "Bank Transfer",
   "Razorpay",
 ]);
+
+/**
+ * Offline payment modes. Package downgrades / lower amounts are only
+ * allowed when EVERY paid payment on the membership used one of these.
+ */
+const OFFLINE_PAYMENT_MODES = new Set(["cash", "gpay"]);
+
+const isOfflineMode = (mode: string | null | undefined) =>
+  OFFLINE_PAYMENT_MODES.has((mode ?? "").trim().toLowerCase());
 
 /* ============================================================
  * ERRORS
@@ -95,8 +113,14 @@ function normalizePaise(value: unknown) {
 
 const rupees = (paise: number) => `₹${(paise / 100).toFixed(2)}`;
 
+/** Money actually held = PAID rows only (REFUNDED / FAILED / VOIDED ignored). */
 const sumPaid = (payments: { amount: number; status: string }[]) =>
   payments.reduce((t, p) => (p.status === "PAID" ? t + p.amount : t), 0);
+
+/** True when every PAID payment was taken offline (Cash / GPay). */
+const paidOnlyOffline = (
+  payments: { status: string; paymentMode: string }[]
+) => payments.filter((p) => p.status === "PAID").every((p) => isOfflineMode(p.paymentMode));
 
 function invoiceTotal(invoice: {
   finalAmount: number;
@@ -157,6 +181,9 @@ function resolveGstRates(
 const generateUpgradeInvoiceNumber = () =>
   `INV-UP-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
+const generateRefundReceiptNumber = () =>
+  `REF-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+
 /**
  * Total payable for a full package:
  * package price - discounts = taxable, then CGST + SGST on top.
@@ -206,8 +233,36 @@ function buildUpgradeAmounts(total: number, cgstPct: number, sgstPct: number) {
   };
 }
 
-function invoiceStatusFor(total: number, paid: number): InvoiceStatusValue {
-  if (total === 0) return "CANCELLED";
+/**
+ * Re-split the ORIGINAL invoice so that
+ *   finalAmount + totalTax - discountAmount === newTotal
+ * The discount, packageAmount and package name stay as history.
+ */
+function rebuildOriginalAmounts(
+  discountAmount: number,
+  newTotal: number,
+  cgstPct: number,
+  sgstPct: number
+) {
+  const gross = newTotal + discountAmount; // finalAmount + tax
+  const net = Math.round(gross / (1 + (cgstPct + sgstPct) / 100));
+  const cgstAmount = Math.round(net * (cgstPct / 100));
+  const sgstAmount = gross - net - cgstAmount;
+
+  return {
+    finalAmount: net,
+    cgstAmount,
+    sgstAmount,
+    totalTax: cgstAmount + sgstAmount,
+  };
+}
+
+function invoiceStatusFor(
+  total: number,
+  paid: number,
+  allowCancel = true
+): InvoiceStatusValue {
+  if (total === 0 && allowCancel) return "CANCELLED";
   if (paid >= total) return "FULLY_PAID";
   if (paid > 0) return "PARTIAL_PAID";
   return "PENDING";
@@ -281,6 +336,16 @@ const subscriptionInclude = {
     orderBy: { createdAt: "asc" as const },
     include: { payments: { orderBy: { paidAt: "asc" as const } } },
   },
+
+  // NEW: set only when this membership was received by transfer
+  incomingTransfer: {
+    include: {
+      fromMember: { select: { id: true, name: true, phone: true } },
+      transferInvoice: {
+        include: { payments: { orderBy: { paidAt: "asc" as const } } },
+      },
+    },
+  },
 };
 
 /* ============================================================
@@ -344,8 +409,13 @@ export const GET = async (request: NextRequest, { params }: RouteContext) => {
       );
     }
 
+    // CHANGED: a transferred-in membership has no original invoice of its
+    // own, so don't go looking for a legacy one.
     const originalInvoice =
-      subscription.invoice ?? (await findLegacyInvoice(prisma, subscription));
+      subscription.invoice ??
+      (subscription.incomingTransfer
+        ? null
+        : await findLegacyInvoice(prisma, subscription));
 
     return NextResponse.json({
       success: true,
@@ -375,14 +445,23 @@ export const GET = async (request: NextRequest, { params }: RouteContext) => {
 /* ============================================================
  * PUT  -  COMPLETE MEMBERSHIP EDIT
  *
- * 1. The ORIGINAL invoice and its payments are never changed.
- * 2. Billed so far = original total payable + all non-cancelled
- *    upgrade invoices' total payable.
- * 3. New package total vs billed so far:
- *      higher      -> NEW upgrade invoice for the difference
- *      lower       -> shrink UNPAID upgrade balances, newest first
- *      still lower -> reject (needs a refund/credit workflow)
- * 4. If the package did not change, billing is untouched.
+ * Billed so far = original total payable + all non-cancelled
+ * upgrade invoices' total payable.
+ *
+ * Target total =
+ *    customTotal (offline-only)  ||
+ *    new package total (if package changed)  ||
+ *    billed so far (nothing changes)
+ *
+ * target > billed  -> NEW upgrade invoice for the difference
+ * target < billed  ->
+ *    a) every PAID payment is Cash / GPay (offline):
+ *         1. cut UNPAID balances (upgrades newest first, then original)
+ *         2. refund the rest offline: payments are marked REFUNDED
+ *            (split when only part is refunded) and invoice totals
+ *            are lowered to match.
+ *    b) any online payment exists:
+ *         only UNPAID upgrade balances can be cut, otherwise reject.
  * ============================================================ */
 
 export const PUT = async (request: NextRequest, { params }: RouteContext) => {
@@ -492,6 +571,26 @@ export const PUT = async (request: NextRequest, { params }: RouteContext) => {
         { success: false, message: "Invalid payment method." },
         { status: 400 }
       );
+    }
+
+    /* ---------------- CUSTOM TOTAL (PAISE, optional) ---------------- */
+
+    let customTotal: number | null = null;
+
+    if (body.customTotal !== undefined && body.customTotal !== null) {
+      const parsed = Number(body.customTotal);
+
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: "Custom total must be greater than zero.",
+          },
+          { status: 400 }
+        );
+      }
+
+      customTotal = Math.round(parsed);
     }
 
     /* ---------------- LIGHT LOAD ---------------- */
@@ -629,7 +728,7 @@ export const PUT = async (request: NextRequest, { params }: RouteContext) => {
 
         if (!sub) throw new BusinessError("Membership was not found.", 404);
 
-        let original = sub.invoice;
+        let original: InvoiceWithPayments | null = sub.invoice;
 
         if (!original) {
           original = await findLegacyInvoice(tx, sub);
@@ -671,6 +770,20 @@ export const PUT = async (request: NextRequest, { params }: RouteContext) => {
 
         const billedSoFar = originalTotal + upgradesBilled;
 
+        /* ---------- OFFLINE-ONLY RULE ---------- */
+
+        const offlineEligible = [original, ...activeUpgrades].every((inv) =>
+          paidOnlyOffline(inv.payments)
+        );
+
+        if (customTotal !== null && !offlineEligible) {
+          throw new BusinessError(
+            "A custom amount can only be set when every payment on this membership was made offline (Cash or GPay).",
+            400,
+            "ONLINE_PAYMENT_LOCK"
+          );
+        }
+
         /* ---------- NEW TOTAL ---------- */
 
         const packageChanged = sub.packageId !== selectedPackage.id;
@@ -684,13 +797,18 @@ export const PUT = async (request: NextRequest, { params }: RouteContext) => {
         });
 
         // Dates / branch / sub-category edits don't touch billing.
-        const targetTotal = packageChanged ? newPackageTotal : billedSoFar;
+        const targetTotal =
+          customTotal !== null
+            ? customTotal
+            : packageChanged
+              ? newPackageTotal
+              : billedSoFar;
 
         const diff = targetTotal - billedSoFar;
 
         /* ---------- DOWNGRADE PRE-CHECK ---------- */
 
-        if (diff < 0) {
+        if (diff < 0 && !offlineEligible) {
           const cuttable = activeUpgrades.reduce(
             (t, i) => t + Math.max(invoiceTotal(i) - sumPaid(i.payments), 0),
             0
@@ -698,7 +816,7 @@ export const PUT = async (request: NextRequest, { params }: RouteContext) => {
 
           if (-diff > cuttable) {
             throw new BusinessError(
-              `The new total (${rupees(targetTotal)}) is below the minimum of ${rupees(billedSoFar - cuttable)} (original invoice plus amounts already paid on upgrade invoices). A refund/credit adjustment is required.`,
+              `The new total (${rupees(targetTotal)}) is below the minimum of ${rupees(billedSoFar - cuttable)}. Lowering a membership below the paid amount is only allowed when every payment was made offline (Cash or GPay); an online payment exists on this membership.`,
               400,
               "NEW_TOTAL_BELOW_PAID"
             );
@@ -706,7 +824,6 @@ export const PUT = async (request: NextRequest, { params }: RouteContext) => {
         }
 
         /* ---------- UPDATE SUBSCRIPTION ---------- */
-        // The original invoice is NOT touched.
 
         await tx.subscription.update({
           where: { id },
@@ -734,9 +851,10 @@ export const PUT = async (request: NextRequest, { params }: RouteContext) => {
           },
         });
 
-        /* ---------- UPGRADE INVOICES ---------- */
+        /* ---------- INVOICES ---------- */
 
         let createdInvoiceId: string | null = null;
+        let totalRefunded = 0;
 
         if (diff > 0) {
           const created = await tx.invoice.create({
@@ -780,31 +898,138 @@ export const PUT = async (request: NextRequest, { params }: RouteContext) => {
 
           createdInvoiceId = created.id;
         } else if (diff < 0) {
+          type Work = {
+            inv: InvoiceWithPayments;
+            isOriginal: boolean;
+            startTotal: number;
+            total: number;
+            paid: number;
+            refund: number;
+          };
+
+          // Newest upgrade first. The original is only touched when eligible.
+          const ordered: { inv: InvoiceWithPayments; isOriginal: boolean }[] = [
+            ...[...activeUpgrades]
+              .reverse()
+              .map((inv) => ({ inv: inv as InvoiceWithPayments, isOriginal: false })),
+            ...(offlineEligible
+              ? [{ inv: original as InvoiceWithPayments, isOriginal: true }]
+              : []),
+          ];
+
+          const works: Work[] = ordered.map(({ inv, isOriginal }) => ({
+            inv,
+            isOriginal,
+            startTotal: invoiceTotal(inv),
+            total: invoiceTotal(inv),
+            paid: sumPaid(inv.payments),
+            refund: 0,
+          }));
+
           let toCut = -diff;
 
-          for (const inv of [...activeUpgrades].reverse()) {
-            if (toCut === 0) break;
-
-            const paid = sumPaid(inv.payments);
-            const total = invoiceTotal(inv);
-            const cut = Math.min(toCut, total - paid);
-
+          // Pass 1: cut UNPAID balances only (no money moves).
+          for (const w of works) {
+            if (toCut <= 0) break;
+            const cut = Math.min(toCut, Math.max(w.total - w.paid, 0));
             if (cut <= 0) continue;
+            w.total -= cut;
+            toCut -= cut;
+          }
 
-            const newTotal = total - cut;
+          // Pass 2: remaining cut was already paid offline -> refund it.
+          if (toCut > 0 && offlineEligible) {
+            for (const w of works) {
+              if (toCut <= 0) break;
+              const cut = Math.min(toCut, w.paid);
+              if (cut <= 0) continue;
+              w.total -= cut;
+              w.paid -= cut;
+              w.refund += cut;
+              toCut -= cut;
+            }
+          }
+
+          if (toCut > 0) {
+            throw new BusinessError(
+              "Unable to apply the lower total to the existing invoices."
+            );
+          }
+
+          for (const w of works) {
+            if (w.total === w.startTotal && w.refund === 0) continue;
+
+            // --- record the offline refund on the payment rows ---
+            if (w.refund > 0) {
+              let remaining = w.refund;
+
+              const paidRows = w.inv.payments
+                .filter((p) => p.status === "PAID")
+                .sort(
+                  (a, b) =>
+                    new Date(b.paidAt).getTime() - new Date(a.paidAt).getTime()
+                );
+
+              for (const p of paidRows) {
+                if (remaining <= 0) break;
+
+                if (p.amount <= remaining) {
+                  await tx.payment.update({
+                    where: { id: p.id },
+                    data: {
+                      status: "REFUNDED",
+                      notes: `${p.notes ? `${p.notes} | ` : ""}Refunded offline (${p.paymentMode}) on membership edit`,
+                    },
+                  });
+                  remaining -= p.amount;
+                } else {
+                  await tx.payment.update({
+                    where: { id: p.id },
+                    data: { amount: p.amount - remaining },
+                  });
+
+                  await tx.payment.create({
+                    data: {
+                      receiptNumber: generateRefundReceiptNumber(),
+                      invoiceId: w.inv.id,
+                      memberId: sub.memberId,
+                      amount: remaining,
+                      paymentMode: p.paymentMode,
+                      paymentType: p.paymentType,
+                      status: "REFUNDED",
+                      notes: `Partial offline refund (${p.paymentMode}) of ${p.receiptNumber} on membership edit`,
+                    },
+                  });
+
+                  remaining = 0;
+                }
+              }
+
+              totalRefunded += w.refund;
+            }
+
+            // --- lower the invoice to the new total ---
+            const amounts = w.isOriginal
+              ? rebuildOriginalAmounts(
+                  w.inv.discountAmount,
+                  w.total,
+                  cgstPct,
+                  sgstPct
+                )
+              : {
+                  ...buildUpgradeAmounts(w.total, cgstPct, sgstPct),
+                  discountAmount: 0,
+                };
 
             await tx.invoice.update({
-              where: { id: inv.id },
+              where: { id: w.inv.id },
               data: {
-                ...buildUpgradeAmounts(newTotal, cgstPct, sgstPct),
-                discountAmount: 0,
-                paidAmount: paid,
-                balanceAmount: newTotal - paid,
-                status: invoiceStatusFor(newTotal, paid),
+                ...amounts,
+                paidAmount: w.paid,
+                balanceAmount: w.total - w.paid,
+                status: invoiceStatusFor(w.total, w.paid, !w.isOriginal),
               },
             });
-
-            toCut -= cut;
           }
         }
 
@@ -874,7 +1099,8 @@ export const PUT = async (request: NextRequest, { params }: RouteContext) => {
           collectedNow = additionalPayment;
         }
 
-        const collected = originalPaid + upgradesPaid + collectedNow;
+        const collected =
+          originalPaid + upgradesPaid - totalRefunded + collectedNow;
 
         return {
           previousPaidAmount: originalPaid + upgradesPaid,
@@ -882,10 +1108,12 @@ export const PUT = async (request: NextRequest, { params }: RouteContext) => {
           collectedAmount: collected,
           balanceAmount: Math.max(targetTotal - collected, 0),
           newUpgradeInvoiceAmount: diff > 0 ? diff : 0,
+          reducedAmount: diff < 0 ? -diff : 0,
+          refundedAmount: totalRefunded,
           additionalPayment: collectedNow,
         };
       },
-      { timeout: 15000 }
+      { timeout: 20000 }
     );
 
     /* ---------------- FRESH DATA ---------------- */
@@ -899,12 +1127,17 @@ export const PUT = async (request: NextRequest, { params }: RouteContext) => {
       throw new Error("Membership was updated but could not be loaded afterwards.");
     }
 
-    const message =
-      financial.newUpgradeInvoiceAmount > 0
-        ? `Membership updated. An upgrade invoice of ${rupees(financial.newUpgradeInvoiceAmount)} (GST included) was created for the balance.`
-        : financial.additionalPayment > 0
-          ? "Membership updated and payment recorded."
-          : "Membership updated successfully.";
+    let message = "Membership updated successfully.";
+
+    if (financial.newUpgradeInvoiceAmount > 0) {
+      message = `Membership updated. An upgrade invoice of ${rupees(financial.newUpgradeInvoiceAmount)} (GST included) was created for the balance.`;
+    } else if (financial.refundedAmount > 0) {
+      message = `Membership updated. The total was lowered by ${rupees(financial.reducedAmount)}. Hand ${rupees(financial.refundedAmount)} back to the member (refund recorded against the original Cash/GPay payment).`;
+    } else if (financial.reducedAmount > 0) {
+      message = `Membership updated. The total was lowered by ${rupees(financial.reducedAmount)} (unpaid balance reduced).`;
+    } else if (financial.additionalPayment > 0) {
+      message = "Membership updated and payment recorded.";
+    }
 
     return NextResponse.json({
       success: true,

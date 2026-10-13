@@ -82,11 +82,6 @@ const navSections: NavSection[] = [
             icon: UserX,
           },
           {
-            label: "Transferred Members",
-            href: "/dashboard/members/transferred",
-            icon: ArrowRightLeft,
-          },
-          {
             label: "Frozen Members",
             href: "/dashboard/members/frozen",
             icon: ArrowRightLeft,
@@ -122,7 +117,7 @@ const navSections: NavSection[] = [
     items: [
       {
         label: "Fuel TV",
-        href: "/dashboard/tv",
+        href: "/dashboard/tv",  
         icon: MonitorPlay,
       },
       {
@@ -131,8 +126,18 @@ const navSections: NavSection[] = [
         icon: Video,
       },
       {
+        label: "Workout Schedules Centralized",
+        href: "/dashboard/workout-schedules-centralized",
+        icon: Video
+      },
+      {
         label: "Workout Programs",
         href: "/dashboard/workout-programs",
+        icon: ListChecks,
+      },
+      {
+        label: "Workout Broadcasts",
+        href: "/dashboard/workout-broadcasts",
         icon: ListChecks,
       },
       {
@@ -146,6 +151,11 @@ const navSections: NavSection[] = [
   {
     label: "Administration",
     items: [
+      {
+        label: "Transferred Memberships",
+        href: "/dashboard/members/transferred",
+        icon: ArrowRightLeft,
+      },
       {
         label: "Memberships",
         href: "/dashboard/memberships",

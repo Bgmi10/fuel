@@ -14,7 +14,7 @@ import {
   Radio,
   RefreshCcw,
   Search,
-  Users,
+  UserCheck,
   X,
 } from "lucide-react";
 
@@ -54,7 +54,32 @@ type Summary = {
   byDay: { dateKey: string; count: number }[];
 };
 
+type TodayStat = { count: number; uniqueMembers: number };
+
 type Option = { id: string; name: string };
+
+type SlotOption = {
+  id: string;
+  name: string;
+  startTime: string;
+  endTime: string;
+  branchId: string;
+  serviceId: string;
+  branchName: string;
+};
+
+type Filters = {
+  search: string;
+  from: string;
+  to: string;
+  branchId: string;
+  serviceId: string;
+  packageId: string;
+  slotId: string;
+  usageType: string;
+  deducted: string;
+  lowSessions: boolean;
+};
 
 /* ============================================================
  * DATE HELPERS (gym time = Asia/Kolkata)
@@ -73,13 +98,35 @@ const addDays = (key: string, days: number) => {
   return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
 };
 
-const formatTime = (value: string) =>
-  new Intl.DateTimeFormat("en-IN", {
-    timeZone: "Asia/Kolkata",
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  }).format(new Date(value));
+const timeFormatter = new Intl.DateTimeFormat("en-IN", {
+  timeZone: "Asia/Kolkata",
+  hour: "numeric",
+  minute: "2-digit",
+  hour12: true,
+});
+
+const clockFormatter = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Asia/Kolkata",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+
+const formatTime = (value: string) => timeFormatter.format(new Date(value));
+
+// Minutes since midnight, in gym time
+const istMinutes = (value: string) => {
+  const parts = clockFormatter.formatToParts(new Date(value));
+  const hour = Number(parts.find((p) => p.type === "hour")?.value ?? 0);
+  const minute = Number(parts.find((p) => p.type === "minute")?.value ?? 0);
+  return hour * 60 + minute;
+};
+
+const clockToMinutes = (value: string) => {
+  if (!value) return null;
+  const [h, m] = value.split(":").map(Number);
+  return Number.isFinite(h) && Number.isFinite(m) ? h * 60 + m : null;
+};
 
 const formatDay = (key: string) => {
   const [y, m, d] = key.split("-").map(Number);
@@ -94,6 +141,9 @@ const formatDay = (key: string) => {
 const LOW_SESSIONS = 2;
 const LIVE_REFRESH_MS = 30_000;
 
+const slotLabel = (slot: { name: string; startTime: string; endTime: string }) =>
+  `${slot.name} (${slot.startTime}-${slot.endTime})`;
+
 /* ============================================================
  * PAGE
  * ============================================================ */
@@ -103,26 +153,69 @@ const Page = () => {
 
   const today = dateKeyOf(new Date());
 
+  const defaultFilters: Filters = useMemo(
+    () => ({
+      search: "",
+      from: today,
+      to: today,
+      branchId: "",
+      serviceId: "",
+      packageId: "",
+      slotId: "",
+      usageType: "",
+      deducted: "",
+      lowSessions: false,
+    }),
+    [today]
+  );
+
+  const [filters, setFilters] = useState<Filters>(defaultFilters);
+  const [searchInput, setSearchInput] = useState("");
+
+  // In-time range is applied on the loaded rows (time of day can't be
+  // queried directly), so it does not trigger a refetch.
+  const [timeFrom, setTimeFrom] = useState("");
+  const [timeTo, setTimeTo] = useState("");
+
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
+  const [todayStats, setTodayStats] = useState<{ total: TodayStat } | null>(
+    null
+  );
+
   const [branches, setBranches] = useState<Option[]>([]);
   const [services, setServices] = useState<Option[]>([]);
+  const [packages, setPackages] = useState<
+    { id: string; name: string; serviceId: string }[]
+  >([]);
+  const [slots, setSlots] = useState<SlotOption[]>([]);
+  const [canSelectBranch, setCanSelectBranch] = useState(true);
   const [truncated, setTruncated] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const [from, setFrom] = useState(today);
-  const [to, setTo] = useState(today);
-  const [search, setSearch] = useState("");
-  const [branchId, setBranchId] = useState("ALL");
-  const [serviceId, setServiceId] = useState("ALL");
-  const [onlyLowSessions, setOnlyLowSessions] = useState(false);
-
   const [showFilters, setShowFilters] = useState(false);
   const [live, setLive] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [exporting, setExporting] = useState(false);
+
+  const updateFilters = useCallback((patch: Partial<Filters>) => {
+    setFilters((previous) => ({ ...previous, ...patch }));
+  }, []);
+
+  // Debounce search -> filters.search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setFilters((previous) =>
+        previous.search === searchInput.trim()
+          ? previous
+          : { ...previous, search: searchInput.trim() }
+      );
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
   /* ----------------------------------------------------------
    * FETCH
@@ -133,10 +226,13 @@ const Page = () => {
       if (!silent) setLoading(true);
 
       try {
-        const query = new URLSearchParams({ from, to });
+        const query = new URLSearchParams();
 
-        if (branchId !== "ALL") query.set("branchId", branchId);
-        if (serviceId !== "ALL") query.set("serviceId", serviceId);
+        (Object.keys(filters) as (keyof Filters)[]).forEach((key) => {
+          const value = filters[key];
+          if (value === "" || value === false) return;
+          query.set(key, String(value));
+        });
 
         const res = await fetch(`/api/members/attendance?${query.toString()}`, {
           cache: "no-store",
@@ -150,9 +246,13 @@ const Page = () => {
 
         setRecords(data.records ?? []);
         setSummary(data.summary ?? null);
+        setTodayStats(data.todayStats ?? null);
         setTruncated(Boolean(data.truncated));
         setBranches(data.filters?.branches ?? []);
         setServices(data.filters?.services ?? []);
+        setPackages(data.filters?.packages ?? []);
+        setSlots(data.filters?.slots ?? []);
+        setCanSelectBranch(data.scope?.canSelectBranch ?? true);
         setError("");
       } catch (err) {
         setError(
@@ -162,7 +262,7 @@ const Page = () => {
         if (!silent) setLoading(false);
       }
     },
-    [from, to, branchId, serviceId]
+    [filters]
   );
 
   useEffect(() => {
@@ -197,78 +297,113 @@ const Page = () => {
     ];
   }, [today]);
 
-  const activePreset = presets.find((p) => p.from === from && p.to === to);
+  const activePreset = presets.find(
+    (p) => p.from === filters.from && p.to === filters.to
+  );
 
   /* ----------------------------------------------------------
-   * CLIENT FILTERS (search + low sessions)
+   * TIME-OF-DAY FILTER (client side)
    * ---------------------------------------------------------- */
 
   const filtered = useMemo(() => {
-    const term = search.trim().toLowerCase();
+    const fromMinutes = clockToMinutes(timeFrom);
+    const toMinutes = clockToMinutes(timeTo);
+
+    if (fromMinutes === null && toMinutes === null) return records;
 
     return records.filter((record) => {
-      const matchesSearch =
-        !term ||
-        record.member.name.toLowerCase().includes(term) ||
-        record.member.phone.toLowerCase().includes(term);
+      const minutes = istMinutes(record.checkInAt);
 
-      const remaining = record.subscription.remainingSessions;
+      if (fromMinutes !== null && minutes < fromMinutes) return false;
+      if (toMinutes !== null && minutes > toMinutes) return false;
 
-      const matchesLow =
-        !onlyLowSessions ||
-        (record.subscription.usageType === "SESSION_BASED" &&
-          remaining !== null &&
-          remaining <= LOW_SESSIONS);
-
-      return matchesSearch && matchesLow;
+      return true;
     });
-  }, [records, search, onlyLowSessions]);
+  }, [records, timeFrom, timeTo]);
 
-  const selectedRecords = useMemo(() => {
-    const set = new Set(selectedIds);
-    return filtered.filter((record) => set.has(record.id));
-  }, [filtered, selectedIds]);
+  /* ----------------------------------------------------------
+   * DEPENDENT OPTIONS
+   * ---------------------------------------------------------- */
+
+  const packageOptions = packages.filter(
+    (p) => !filters.serviceId || p.serviceId === filters.serviceId
+  );
+
+  const slotOptions = slots.filter(
+    (s) =>
+      (!filters.branchId || s.branchId === filters.branchId) &&
+      (!filters.serviceId || s.serviceId === filters.serviceId)
+  );
+
+  /* ----------------------------------------------------------
+   * SELECTION
+   * ---------------------------------------------------------- */
+
+  const selectedRecords = useMemo(
+    () => filtered.filter((record) => selectedIds.has(record.id)),
+    [filtered, selectedIds]
+  );
 
   const allSelected =
-    filtered.length > 0 && filtered.every((r) => selectedIds.includes(r.id));
+    filtered.length > 0 && filtered.every((r) => selectedIds.has(r.id));
 
   const toggleOne = (id: string) =>
-    setSelectedIds((current) =>
-      current.includes(id)
-        ? current.filter((x) => x !== id)
-        : [...current, id]
-    );
-
-  const toggleAll = () => {
-    if (allSelected) {
-      const ids = new Set(filtered.map((r) => r.id));
-      setSelectedIds((current) => current.filter((id) => !ids.has(id)));
-      return;
-    }
-
-    setSelectedIds((current) => {
-      const next = new Set(current);
-      filtered.forEach((r) => next.add(r.id));
-      return Array.from(next);
+    setSelectedIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
     });
-  };
 
-  const hasActiveFilters =
-    search.trim() !== "" ||
-    branchId !== "ALL" ||
-    serviceId !== "ALL" ||
-    onlyLowSessions ||
-    from !== today ||
-    to !== today;
+  const toggleAll = () =>
+    setSelectedIds((previous) => {
+      const next = new Set(previous);
+
+      if (allSelected) {
+        filtered.forEach((r) => next.delete(r.id));
+      } else {
+        filtered.forEach((r) => next.add(r.id));
+      }
+
+      return next;
+    });
+
+  /* ----------------------------------------------------------
+   * FILTER STATE
+   * ---------------------------------------------------------- */
+
+  const activeFilterCount =
+    [
+      filters.search,
+      filters.branchId,
+      filters.serviceId,
+      filters.packageId,
+      filters.slotId,
+      filters.usageType,
+      filters.deducted,
+      timeFrom,
+      timeTo,
+    ].filter(Boolean).length +
+    (filters.lowSessions ? 1 : 0) +
+    (filters.from !== today || filters.to !== today ? 1 : 0);
+
+  const hasActiveFilters = activeFilterCount > 0;
 
   const clearFilters = () => {
-    setSearch("");
-    setBranchId("ALL");
-    setServiceId("ALL");
-    setOnlyLowSessions(false);
-    setFrom(today);
-    setTo(today);
+    setSearchInput("");
+    setFilters(defaultFilters);
+    setTimeFrom("");
+    setTimeTo("");
+    setSelectedIds(new Set());
   };
+
+  // The Today card doubles as a quick tab
+  const showToday = () => {
+    setFilters((previous) => ({ ...previous, from: today, to: today }));
+    setSelectedIds(new Set());
+  };
+
+  const viewingToday = filters.from === today && filters.to === today;
 
   /* ----------------------------------------------------------
    * EXPORT
@@ -287,14 +422,14 @@ const Page = () => {
     try {
       const excelRows = rows.map((r, index) => ({
         "S.No": index + 1,
-        Date: formatDay(r.dateKey),
-        "Check-in Time": formatTime(r.checkInAt),
-        Member: r.member.name,
-        Phone: r.member.phone,
-        Branch: r.branch.name,
+        Name: r.member.name,
+        Contact: r.member.phone,
+        Membership: r.subscription.packageName,
         Service: r.subscription.serviceName,
-        Package: r.subscription.packageName,
-        Slot: r.slot ? `${r.slot.name} (${r.slot.startTime}-${r.slot.endTime})` : "",
+        Slot: r.slot ? slotLabel(r.slot) : "",
+        "In Time": formatTime(r.checkInAt),
+        Date: formatDay(r.dateKey),
+        Branch: r.branch.name,
         "Membership Type":
           r.subscription.usageType === "SESSION_BASED" ? "Session" : "Duration",
         "Session Deducted": r.sessionDeducted ? "Yes" : "No",
@@ -306,14 +441,14 @@ const Page = () => {
 
       sheet["!cols"] = [
         { wch: 8 },
-        { wch: 14 },
-        { wch: 14 },
         { wch: 24 },
         { wch: 16 },
-        { wch: 20 },
-        { wch: 18 },
         { wch: 24 },
-        { wch: 26 },
+        { wch: 18 },
+        { wch: 28 },
+        { wch: 12 },
+        { wch: 14 },
+        { wch: 20 },
         { wch: 16 },
         { wch: 16 },
         { wch: 18 },
@@ -322,15 +457,15 @@ const Page = () => {
 
       sheet["!autofilter"] = { ref: `A1:M${excelRows.length + 1}` };
 
-      const branchName =
-        branchId === "ALL"
-          ? "All branches"
-          : branches.find((b) => b.id === branchId)?.name || branchId;
+      const nameOf = (list: { id: string; name: string }[], id: string) =>
+        id ? list.find((item) => item.id === id)?.name || id : "All";
 
-      const serviceName =
-        serviceId === "ALL"
-          ? "All services"
-          : services.find((s) => s.id === serviceId)?.name || serviceId;
+      const slotName = filters.slotId
+        ? (() => {
+            const slot = slots.find((s) => s.id === filters.slotId);
+            return slot ? slotLabel(slot) : filters.slotId;
+          })()
+        : "All";
 
       const summarySheet = XLSX.utils.aoa_to_sheet([
         ["Attendance Export"],
@@ -343,12 +478,28 @@ const Page = () => {
         ],
         [],
         ["Applied Filters", "Value"],
-        ["From", from],
-        ["To", to],
-        ["Branch", branchName],
-        ["Service", serviceName],
-        ["Search", search || "All"],
-        ["Low sessions only", onlyLowSessions ? "Yes" : "No"],
+        ["From", filters.from],
+        ["To", filters.to],
+        ["Search", filters.search || "All"],
+        ["Branch", nameOf(branches, filters.branchId)],
+        ["Service", nameOf(services, filters.serviceId)],
+        ["Membership", nameOf(packages, filters.packageId)],
+        ["Slot", slotName],
+        [
+          "Membership Type",
+          filters.usageType
+            ? filters.usageType === "SESSION_BASED"
+              ? "Session"
+              : "Duration"
+            : "All",
+        ],
+        [
+          "Session Deducted",
+          filters.deducted ? (filters.deducted === "yes" ? "Yes" : "No") : "All",
+        ],
+        ["In Time From", timeFrom || "Any"],
+        ["In Time To", timeTo || "Any"],
+        ["Low sessions only", filters.lowSessions ? "Yes" : "No"],
       ]);
 
       summarySheet["!cols"] = [{ wch: 25 }, { wch: 35 }];
@@ -357,11 +508,13 @@ const Page = () => {
       XLSX.utils.book_append_sheet(workbook, sheet, "Attendance");
       XLSX.utils.book_append_sheet(workbook, summarySheet, "Applied Filters");
 
-      XLSX.writeFile(workbook, `attendance_${from}_to_${to}.xlsx`, {
-        compression: true,
-      });
+      XLSX.writeFile(
+        workbook,
+        `attendance_${filters.from}_to_${filters.to}.xlsx`,
+        { compression: true }
+      );
 
-      setSelectedIds([]);
+      setSelectedIds(new Set());
     } catch (err) {
       console.error("Excel export failed:", err);
       window.alert("Failed to export attendance.");
@@ -374,7 +527,10 @@ const Page = () => {
    * DERIVED
    * ---------------------------------------------------------- */
 
-  const maxDayCount = Math.max(...(summary?.byDay.map((d) => d.count) ?? [1]), 1);
+  const maxDayCount = Math.max(
+    ...(summary?.byDay.map((d) => d.count) ?? [1]),
+    1
+  );
   const showDayChart = (summary?.byDay.length ?? 0) > 1;
 
   /* ----------------------------------------------------------
@@ -442,29 +598,52 @@ const Page = () => {
         </div>
       )}
 
-      {/* SUMMARY CARDS */}
+      {/* TODAY CARD (also acts as a quick tab) */}
 
-      <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard
-          label="Check-ins"
-          value={summary?.totalCheckIns ?? 0}
-          icon={<Clock size={16} />}
+      <div className="mb-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+        <TodayCard
+          title="Total Check-ins Today"
+          icon={<UserCheck size={20} />}
+          stat={todayStats?.total}
+          active={viewingToday}
+          onClick={showToday}
         />
-        <StatCard
-          label="Unique Members"
-          value={summary?.uniqueMembers ?? 0}
-          icon={<Users size={16} />}
-        />
-        <StatCard
-          label="Sessions Deducted"
-          value={summary?.sessionsDeducted ?? 0}
-        />
-        <StatCard
-          label="Busiest Slot"
-          value={summary?.topSlot?.label ?? "-"}
-          hint={summary?.topSlot ? `${summary.topSlot.count} check-ins` : undefined}
-          small
-        />
+      </div>
+
+      {/* CURRENT VIEW SUMMARY */}
+
+      <div className="mb-4 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-2xl border border-neutral-800 bg-neutral-900 px-4 py-3 text-sm text-neutral-400">
+        <span className="inline-flex items-center gap-2">
+          <Clock size={15} className="text-lime-400" />
+          Current view:{" "}
+          <span className="font-semibold text-white">
+            {summary?.totalCheckIns ?? 0}
+          </span>{" "}
+          check-ins
+        </span>
+
+        <span>
+          Unique members{" "}
+          <span className="font-semibold text-white">
+            {summary?.uniqueMembers ?? 0}
+          </span>
+        </span>
+
+        <span>
+          Sessions deducted{" "}
+          <span className="font-semibold text-white">
+            {summary?.sessionsDeducted ?? 0}
+          </span>
+        </span>
+
+        <span>
+          Busiest slot{" "}
+          <span className="font-semibold text-white">
+            {summary?.topSlot
+              ? `${summary.topSlot.label} · ${summary.topSlot.count}`
+              : "-"}
+          </span>
+        </span>
       </div>
 
       {/* DAILY TREND (only for multi-day ranges) */}
@@ -509,8 +688,8 @@ const Page = () => {
 
             <input
               placeholder="Search by member name or phone..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
               className="w-full rounded-lg border border-neutral-800 bg-black py-2.5 pl-10 pr-4 text-sm text-white outline-none transition placeholder:text-neutral-600 focus:border-lime-400/50"
             />
           </div>
@@ -526,6 +705,11 @@ const Page = () => {
           >
             <Filter size={16} />
             Filters
+            {hasActiveFilters && (
+              <span className="rounded-full bg-lime-400 px-1.5 py-0.5 text-[10px] font-bold text-black">
+                {activeFilterCount}
+              </span>
+            )}
             <ChevronDown
               size={15}
               className={`transition-transform ${showFilters ? "rotate-180" : ""}`}
@@ -540,10 +724,9 @@ const Page = () => {
             <button
               key={preset.label}
               type="button"
-              onClick={() => {
-                setFrom(preset.from);
-                setTo(preset.to);
-              }}
+              onClick={() =>
+                updateFilters({ from: preset.from, to: preset.to })
+              }
               className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
                 activePreset?.label === preset.label
                   ? "border-lime-400/40 bg-lime-400/10 text-lime-300"
@@ -560,43 +743,118 @@ const Page = () => {
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <DateFilter
                 label="From"
-                value={from}
-                max={to}
-                onChange={(value) => value && setFrom(value)}
+                value={filters.from}
+                max={filters.to}
+                onChange={(value) => value && updateFilters({ from: value })}
               />
 
               <DateFilter
                 label="To"
-                value={to}
-                min={from}
-                onChange={(value) => value && setTo(value)}
+                value={filters.to}
+                min={filters.from}
+                onChange={(value) => value && updateFilters({ to: value })}
               />
 
+              <TimeFilter
+                label="In Time From"
+                value={timeFrom}
+                onChange={setTimeFrom}
+              />
+
+              <TimeFilter
+                label="In Time To"
+                value={timeTo}
+                onChange={setTimeTo}
+              />
+
+              {canSelectBranch && (
+                <FilterSelect
+                  label="Branch"
+                  value={filters.branchId}
+                  onChange={(value) =>
+                    updateFilters({ branchId: value, slotId: "" })
+                  }
+                  options={[
+                    { value: "", label: "All Branches" },
+                    ...branches.map((b) => ({ value: b.id, label: b.name })),
+                  ]}
+                />
+              )}
+
               <FilterSelect
-                label="Branch"
-                value={branchId}
-                onChange={setBranchId}
+                label="Service"
+                value={filters.serviceId}
+                onChange={(value) =>
+                  updateFilters({
+                    serviceId: value,
+                    packageId: "",
+                    slotId: "",
+                  })
+                }
                 options={[
-                  { value: "ALL", label: "All Branches" },
-                  ...branches.map((b) => ({ value: b.id, label: b.name })),
+                  { value: "", label: "All Services" },
+                  ...services.map((s) => ({ value: s.id, label: s.name })),
                 ]}
               />
 
               <FilterSelect
-                label="Service"
-                value={serviceId}
-                onChange={setServiceId}
+                label="Membership"
+                value={filters.packageId}
+                onChange={(value) => updateFilters({ packageId: value })}
                 options={[
-                  { value: "ALL", label: "All Services" },
-                  ...services.map((s) => ({ value: s.id, label: s.name })),
+                  { value: "", label: "All Memberships" },
+                  ...packageOptions.map((p) => ({
+                    value: p.id,
+                    label: p.name,
+                  })),
+                ]}
+              />
+
+              <FilterSelect
+                label="Slot"
+                value={filters.slotId}
+                onChange={(value) => updateFilters({ slotId: value })}
+                options={[
+                  { value: "", label: "All Slots" },
+                  ...slotOptions.map((s) => ({
+                    value: s.id,
+                    label:
+                      filters.branchId || !canSelectBranch
+                        ? slotLabel(s)
+                        : `${slotLabel(s)} · ${s.branchName}`,
+                  })),
+                ]}
+              />
+
+              <FilterSelect
+                label="Membership Type"
+                value={filters.usageType}
+                onChange={(value) => updateFilters({ usageType: value })}
+                options={[
+                  { value: "", label: "All types" },
+                  { value: "DURATION_BASED", label: "Duration" },
+                  { value: "SESSION_BASED", label: "Session" },
+                ]}
+              />
+
+              <FilterSelect
+                label="Session Deducted"
+                value={filters.deducted}
+                onChange={(value) => updateFilters({ deducted: value })}
+                options={[
+                  { value: "", label: "Any" },
+                  { value: "yes", label: "Yes" },
+                  { value: "no", label: "No" },
                 ]}
               />
 
               <label className="flex h-[42px] cursor-pointer items-center gap-2 self-end rounded-lg border border-neutral-800 bg-black px-3 text-sm text-neutral-300">
                 <input
                   type="checkbox"
-                  checked={onlyLowSessions}
-                  onChange={(e) => setOnlyLowSessions(e.target.checked)}
+                  checked={filters.lowSessions}
+                  onChange={(e) =>
+                    updateFilters({ lowSessions: e.target.checked })
+                  }
                   className="h-4 w-4 accent-lime-400"
                 />
                 {LOW_SESSIONS} or fewer sessions left
@@ -626,9 +884,9 @@ const Page = () => {
           <span className="font-semibold text-white">{filtered.length}</span> of{" "}
           <span className="font-semibold text-white">{records.length}</span>{" "}
           check-ins
-          {from === to
-            ? ` on ${formatDay(from)}`
-            : ` from ${formatDay(from)} to ${formatDay(to)}`}
+          {filters.from === filters.to
+            ? ` on ${formatDay(filters.from)}`
+            : ` from ${formatDay(filters.from)} to ${formatDay(filters.to)}`}
         </div>
 
         {selectedRecords.length > 0 && (
@@ -647,7 +905,7 @@ const Page = () => {
 
       <div className="overflow-hidden rounded-2xl border border-neutral-800 bg-neutral-900">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1000px] text-sm">
+          <table className="w-full min-w-[1150px] text-sm">
             <thead className="border-b border-neutral-800 text-xs uppercase tracking-wide text-neutral-500">
               <tr>
                 <th className="w-12 px-4 py-4 text-center">
@@ -659,10 +917,11 @@ const Page = () => {
                     className="h-4 w-4 cursor-pointer accent-lime-400"
                   />
                 </th>
-                <th className="px-4 py-4 text-left">Member</th>
-                <th className="px-4 py-4 text-left">Check-in</th>
+                <th className="px-4 py-4 text-left">Name</th>
+                <th className="px-4 py-4 text-left">Contact</th>
+                <th className="px-4 py-4 text-left">Membership</th>
                 <th className="px-4 py-4 text-left">Slot</th>
-                <th className="px-4 py-4 text-left">Service / Package</th>
+                <th className="px-4 py-4 text-left">In Time</th>
                 <th className="px-4 py-4 text-left">Branch</th>
                 <th className="px-4 py-4 text-left">Sessions</th>
               </tr>
@@ -670,7 +929,7 @@ const Page = () => {
 
             <tbody>
               {filtered.map((record) => {
-                const isSelected = selectedIds.includes(record.id);
+                const isSelected = selectedIds.has(record.id);
                 const sub = record.subscription;
                 const isSession = sub.usageType === "SESSION_BASED";
                 const remaining = sub.remainingSessions;
@@ -689,10 +948,7 @@ const Page = () => {
                         : "hover:bg-neutral-800/40"
                     }`}
                   >
-                    <td
-                      className="px-4 py-4 text-center"
-                      onClick={(e) => e.stopPropagation()}
-                    >
+                    <td className="px-4 py-4 text-center">
                       <input
                         type="checkbox"
                         checked={isSelected}
@@ -701,24 +957,31 @@ const Page = () => {
                       />
                     </td>
 
+                    {/* Name */}
                     <td className="cursor-pointer px-4 py-4" onClick={go}>
-                      <div className="font-medium text-white">
+                      <div className="font-medium text-white hover:text-lime-400">
                         {record.member.name}
                       </div>
-                      <div className="mt-0.5 text-xs text-neutral-500">
-                        {record.member.phone}
-                      </div>
                     </td>
 
+                    {/* Contact */}
+                    <td
+                      className="cursor-pointer px-4 py-4 text-neutral-300"
+                      onClick={go}
+                    >
+                      {record.member.phone}
+                    </td>
+
+                    {/* Membership */}
                     <td className="cursor-pointer px-4 py-4" onClick={go}>
-                      <div className="font-medium text-white">
-                        {formatTime(record.checkInAt)}
-                      </div>
+                      <div className="text-neutral-200">{sub.packageName}</div>
+
                       <div className="mt-0.5 text-xs text-neutral-500">
-                        {formatDay(record.dateKey)}
+                        {sub.serviceName}
                       </div>
                     </td>
 
+                    {/* Slot */}
                     <td
                       className="cursor-pointer px-4 py-4 text-neutral-300"
                       onClick={go}
@@ -735,16 +998,17 @@ const Page = () => {
                       )}
                     </td>
 
-                    <td
-                      className="cursor-pointer px-4 py-4 text-neutral-300"
-                      onClick={go}
-                    >
-                      <div>{sub.serviceName}</div>
+                    {/* In time */}
+                    <td className="cursor-pointer px-4 py-4" onClick={go}>
+                      <div className="font-medium text-white">
+                        {formatTime(record.checkInAt)}
+                      </div>
                       <div className="mt-0.5 text-xs text-neutral-500">
-                        {sub.packageName}
+                        {formatDay(record.dateKey)}
                       </div>
                     </td>
 
+                    {/* Branch */}
                     <td
                       className="cursor-pointer px-4 py-4 text-neutral-400"
                       onClick={go}
@@ -752,17 +1016,26 @@ const Page = () => {
                       {record.branch.name}
                     </td>
 
+                    {/* Sessions */}
                     <td className="cursor-pointer px-4 py-4" onClick={go}>
                       {isSession ? (
-                        <span
-                          className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs ${
-                            low
-                              ? "bg-red-500/20 text-red-400"
-                              : "bg-green-500/20 text-green-400"
-                          }`}
-                        >
-                          {remaining ?? 0} / {sub.totalSessions ?? "-"} left
-                        </span>
+                        <div>
+                          <span
+                            className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs ${
+                              low
+                                ? "bg-red-500/20 text-red-400"
+                                : "bg-green-500/20 text-green-400"
+                            }`}
+                          >
+                            {remaining ?? 0} / {sub.totalSessions ?? "-"} left
+                          </span>
+
+                          {record.sessionDeducted && (
+                            <p className="mt-1 text-[11px] text-neutral-500">
+                              1 session deducted
+                            </p>
+                          )}
+                        </div>
                       ) : (
                         <span className="rounded-md bg-neutral-700 px-2 py-1 text-xs text-neutral-300">
                           Duration
@@ -782,9 +1055,7 @@ const Page = () => {
               <Search size={20} className="text-neutral-500" />
             </div>
 
-            <p className="text-sm font-medium text-white">
-              No check-ins found
-            </p>
+            <p className="text-sm font-medium text-white">No check-ins found</p>
 
             <p className="mt-1 text-xs text-neutral-500">
               Try another date range or change your filters.
@@ -794,7 +1065,9 @@ const Page = () => {
       </div>
 
       {loading && (
-        <div className="mt-4 text-sm text-neutral-500">Loading attendance...</div>
+        <div className="mt-4 text-sm text-neutral-500">
+          Loading attendance...
+        </div>
       )}
     </div>
   );
@@ -806,34 +1079,45 @@ export default Page;
  * SMALL COMPONENTS
  * ============================================================ */
 
-const StatCard = ({
-  label,
-  value,
-  hint,
+const TodayCard = ({
+  title,
   icon,
-  small,
+  stat,
+  active,
+  onClick,
 }: {
-  label: string;
-  value: string | number;
-  hint?: string;
-  icon?: React.ReactNode;
-  small?: boolean;
+  title: string;
+  icon: React.ReactNode;
+  stat?: TodayStat;
+  active: boolean;
+  onClick: () => void;
 }) => (
-  <div className="rounded-2xl border border-neutral-800 bg-neutral-900 p-4">
-    <div className="flex items-center justify-between text-neutral-500">
-      <p className="text-xs">{label}</p>
-      {icon}
+  <button
+    type="button"
+    onClick={onClick}
+    className={`rounded-2xl border p-5 text-left transition ${
+      active
+        ? "border-lime-400/60 bg-lime-400/5"
+        : "border-neutral-800 bg-neutral-900 hover:border-neutral-700"
+    }`}
+  >
+    <div className="flex items-start justify-between">
+      <div>
+        <p className={`text-sm ${active ? "text-lime-400" : "text-neutral-400"}`}>
+          {title}
+        </p>
+
+        <p className="mt-2 text-3xl font-bold text-white">{stat?.count ?? 0}</p>
+
+        <p className="mt-1 text-xs text-neutral-500">
+          {stat?.uniqueMembers ?? 0} unique member
+          {stat?.uniqueMembers === 1 ? "" : "s"} · click to view
+        </p>
+      </div>
+
+      <div className="rounded-lg bg-black/40 p-3 text-lime-400">{icon}</div>
     </div>
-
-    <p
-      className={`mt-2 truncate font-bold ${small ? "text-base" : "text-2xl"}`}
-      title={String(value)}
-    >
-      {value}
-    </p>
-
-    {hint && <p className="mt-1 text-xs text-neutral-600">{hint}</p>}
-  </div>
+  </button>
 );
 
 const FilterSelect = ({
@@ -855,6 +1139,7 @@ const FilterSelect = ({
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
+      style={{ colorScheme: "dark" }}
       className="h-[42px] w-full rounded-lg border border-neutral-800 bg-black px-3 text-sm text-white outline-none focus:border-lime-400/50"
     >
       {options.map((option) => (
@@ -895,6 +1180,37 @@ const DateFilter = ({
         value={value}
         min={min}
         max={max}
+        style={{ colorScheme: "dark" }}
+        onChange={(e) => onChange(e.target.value)}
+        className="h-[42px] w-full rounded-lg border border-neutral-800 bg-black pl-9 pr-3 text-sm text-white outline-none focus:border-lime-400/50"
+      />
+    </div>
+  </div>
+);
+
+const TimeFilter = ({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) => (
+  <div>
+    <label className="mb-1.5 block text-xs font-medium text-neutral-500">
+      {label}
+    </label>
+
+    <div className="relative">
+      <Clock
+        size={15}
+        className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500"
+      />
+
+      <input
+        type="time"
+        value={value}
         style={{ colorScheme: "dark" }}
         onChange={(e) => onChange(e.target.value)}
         className="h-[42px] w-full rounded-lg border border-neutral-800 bg-black pl-9 pr-3 text-sm text-white outline-none focus:border-lime-400/50"
