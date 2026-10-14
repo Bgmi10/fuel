@@ -116,31 +116,34 @@ export async function POST(req: NextRequest) {
     }
     
     await prisma.foodLogMealItem.createMany({
-      data: itemsToCopy.map((item) => ({
-        mealId: foodLogMeal.id,
-    
-        // Important
-        copiedFromDietItemId: item.id,
-    
-        externalFoodId: item.externalFoodId,
-        foodName: item.foodName,
-        brandName: item.brandName,
-    consumed: true,
-        nutritionMultiplier:
-          item.nutritionMultiplier,
-    
-        servingValue: Number(
-          item.servingValue
-        ),
-    
-        quantity: item.quantity,
-        servingUnit: item.servingUnit,
-    
-        calories: item.calories,
-        protein: item.protein,
-        carbs: item.carbs,
-        fat: item.fat,
-      })),
+      data: itemsToCopy.map((item) => {
+        const base = Number(item.servingValue);
+        const factor = base > 0 ? item.quantity / base : 1;
+      
+        return {
+          mealId: foodLogMeal.id,
+          copiedFromDietItemId: item.id,
+          externalFoodId: item.externalFoodId,
+          foodName: item.foodName,
+          brandName: item.brandName,
+          consumed: true,
+          consumedAt: new Date(),
+      
+          quantity: item.quantity,
+          servingUnit: item.servingUnit,
+          nutritionMultiplier: item.nutritionMultiplier,
+      
+          // macros are now final for `quantity`, so the reference base equals quantity.
+          // If the tracker rescales with quantity / servingValue when the member
+          // edits the amount, this stays correct.
+          servingValue: item.quantity,
+      
+          calories: item.calories * factor,
+          protein: item.protein * factor,
+          carbs: item.carbs * factor,
+          fat: item.fat * factor,
+        };
+      }),
     });
 
     const updatedMeal =
