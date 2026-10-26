@@ -189,7 +189,7 @@ export default function Footer() {
                   duration-300
                 "
               >
-                Enquire
+                Contact Us
               </a>
             </div>
           </div>

@@ -48,6 +48,10 @@ export const GET = async (request: NextRequest) => {
             branchName: true,
             startDate: true,
             endDate: true,
+            subCategoryId: true,
+            subCategory: {
+              select: { id: true, name: true },
+            },
           },
         },
       },
@@ -96,6 +100,8 @@ export const GET = async (request: NextRequest) => {
 
         packageName: sub.packageName,
         serviceName: sub.serviceName,
+        subCategoryId: sub.subCategory?.id ?? null,
+        subCategoryName: sub.subCategory?.name ?? null,
         startDate: sub.startDate,
         endDate: sub.endDate,
 

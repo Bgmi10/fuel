@@ -36,6 +36,11 @@ export async function GET(request: NextRequest) {
         // only the frozen subscription(s)
         subscriptions: {
           where: { status: SubscriptionStatus.FROZEN },
+          include: {
+            subCategory: {
+              select: { id: true, name: true },
+            },
+          },
         },
       },
 
@@ -70,6 +75,8 @@ export async function GET(request: NextRequest) {
 
         membershipName: subscription?.packageName ?? null,
         serviceName: subscription?.serviceName ?? null,
+        subCategoryId: subscription?.subCategory?.id ?? null,
+        subCategoryName: subscription?.subCategory?.name ?? null,
         freezeStart: subscription?.freezeStart ?? null,
         freezeEnd: subscription?.freezeEnd ?? null,
         endDate: subscription?.endDate ?? null,

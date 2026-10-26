@@ -1,147 +1,75 @@
+import { NextRequest } from "next/server";
+
 import { prisma } from "@/prisma";
-import {
-    NextRequest,
-    NextResponse,
-  } from "next/server";
-  
-  
-  export const runtime = "nodejs";
-  
-  export async function PATCH(
-    request: NextRequest,
-    context: {
-      params: Promise<{
-        id: string;
-      }>;
+import { videoPatchSchema } from "@/src/lib/tv/contracts-library";
+import { HttpError } from "@/src/lib/tv/errors";
+import { handleError, ok, readBody, type IdParams } from "@/src/lib/tv/http";
+
+export async function GET(_req: NextRequest, { params }: IdParams) {
+  try {
+    const { id } = await params;
+    const video = await prisma.workoutVideo.findUnique({
+      where: { id },
+      include: { _count: { select: { programItems: true } } },
+    });
+
+    if (!video) {
+      throw new HttpError(404, "Workout video not found.");
     }
-  ) {
-    try {
-      const { id } = await context.params;
-      const body = await request.json();
-  
-      if (typeof body.isActive !== "boolean") {
-        return NextResponse.json(
-          {
-            success: false,
-            message:
-              "A valid active status is required.",
-          },
-          {
-            status: 400,
-          }
-        );
-      }
-  
-      const video =
-        await prisma.workoutVideo.update({
-          where: {
-            id,
-          },
-  
-          data: {
-            isActive: body.isActive,
-          },
-        });
-  
-      return NextResponse.json({
-        success: true,
-        video,
-      });
-    } catch (error) {
-      console.error(
-        "Update workout video error:",
-        error
-      );
-  
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "Unable to update workout video.",
-        },
-        {
-          status: 500,
-        }
-      );
-    }
+
+    return ok(video);
+  } catch (error) {
+    return handleError(error, "GET /api/workout-videos/[id]");
   }
-  
-  export async function DELETE(
-    _request: NextRequest,
-    context: {
-      params: Promise<{
-        id: string;
-      }>;
-    }
-  ) {
-    try {
-      const { id } = await context.params;
-  
-      const video =
-        await prisma.workoutVideo.findUnique({
-          where: {
-            id,
-          },
-  
-          include: {
-            _count: {
-              select: {
-                programItems: true,
-              },
-            },
-          },
-        });
-  
-      if (!video) {
-        return NextResponse.json(
-          {
-            success: false,
-            message:
-              "Workout video was not found.",
-          },
-          {
-            status: 404,
-          }
-        );
-      }
-  
-      if (video._count.programItems > 0) {
-        return NextResponse.json(
-          {
-            success: false,
-            message:
-              "This video is being used in a workout program. Disable it instead of deleting it.",
-          },
-          {
-            status: 409,
-          }
-        );
-      }
-  
-      await prisma.workoutVideo.delete({
-        where: {
-          id,
-        },
-      });
-  
-      return NextResponse.json({
-        success: true,
-      });
-    } catch (error) {
-      console.error(
-        "Delete workout video error:",
-        error
-      );
-  
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "Unable to delete workout video.",
-        },
-        {
-          status: 500,
-        }
-      );
-    }
+}
+
+/** Rename, replace thumbnail, enable or disable. Broadcast snapshots are unaffected. */
+export async function PATCH(req: NextRequest, { params }: IdParams) {
+  try {
+    const { id } = await params;
+    const input = await readBody(req, videoPatchSchema);
+
+    const video = await prisma.workoutVideo.update({
+      where: { id },
+      data: {
+        ...(input.name !== undefined ? { name: input.name } : {}),
+        ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
+        ...(input.thumbnailUrl !== undefined
+          ? { thumbnailUrl: input.thumbnailUrl || null }
+          : {}),
+      },
+    });
+
+    return ok(video);
+  } catch (error) {
+    return handleError(error, "PATCH /api/workout-videos/[id]");
   }
+}
+
+export async function DELETE(_req: NextRequest, { params }: IdParams) {
+  try {
+    const { id } = await params;
+
+    const video = await prisma.workoutVideo.findUnique({
+      where: { id },
+      select: { _count: { select: { programItems: true } } },
+    });
+
+    if (!video) {
+      throw new HttpError(404, "Workout video not found.");
+    }
+
+    if (video._count.programItems > 0) {
+      throw new HttpError(
+        409,
+        "This video is used in a workout program. Disable it instead of deleting it."
+      );
+    }
+
+    await prisma.workoutVideo.delete({ where: { id } });
+
+    return ok({ deleted: true });
+  } catch (error) {
+    return handleError(error, "DELETE /api/workout-videos/[id]");
+  }
+}

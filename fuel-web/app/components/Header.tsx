@@ -112,7 +112,7 @@ export const Header = ({
     },
 
     {
-      label: "Enquiry",
+      label: "Contact Us",
       action: () => {
         closeMobileMenu();
         setIsContactOpen(true);

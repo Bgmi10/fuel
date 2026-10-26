@@ -47,6 +47,8 @@ type MemberRow = {
   currentStatus: string;
   membershipName: string | null;
   serviceName: string | null;
+  subCategoryId: string | null;
+  subCategoryName: string | null;
   startDate: string | null;
   endDate: string | null;
   renewalCount: number;
@@ -103,6 +105,8 @@ export default function MembersList({ mode }: { mode: Mode }) {
   const [onboarding, setOnboarding] = useState("ALL");
   const [coachId, setCoachId] = useState("ALL");
   const [membership, setMembership] = useState("ALL");
+  const [service, setService] = useState("ALL");
+  const [subCategory, setSubCategory] = useState("ALL");
 
   const [joinedFrom, setJoinedFrom] = useState("");
   const [joinedTo, setJoinedTo] = useState("");
@@ -153,22 +157,37 @@ export default function MembersList({ mode }: { mode: Mode }) {
     const branches = new Map<string, string>();
     const coaches = new Map<string, string>();
     const memberships = new Set<string>();
+    const services = new Set<string>();
+    const subCategories = new Set<string>();
 
     for (const m of members) {
       if (m.branch) branches.set(m.branch.id, m.branch.name);
       if (m.coach) coaches.set(m.coach.id, m.coach.name);
       if (m.membershipName) memberships.add(m.membershipName);
+      if (m.serviceName) services.add(m.serviceName);
+
+      // When a service is picked, only offer its own subcategories
+      if (
+        m.subCategoryName &&
+        (service === "ALL" || m.serviceName === service)
+      ) {
+        subCategories.add(m.subCategoryName);
+      }
     }
 
     const byName = (a: [string, string], b: [string, string]) =>
       a[1].localeCompare(b[1]);
 
+    const sortText = (a: string, b: string) => a.localeCompare(b);
+
     return {
       branches: Array.from(branches.entries()).sort(byName),
       coaches: Array.from(coaches.entries()).sort(byName),
-      memberships: Array.from(memberships).sort((a, b) => a.localeCompare(b)),
+      memberships: Array.from(memberships).sort(sortText),
+      services: Array.from(services).sort(sortText),
+      subCategories: Array.from(subCategories).sort(sortText),
     };
-  }, [members]);
+  }, [members, service]);
 
   /* ---------------- FILTERING ---------------- */
 
@@ -192,6 +211,10 @@ export default function MembersList({ mode }: { mode: Mode }) {
       if (gender !== "ALL" && m.gender?.toUpperCase() !== gender) return false;
       if (coachId !== "ALL" && m.coachId !== coachId) return false;
       if (membership !== "ALL" && m.membershipName !== membership) return false;
+      if (service !== "ALL" && m.serviceName !== service) return false;
+      if (subCategory !== "ALL" && m.subCategoryName !== subCategory) {
+        return false;
+      }
 
       if (onboarding === "COMPLETED" && !m.onBoardCompleted) return false;
       if (onboarding === "PENDING" && m.onBoardCompleted) return false;
@@ -227,6 +250,8 @@ export default function MembersList({ mode }: { mode: Mode }) {
     onboarding,
     coachId,
     membership,
+    service,
+    subCategory,
     joinedFrom,
     joinedTo,
     startFrom,
@@ -283,6 +308,12 @@ export default function MembersList({ mode }: { mode: Mode }) {
 
   /* ---------------- CLEAR ---------------- */
 
+  // Changing the service resets the subcategory so they never conflict
+  const changeService = (value: string) => {
+    setService(value);
+    setSubCategory("ALL");
+  };
+
   const clearFilters = () => {
     setSearch("");
     setStatus("ALL");
@@ -291,6 +322,8 @@ export default function MembersList({ mode }: { mode: Mode }) {
     setOnboarding("ALL");
     setCoachId("ALL");
     setMembership("ALL");
+    setService("ALL");
+    setSubCategory("ALL");
     setJoinedFrom("");
     setJoinedTo("");
     setStartFrom("");
@@ -309,6 +342,8 @@ export default function MembersList({ mode }: { mode: Mode }) {
     onboarding !== "ALL" ||
     coachId !== "ALL" ||
     membership !== "ALL" ||
+    service !== "ALL" ||
+    subCategory !== "ALL" ||
     joinedFrom !== "" ||
     joinedTo !== "" ||
     startFrom !== "" ||
@@ -345,6 +380,7 @@ export default function MembersList({ mode }: { mode: Mode }) {
         Branch: m.branch?.name || "",
         Coach: m.coach?.name || "",
         Service: m.serviceName || "",
+        Subcategory: m.subCategoryName || "",
         Membership: m.membershipName || "",
         "Start Date": formatDate(m.startDate),
         "End Date": formatDate(m.endDate),
@@ -391,6 +427,8 @@ export default function MembersList({ mode }: { mode: Mode }) {
         ["Search", search || "All"],
         ["Status", status],
         ["Branch", branchName],
+        ["Service", service === "ALL" ? "All" : service],
+        ["Subcategory", subCategory === "ALL" ? "All" : subCategory],
         ["Membership", membership === "ALL" ? "All" : membership],
         ["Gender", gender],
         ["Onboarding", onboarding],
@@ -439,6 +477,8 @@ export default function MembersList({ mode }: { mode: Mode }) {
     "DOB",
     "Branch",
     "Coach",
+    "Service",
+    "Subcategory",
     "Membership",
     "Start Date",
     "End Date",
@@ -571,6 +611,32 @@ export default function MembersList({ mode }: { mode: Mode }) {
                   { value: "ALL", label: "All Branches" },
                   ...options.branches.map(([id, name]) => ({
                     value: id,
+                    label: name,
+                  })),
+                ]}
+              />
+
+              <FilterSelect
+                label="Service"
+                value={service}
+                onChange={changeService}
+                options={[
+                  { value: "ALL", label: "All Services" },
+                  ...options.services.map((name) => ({
+                    value: name,
+                    label: name,
+                  })),
+                ]}
+              />
+
+              <FilterSelect
+                label="Subcategory"
+                value={subCategory}
+                onChange={setSubCategory}
+                options={[
+                  { value: "ALL", label: "All Subcategories" },
+                  ...options.subCategories.map((name) => ({
+                    value: name,
                     label: name,
                   })),
                 ]}
@@ -715,7 +781,7 @@ export default function MembersList({ mode }: { mode: Mode }) {
 
       <div className="overflow-hidden rounded-2xl border border-neutral-800 bg-neutral-900">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1350px] text-sm">
+          <table className="w-full min-w-[1650px] text-sm">
             <thead className="border-b border-neutral-800 text-xs uppercase tracking-wide text-neutral-500">
               <tr>
                 <th className="w-12 px-4 py-4 text-center">
@@ -760,6 +826,7 @@ export default function MembersList({ mode }: { mode: Mode }) {
                       />
                     </td>
 
+                    {/* Name */}
                     <td className={cell} onClick={() => openMember(m.id)}>
                       <div className="font-medium text-white">{m.name}</div>
 
@@ -770,6 +837,7 @@ export default function MembersList({ mode }: { mode: Mode }) {
                       )}
                     </td>
 
+                    {/* Phone */}
                     <td
                       className={`${cell} text-neutral-300`}
                       onClick={() => openMember(m.id)}
@@ -777,6 +845,7 @@ export default function MembersList({ mode }: { mode: Mode }) {
                       {m.phone}
                     </td>
 
+                    {/* DOB */}
                     <td
                       className={`${cell} text-neutral-400`}
                       onClick={() => openMember(m.id)}
@@ -784,6 +853,7 @@ export default function MembersList({ mode }: { mode: Mode }) {
                       {formatDate(m.dob)}
                     </td>
 
+                    {/* Branch */}
                     <td
                       className={`${cell} text-neutral-400`}
                       onClick={() => openMember(m.id)}
@@ -791,6 +861,7 @@ export default function MembersList({ mode }: { mode: Mode }) {
                       {m.branch?.name || "-"}
                     </td>
 
+                    {/* Coach */}
                     <td
                       className={`${cell} text-neutral-400`}
                       onClick={() => openMember(m.id)}
@@ -798,18 +869,31 @@ export default function MembersList({ mode }: { mode: Mode }) {
                       {m.coach?.name || "-"}
                     </td>
 
-                    <td className={cell} onClick={() => openMember(m.id)}>
-                      <div className="text-neutral-200">
-                        {m.membershipName || "-"}
-                      </div>
-
-                      {m.serviceName && (
-                        <div className="mt-0.5 text-xs text-neutral-600">
-                          {m.serviceName}
-                        </div>
-                      )}
+                    {/* Service */}
+                    <td
+                      className={`${cell} font-medium text-neutral-200`}
+                      onClick={() => openMember(m.id)}
+                    >
+                      {m.serviceName || "-"}
                     </td>
 
+                    {/* Subcategory */}
+                    <td
+                      className={`${cell} text-neutral-300`}
+                      onClick={() => openMember(m.id)}
+                    >
+                      {m.subCategoryName || "-"}
+                    </td>
+
+                    {/* Membership */}
+                    <td
+                      className={`${cell} text-neutral-200`}
+                      onClick={() => openMember(m.id)}
+                    >
+                      {m.membershipName || "-"}
+                    </td>
+
+                    {/* Start */}
                     <td
                       className={`${cell} whitespace-nowrap text-neutral-300`}
                       onClick={() => openMember(m.id)}
@@ -817,6 +901,7 @@ export default function MembersList({ mode }: { mode: Mode }) {
                       {formatDate(m.startDate)}
                     </td>
 
+                    {/* End */}
                     <td
                       className={`${cell} whitespace-nowrap text-neutral-300`}
                       onClick={() => openMember(m.id)}
@@ -824,12 +909,14 @@ export default function MembersList({ mode }: { mode: Mode }) {
                       {formatDate(m.endDate)}
                     </td>
 
+                    {/* Renewals */}
                     <td className={cell} onClick={() => openMember(m.id)}>
                       <span className="rounded-md bg-violet-500/10 px-2 py-1 text-xs font-medium text-violet-300">
                         {m.renewalCount}
                       </span>
                     </td>
 
+                    {/* Joined */}
                     <td
                       className={`${cell} text-xs text-neutral-500`}
                       onClick={() => openMember(m.id)}
@@ -837,6 +924,7 @@ export default function MembersList({ mode }: { mode: Mode }) {
                       {formatDate(m.createdAt)}
                     </td>
 
+                    {/* Onboarding */}
                     <td className={cell} onClick={() => openMember(m.id)}>
                       <span
                         className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs ${
@@ -850,6 +938,7 @@ export default function MembersList({ mode }: { mode: Mode }) {
                       </span>
                     </td>
 
+                    {/* Status */}
                     <td className={cell} onClick={() => openMember(m.id)}>
                       <span
                         className={`rounded-md px-2 py-1 text-xs ${

@@ -3,224 +3,290 @@
 import {
   CalendarDays,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
-  Clock3,
-  Copy,
+  ChevronUp,
   Edit3,
+  Eye,
   Film,
   Loader2,
   Monitor,
+  Pause,
   Play,
   Plus,
   RefreshCw,
-  Search,
+  Square,
   TimerReset,
   Trash2,
   Tv,
   X,
 } from "lucide-react";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
-type Branch = {
+import { toDateKey } from "@/src/lib/tv/date-key";
+import {
+  PlanError,
+  buildPlan,
+  phaseAt,
+  type PhaseType,
+  type PlanExercise,
+} from "@/src/lib/tv/plan";
+
+// ------------------------------------------------------------------
+// Types
+// ------------------------------------------------------------------
+
+type Intensity = "LOW" | "MEDIUM" | "HIGH";
+type Mode = "SCHEDULE" | "TIMER_ONLY";
+type Status =
+  | "DRAFT"
+  | "SCHEDULED"
+  | "LIVE"
+  | "PAUSED"
+  | "COMPLETED"
+  | "CANCELLED";
+
+type TimerKey =
+  | "demonstrationSeconds"
+  | "warmupSeconds"
+  | "prepareSeconds"
+  | "workSeconds"
+  | "restSeconds"
+  | "sets"
+  | "cycles"
+  | "restBetweenCycleSeconds"
+  | "coolDownSeconds";
+
+type Timers = { [K in TimerKey]: number | null };
+type TimerForm = Record<TimerKey, string>;
+
+const TIMER_FIELDS: { key: TimerKey; label: string; unit: string }[] = [
+  { key: "demonstrationSeconds", label: "Demonstration", unit: "sec" },
+  { key: "warmupSeconds", label: "Warm-up", unit: "sec" },
+  { key: "prepareSeconds", label: "Prepare", unit: "sec" },
+  { key: "workSeconds", label: "Work", unit: "sec" },
+  { key: "restSeconds", label: "Rest", unit: "sec" },
+  { key: "sets", label: "Sets", unit: "sets" },
+  { key: "cycles", label: "Cycles", unit: "cycles" },
+  { key: "restBetweenCycleSeconds", label: "Rest Between Cycle", unit: "sec" },
+  { key: "coolDownSeconds", label: "Cool Down", unit: "sec" },
+];
+
+interface Branch {
   id: string;
   name: string;
-  tvDevices?: TvDevice[];
-};
+}
 
-type TvDevice = {
+interface Tv {
   id: string;
   name: string;
   isOnline: boolean;
-  branchId: string;
-};
+}
 
-type WorkoutVideo = {
+interface Video {
   id: string;
   name: string;
   videoUrl: string;
   thumbnailUrl: string | null;
   durationSeconds: number | null;
-  isActive: boolean;
-};
+}
 
-type ScheduleExercise = {
+interface ScheduleExercise {
   id: string;
   videoId: string | null;
   exerciseName: string | null;
   sortOrder: number;
-  video: WorkoutVideo | null;
-};
+  video: Video | null;
+}
 
-type WorkoutProgram = {
+interface Schedule extends Timers {
   id: string;
-  name: string;
-  subtitle?: string | null;
-  description: string | null;
-  intensity?: string | null;
-};
-
-type WorkoutSchedule = {
-  id: string;
-  date: string;
+  dateKey: string;
   programId: string;
-
-  demonstrationSeconds: number | null;
-  warmupSeconds: number | null;
-  prepareSeconds: number | null;
-  workSeconds: number | null;
-  restSeconds: number | null;
-  sets: number | null;
-  cycles: number | null;
-  restBetweenCycleSeconds: number | null;
-  coolDownSeconds: number | null;
   nextSessionStartsAt: string | null;
-
-  program: WorkoutProgram;
+  program: {
+    name: string;
+    subtitle: string | null;
+    description: string | null;
+    intensity: Intensity | null;
+  };
   exercises: ScheduleExercise[];
-};
+}
 
-type BroadcastMode = "SCHEDULE" | "TIMER_ONLY";
-
-type BroadcastStatus =
-  | "DRAFT"
-  | "SCHEDULED"
-  | "LIVE"
-  | "COMPLETED"
-  | "CANCELLED";
-
-type BroadcastExercise = {
+interface BroadcastExercise {
   id: string;
+  sortOrder: number;
+  exerciseName: string;
   videoId: string | null;
-  exerciseName: string | null;
-  sortOrder: number;
-  video: WorkoutVideo | null;
-};
+  videoUrl: string | null;
+  thumbnailUrl: string | null;
+  durationSeconds: number | null;
+}
 
-type BroadcastTVExercise = {
-  id: string;
-  exerciseId: string;
-  sortOrder: number;
-};
-
-type BroadcastTV = {
+interface BroadcastTv {
   id: string;
   tvDeviceId: string;
-  tvDevice: TvDevice;
-  exercises: BroadcastTVExercise[];
-};
+  tvDevice: { id: string; name: string; isOnline: boolean };
+  exercises: { exerciseId: string; sortOrder: number }[];
+}
 
-type WorkoutBroadcast = {
+interface Broadcast extends Timers {
   id: string;
   branchId: string;
-  date: string;
+  dateKey: string;
   scheduleId: string | null;
-
-  mode: BroadcastMode;
-  status: BroadcastStatus;
-
+  mode: Mode;
+  status: Status;
   title: string | null;
   subtitle: string | null;
   description: string | null;
-  intensity: string | null;
-
-  demonstrationSeconds: number | null;
-  warmupSeconds: number | null;
-  prepareSeconds: number | null;
-  workSeconds: number | null;
-  restSeconds: number | null;
-  sets: number | null;
-  cycles: number | null;
-  restBetweenCycleSeconds: number | null;
-  coolDownSeconds: number | null;
+  intensity: Intensity | null;
   nextSessionStartsAt: string | null;
-
-  schedule?: WorkoutSchedule | null;
   exercises: BroadcastExercise[];
-  tvs: BroadcastTV[];
-};
-
-type BranchesResponse =
-  | Branch[]
-  | {
-      success?: boolean;
-      branches?: Branch[];
-      message?: string;
-      error?: string;
-    };
-
-type TimerValues = {
-  demonstrationSeconds: string;
-  warmupSeconds: string;
-  prepareSeconds: string;
-  workSeconds: string;
-  restSeconds: string;
-  sets: string;
-  cycles: string;
-  restBetweenCycleSeconds: string;
-  coolDownSeconds: string;
-  nextSessionStartsAt: string;
-};
-
-const emptyTimers: TimerValues = {
-  demonstrationSeconds: "",
-  warmupSeconds: "",
-  prepareSeconds: "",
-  workSeconds: "",
-  restSeconds: "",
-  sets: "",
-  cycles: "",
-  restBetweenCycleSeconds: "",
-  coolDownSeconds: "",
-  nextSessionStartsAt: "",
-};
-
-function pad(value: number) {
-  return String(value).padStart(2, "0");
+  tvs: BroadcastTv[];
 }
 
-function dateKey(date: Date) {
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
-    date.getDate()
-  )}`;
+/** One exercise row in the form. `key` is stable while editing. */
+interface DraftExercise {
+  key: string;
+  videoId: string | null;
+  name: string;
+  videoUrl: string | null;
+  thumbnailUrl: string | null;
+  durationSeconds: number | null;
 }
 
-function dateOnly(dateString: string) {
-  const date = new Date(dateString);
-
-  return dateKey(date);
+interface Draft {
+  id: string | null;
+  dateKey: string;
+  mode: Mode;
+  scheduleId: string;
+  title: string;
+  subtitle: string;
+  description: string;
+  intensity: Intensity | "";
+  timers: TimerForm;
+  nextSession: string;
+  exercises: DraftExercise[];
+  /** tvDeviceId -> keys of the exercises that TV plays */
+  tvSelections: Record<string, string[]>;
 }
 
-function formatDate(dateString: string) {
+interface PreviewData {
+  title: string;
+  subtitle: string | null;
+  mode: Mode;
+  timers: Timers;
+  exercises: PlanExercise[];
+  heading: string;
+}
+
+// ------------------------------------------------------------------
+// Helpers
+// ------------------------------------------------------------------
+
+const pad = (value: number) => String(value).padStart(2, "0");
+
+/** Calendar cells are plain calendar days, so use local components. */
+const ymd = (date: Date) =>
+  `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+
+function monthCells(month: Date): Date[] {
+  const first = new Date(month.getFullYear(), month.getMonth(), 1);
+  const startOffset = first.getDay();
+
+  return Array.from(
+    { length: 42 },
+    (_, index) =>
+      new Date(first.getFullYear(), first.getMonth(), 1 - startOffset + index)
+  );
+}
+
+function formatDay(dateKey: string) {
   return new Intl.DateTimeFormat("en-IN", {
+    weekday: "long",
     day: "2-digit",
     month: "short",
-    year: "numeric",
-  }).format(new Date(dateString));
+  }).format(new Date(`${dateKey}T12:00:00`));
 }
 
-function formatTime(dateString: string | null) {
-  if (!dateString) {
-    return "Not set";
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "Something went wrong.";
+}
+
+async function api<T>(url: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(url, {
+    cache: "no-store",
+    ...init,
+    headers: init?.body
+      ? { "Content-Type": "application/json", ...(init.headers ?? {}) }
+      : init?.headers,
+  });
+
+  let json: { data?: T; error?: string } | null = null;
+
+  try {
+    json = await response.json();
+  } catch {
+    /* empty body */
   }
 
-  return new Intl.DateTimeFormat("en-IN", {
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(dateString));
+  if (!response.ok) {
+    throw new Error(json?.error ?? `Request failed (${response.status}).`);
+  }
+
+  return json?.data as T;
 }
 
-function toDateTimeLocal(value: string | null) {
-  if (!value) {
+const emptyTimers = (): TimerForm =>
+  Object.fromEntries(TIMER_FIELDS.map((field) => [field.key, ""])) as TimerForm;
+
+function timersToForm(source: Partial<Timers>): TimerForm {
+  const form = emptyTimers();
+
+  for (const field of TIMER_FIELDS) {
+    const value = source[field.key];
+    form[field.key] = value === null || value === undefined ? "" : String(value);
+  }
+
+  return form;
+}
+
+function parseTimers(form: TimerForm): { values: Timers } | { error: string } {
+  const values = {} as Timers;
+
+  for (const field of TIMER_FIELDS) {
+    const raw = form[field.key].trim();
+
+    if (!raw) {
+      values[field.key] = null;
+      continue;
+    }
+
+    const number = Number(raw);
+    const minimum = field.key === "sets" || field.key === "cycles" ? 1 : 0;
+
+    if (!Number.isInteger(number) || number < minimum) {
+      return {
+        error: `${field.label} must be a whole number${
+          minimum ? " of at least 1" : ""
+        }.`,
+      };
+    }
+
+    values[field.key] = number;
+  }
+
+  return { values };
+}
+
+function toLocalInput(iso: string | null) {
+  if (!iso) {
     return "";
   }
 
-  const date = new Date(value);
+  const date = new Date(iso);
 
   if (Number.isNaN(date.getTime())) {
     return "";
@@ -231,1423 +297,731 @@ function toDateTimeLocal(value: string | null) {
   )}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-function fromDateTimeLocal(value: string) {
+function fromLocalInput(value: string) {
   if (!value) {
     return null;
   }
 
   const date = new Date(value);
 
-  if (Number.isNaN(date.getTime())) {
-    return null;
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+const newKey = () => crypto.randomUUID();
+
+function exerciseFromVideo(video: Video): DraftExercise {
+  return {
+    key: newKey(),
+    videoId: video.id,
+    name: video.name,
+    videoUrl: video.videoUrl,
+    thumbnailUrl: video.thumbnailUrl,
+    durationSeconds: video.durationSeconds,
+  };
+}
+
+function exerciseFromSchedule(exercise: ScheduleExercise): DraftExercise {
+  if (exercise.video) {
+    return exerciseFromVideo(exercise.video);
   }
 
-  return date.toISOString();
-}
-
-function timerFromSchedule(
-  schedule: WorkoutSchedule | null
-): TimerValues {
-  if (!schedule) {
-    return { ...emptyTimers };
-  }
-
   return {
-    demonstrationSeconds:
-      schedule.demonstrationSeconds?.toString() ?? "",
-    warmupSeconds: schedule.warmupSeconds?.toString() ?? "",
-    prepareSeconds: schedule.prepareSeconds?.toString() ?? "",
-    workSeconds: schedule.workSeconds?.toString() ?? "",
-    restSeconds: schedule.restSeconds?.toString() ?? "",
-    sets: schedule.sets?.toString() ?? "",
-    cycles: schedule.cycles?.toString() ?? "",
-    restBetweenCycleSeconds:
-      schedule.restBetweenCycleSeconds?.toString() ?? "",
-    coolDownSeconds:
-      schedule.coolDownSeconds?.toString() ?? "",
-    nextSessionStartsAt: toDateTimeLocal(
-      schedule.nextSessionStartsAt
-    ),
+    key: newKey(),
+    videoId: null,
+    name: exercise.exerciseName ?? "Exercise",
+    videoUrl: null,
+    thumbnailUrl: null,
+    durationSeconds: null,
   };
 }
 
-function timerFromBroadcast(
-  broadcast: WorkoutBroadcast
-): TimerValues {
+function blankDraft(dateKey: string): Draft {
   return {
-    demonstrationSeconds:
-      broadcast.demonstrationSeconds?.toString() ?? "",
-    warmupSeconds: broadcast.warmupSeconds?.toString() ?? "",
-    prepareSeconds: broadcast.prepareSeconds?.toString() ?? "",
-    workSeconds: broadcast.workSeconds?.toString() ?? "",
-    restSeconds: broadcast.restSeconds?.toString() ?? "",
-    sets: broadcast.sets?.toString() ?? "",
-    cycles: broadcast.cycles?.toString() ?? "",
-    restBetweenCycleSeconds:
-      broadcast.restBetweenCycleSeconds?.toString() ?? "",
-    coolDownSeconds:
-      broadcast.coolDownSeconds?.toString() ?? "",
-    nextSessionStartsAt: toDateTimeLocal(
-      broadcast.nextSessionStartsAt
-    ),
+    id: null,
+    dateKey,
+    mode: "SCHEDULE",
+    scheduleId: "",
+    title: "",
+    subtitle: "",
+    description: "",
+    intensity: "",
+    timers: emptyTimers(),
+    nextSession: "",
+    exercises: [],
+    tvSelections: {},
   };
 }
 
-function timersToPayload(timers: TimerValues) {
-  const integerOrNull = (value: string) => {
-    if (!value.trim()) {
-      return null;
-    }
-
-    const parsed = Number(value);
-
-    if (!Number.isFinite(parsed)) {
-      return null;
-    }
-
-    return Math.max(0, Math.round(parsed));
-  };
-
-  return {
-    demonstrationSeconds: integerOrNull(
-      timers.demonstrationSeconds
-    ),
-    warmupSeconds: integerOrNull(timers.warmupSeconds),
-    prepareSeconds: integerOrNull(timers.prepareSeconds),
-    workSeconds: integerOrNull(timers.workSeconds),
-    restSeconds: integerOrNull(timers.restSeconds),
-    sets: integerOrNull(timers.sets),
-    cycles: integerOrNull(timers.cycles),
-    restBetweenCycleSeconds: integerOrNull(
-      timers.restBetweenCycleSeconds
-    ),
-    coolDownSeconds: integerOrNull(
-      timers.coolDownSeconds
-    ),
-    nextSessionStartsAt: fromDateTimeLocal(
-      timers.nextSessionStartsAt
-    ),
-  };
-}
-
-function getCalendarDays(month: Date) {
-  const year = month.getFullYear();
-  const monthIndex = month.getMonth();
-
-  const firstDay = new Date(year, monthIndex, 1);
-  const startDay = firstDay.getDay();
-
-  const daysInMonth = new Date(
-    year,
-    monthIndex + 1,
-    0
-  ).getDate();
-
-  const previousMonthDays = new Date(
-    year,
-    monthIndex,
-    0
-  ).getDate();
-
-  const cells: Date[] = [];
-
-  for (let index = startDay - 1; index >= 0; index--) {
-    cells.push(
-      new Date(
-        year,
-        monthIndex - 1,
-        previousMonthDays - index
-      )
+function draftFromBroadcast(broadcast: Broadcast): Draft {
+  const exercises = broadcast.exercises
+    .slice()
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .map(
+      (exercise): DraftExercise => ({
+        key: exercise.id,
+        videoId: exercise.videoId,
+        name: exercise.exerciseName,
+        videoUrl: exercise.videoUrl,
+        thumbnailUrl: exercise.thumbnailUrl,
+        durationSeconds: exercise.durationSeconds,
+      })
     );
+
+  const allKeys = exercises.map((exercise) => exercise.key);
+  const tvSelections: Record<string, string[]> = {};
+
+  for (const tv of broadcast.tvs) {
+    tvSelections[tv.tvDeviceId] =
+      tv.exercises.length > 0
+        ? tv.exercises
+            .slice()
+            .sort((a, b) => a.sortOrder - b.sortOrder)
+            .map((item) => item.exerciseId)
+        : allKeys;
   }
 
-  for (let day = 1; day <= daysInMonth; day++) {
-    cells.push(new Date(year, monthIndex, day));
-  }
-
-  while (cells.length < 42) {
-    cells.push(
-      new Date(
-        year,
-        monthIndex + 1,
-        cells.length - daysInMonth - startDay + 1
-      )
-    );
-  }
-
-  return cells;
+  return {
+    id: broadcast.id,
+    dateKey: broadcast.dateKey,
+    mode: broadcast.mode,
+    scheduleId: broadcast.scheduleId ?? "",
+    title: broadcast.title ?? "",
+    subtitle: broadcast.subtitle ?? "",
+    description: broadcast.description ?? "",
+    intensity: broadcast.intensity ?? "",
+    timers: timersToForm(broadcast),
+    nextSession: toLocalInput(broadcast.nextSessionStartsAt),
+    exercises,
+    tvSelections,
+  };
 }
 
-function statusClasses(status: BroadcastStatus) {
-  switch (status) {
-    case "LIVE":
-      return "bg-red-500/10 text-red-400 border-red-500/20";
-    case "SCHEDULED":
-      return "bg-lime-400/10 text-lime-400 border-lime-400/20";
-    case "COMPLETED":
-      return "bg-blue-400/10 text-blue-400 border-blue-400/20";
-    case "CANCELLED":
-      return "bg-zinc-700/30 text-zinc-500 border-zinc-700";
-    default:
-      return "bg-yellow-400/10 text-yellow-400 border-yellow-400/20";
+function previewFromDraft(draft: Draft, tvId?: string, tvName?: string): PreviewData | string {
+  const parsed = parseTimers(draft.timers);
+
+  if ("error" in parsed) {
+    return parsed.error;
   }
+
+  const selected = tvId ? draft.tvSelections[tvId] : undefined;
+  const list =
+    draft.mode === "TIMER_ONLY"
+      ? []
+      : selected && selected.length > 0
+      ? draft.exercises.filter((exercise) => selected.includes(exercise.key))
+      : draft.exercises;
+
+  return {
+    title: draft.title || "Workout Broadcast",
+    subtitle: draft.subtitle || null,
+    mode: draft.mode,
+    timers: parsed.values,
+    exercises: list.map((exercise) => ({
+      id: exercise.key,
+      name: exercise.name,
+      videoUrl: exercise.videoUrl,
+      thumbnailUrl: exercise.thumbnailUrl,
+      durationSeconds: exercise.durationSeconds,
+    })),
+    heading: tvName ? `As shown on ${tvName}` : "As shown on TV",
+  };
 }
 
-function extractBranches(payload: BranchesResponse) {
-  if (Array.isArray(payload)) {
-    return payload;
-  }
+const STATUS_STYLE: Record<Status, string> = {
+  DRAFT: "bg-yellow-400/10 text-yellow-400 border-yellow-400/20",
+  SCHEDULED: "bg-lime-400/10 text-lime-400 border-lime-400/20",
+  LIVE: "bg-red-500/10 text-red-400 border-red-500/20",
+  PAUSED: "bg-amber-500/10 text-amber-400 border-amber-500/20",
+  COMPLETED: "bg-blue-400/10 text-blue-400 border-blue-400/20",
+  CANCELLED: "bg-zinc-700/30 text-zinc-500 border-zinc-700",
+};
 
-  return payload.branches ?? [];
-}
+const PHASE_LABEL: Record<PhaseType, string> = {
+  PREPARE: "GET READY",
+  WARMUP: "WARM-UP",
+  DEMONSTRATION: "DEMONSTRATION",
+  WORK: "WORK",
+  REST: "REST",
+  REST_BETWEEN_CYCLE: "CYCLE REST",
+  COOLDOWN: "COOL DOWN",
+};
 
-/**
- * API response helpers
- *
- * The current centralized schedule APIs return:
- *
- * GET /api/workout-schedules
- * -> WorkoutSchedule[]
- *
- * GET /api/workout-schedules/[id]
- * -> WorkoutSchedule
- *
- * We still support the older wrapped shape as a fallback.
- */
+const inputClass =
+  "w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-sm text-white outline-none placeholder:text-zinc-700 focus:border-lime-400";
 
-function extractSchedules(payload: unknown): WorkoutSchedule[] {
-  if (Array.isArray(payload)) {
-    return payload as WorkoutSchedule[];
-  }
+const isRunning = (status: Status) => status === "LIVE" || status === "PAUSED";
 
-  if (
-    payload &&
-    typeof payload === "object"
-  ) {
-    const record = payload as Record<
-      string,
-      unknown
-    >;
-
-    if (Array.isArray(record.schedules)) {
-      return record.schedules as WorkoutSchedule[];
-    }
-  }
-
-  return [];
-}
-
-function extractSchedule(
-  payload: unknown
-): WorkoutSchedule | null {
-  if (
-    payload &&
-    typeof payload === "object" &&
-    !Array.isArray(payload)
-  ) {
-    const record = payload as Record<
-      string,
-      unknown
-    >;
-
-    if (
-      record.schedule &&
-      typeof record.schedule === "object"
-    ) {
-      return record.schedule as WorkoutSchedule;
-    }
-
-    if (typeof record.id === "string") {
-      return payload as WorkoutSchedule;
-    }
-  }
-
-  return null;
-}
-
-function extractApiError(
-  payload: unknown,
-  fallback: string
-) {
-  if (
-    payload &&
-    typeof payload === "object"
-  ) {
-    const record = payload as Record<
-      string,
-      unknown
-    >;
-
-    if (typeof record.error === "string") {
-      return record.error;
-    }
-
-    if (typeof record.message === "string") {
-      return record.message;
-    }
-  }
-
-  return fallback;
-}
-
-function extractBroadcasts(
-  payload: unknown
-): WorkoutBroadcast[] {
-  if (Array.isArray(payload)) {
-    return payload as WorkoutBroadcast[];
-  }
-
-  if (
-    payload &&
-    typeof payload === "object"
-  ) {
-    const record = payload as Record<
-      string,
-      unknown
-    >;
-
-    if (Array.isArray(record.broadcasts)) {
-      return record.broadcasts as WorkoutBroadcast[];
-    }
-  }
-
-  return [];
-}
-
-function extractBroadcast(
-  payload: unknown
-): WorkoutBroadcast | null {
-  if (
-    payload &&
-    typeof payload === "object" &&
-    !Array.isArray(payload)
-  ) {
-    const record = payload as Record<
-      string,
-      unknown
-    >;
-
-    if (
-      record.broadcast &&
-      typeof record.broadcast === "object"
-    ) {
-      return record.broadcast as WorkoutBroadcast;
-    }
-
-    if (typeof record.id === "string") {
-      return payload as WorkoutBroadcast;
-    }
-  }
-
-  return null;
-}
+// ------------------------------------------------------------------
+// Page
+// ------------------------------------------------------------------
 
 export default function WorkoutBroadcastsPage() {
   const [branches, setBranches] = useState<Branch[]>([]);
-  const [schedules, setSchedules] = useState<WorkoutSchedule[]>(
-    []
-  );
-  const [broadcasts, setBroadcasts] = useState<
-    WorkoutBroadcast[]
-  >([]);
+  const [branchId, setBranchId] = useState("");
+  const [tvs, setTvs] = useState<Tv[]>([]);
+  const [videos, setVideos] = useState<Video[]>([]);
 
-  const [selectedBranchId, setSelectedBranchId] =
-    useState("");
+  const [month, setMonth] = useState(() => new Date());
+  const [selectedDate, setSelectedDate] = useState(() => toDateKey());
 
-  const [calendarMonth, setCalendarMonth] = useState(
-    () => new Date()
-  );
+  const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [broadcasts, setBroadcasts] = useState<Broadcast[]>([]);
 
-  const [selectedDate, setSelectedDate] = useState(
-    () => dateKey(new Date())
-  );
-
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
-  const [updatingId, setUpdatingId] = useState<string | null>(
-    null
-  );
-  const [deletingId, setDeletingId] = useState<string | null>(
-    null
-  );
-
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  const [isFormOpen, setIsFormOpen] = useState(false);
-  const [editingBroadcast, setEditingBroadcast] =
-    useState<WorkoutBroadcast | null>(null);
+  const [draft, setDraft] = useState<Draft | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [preview, setPreview] = useState<PreviewData | null>(null);
 
-  const [formMode, setFormMode] =
-    useState<BroadcastMode>("SCHEDULE");
+  const [librarySearch, setLibrarySearch] = useState("");
+  const [manualName, setManualName] = useState("");
+  const [replacingKey, setReplacingKey] = useState<string | null>(null);
+  const [showAllSchedules, setShowAllSchedules] = useState(false);
 
-  const [selectedScheduleId, setSelectedScheduleId] =
-    useState("");
+  const cells = useMemo(() => monthCells(month), [month]);
+  const rangeFrom = ymd(cells[0]);
+  const rangeTo = ymd(cells[cells.length - 1]);
+  const todayKey = toDateKey();
 
-  const [selectedSchedule, setSelectedSchedule] =
-    useState<WorkoutSchedule | null>(null);
+  // ---------------- Loading ----------------
 
-  const [broadcastTitle, setBroadcastTitle] =
-    useState("");
-  const [broadcastSubtitle, setBroadcastSubtitle] =
-    useState("");
-  const [broadcastDescription, setBroadcastDescription] =
-    useState("");
-  const [broadcastIntensity, setBroadcastIntensity] =
-    useState("");
+  useEffect(() => {
+    (async () => {
+      try {
+        const response = await fetch("/api/branches", { cache: "no-store" });
+        const payload = await response.json();
+        const list: Branch[] = Array.isArray(payload) ? payload : payload.branches ?? [];
 
-  const [timers, setTimers] =
-    useState<TimerValues>(emptyTimers);
+        setBranches(list);
+        setBranchId((current) => current || list[0]?.id || "");
+      } catch (loadError) {
+        setError(errorMessage(loadError));
+      }
+    })();
 
-  const [broadcastExercises, setBroadcastExercises] =
-    useState<ScheduleExercise[]>([]);
+    api<Video[]>("/api/workout-videos?active=true&limit=500")
+      .then(setVideos)
+      .catch((loadError) => setError(errorMessage(loadError)));
+  }, []);
 
-  const [selectedTvIds, setSelectedTvIds] = useState<
-    string[]
-  >([]);
-
-  const [tvExerciseIds, setTvExerciseIds] = useState<
-    Record<string, string[]>
-  >({});
-
-  const [previewBroadcast, setPreviewBroadcast] =
-    useState<WorkoutBroadcast | null>(null);
-
-  const activeBranch = useMemo(
-    () =>
-      branches.find(
-        (branch) => branch.id === selectedBranchId
-      ) ?? null,
-    [branches, selectedBranchId]
-  );
-
-  const branchTvs = useMemo(
-    () => activeBranch?.tvDevices ?? [],
-    [activeBranch]
-  );
-
-  const calendarDays = useMemo(
-    () => getCalendarDays(calendarMonth),
-    [calendarMonth]
-  );
-
-  const broadcastsByDate = useMemo(() => {
-    const map = new Map<string, WorkoutBroadcast[]>();
-
-    for (const broadcast of broadcasts) {
-      const key = dateOnly(broadcast.date);
-      const existing = map.get(key) ?? [];
-
-      existing.push(broadcast);
-      map.set(key, existing);
+  useEffect(() => {
+    if (!branchId) {
+      setTvs([]);
+      return;
     }
 
-    return map;
-  }, [broadcasts]);
+    api<Tv[]>(`/api/tvs?branchId=${encodeURIComponent(branchId)}`)
+      .then(setTvs)
+      .catch((loadError) => setError(errorMessage(loadError)));
+  }, [branchId]);
 
-  const schedulesByDate = useMemo(() => {
-    const map = new Map<string, WorkoutSchedule[]>();
-
-    for (const schedule of schedules) {
-      const key = dateOnly(schedule.date);
-      const existing = map.get(key) ?? [];
-
-      existing.push(schedule);
-      map.set(key, existing);
-    }
-
-    return map;
-  }, [schedules]);
-
-  const selectedDateBroadcasts =
-    broadcastsByDate.get(selectedDate) ?? [];
-
-  const selectedDateSchedules =
-    schedulesByDate.get(selectedDate) ?? [];
-
-  const loadBranches = useCallback(async () => {
-    const response = await fetch("/api/branches", {
-      cache: "no-store",
-    });
-
-    const payload =
-      (await response.json()) as BranchesResponse;
-
-    if (!response.ok) {
-      throw new Error(
-        extractApiError(
-          payload,
-          "Unable to load branches."
-        )
-      );
-    }
-
-    const nextBranches = extractBranches(payload);
-
-    setBranches(nextBranches);
-
-    if (
-      nextBranches.length > 0 &&
-      !selectedBranchId
-    ) {
-      setSelectedBranchId(nextBranches[0].id);
-    }
-
-    return nextBranches;
-  }, [selectedBranchId]);
-
-  const loadBranchData = useCallback(
-    async (branchId: string) => {
+  const loadMonth = useCallback(
+    async (silent = false) => {
       if (!branchId) {
         return;
       }
 
-      const monthStart = new Date(
-        calendarMonth.getFullYear(),
-        calendarMonth.getMonth(),
-        1
-      );
+      try {
+        if (!silent) {
+          setLoading(true);
+        }
 
-      const monthEnd = new Date(
-        calendarMonth.getFullYear(),
-        calendarMonth.getMonth() + 1,
-        0,
-        23,
-        59,
-        59,
-        999
-      );
-
-      const from = monthStart.toISOString();
-      const to = monthEnd.toISOString();
-
-      const [schedulesResponse, broadcastsResponse] =
-        await Promise.all([
-          fetch(
-            `/api/workout-schedules?from=${encodeURIComponent(
-              from
-            )}&to=${encodeURIComponent(to)}`,
-            {
-              cache: "no-store",
-            }
-          ),
-          fetch(
+        const [scheduleList, broadcastList] = await Promise.all([
+          api<Schedule[]>(`/api/workout-schedules?from=${rangeFrom}&to=${rangeTo}`),
+          api<Broadcast[]>(
             `/api/workout-broadcasts?branchId=${encodeURIComponent(
               branchId
-            )}&from=${encodeURIComponent(
-              from
-            )}&to=${encodeURIComponent(to)}`,
-            {
-              cache: "no-store",
-            }
+            )}&from=${rangeFrom}&to=${rangeTo}`
           ),
         ]);
 
-      const schedulesPayload =
-        await schedulesResponse.json();
-
-      const broadcastsPayload =
-        await broadcastsResponse.json();
-
-      if (!schedulesResponse.ok) {
-        throw new Error(
-          extractApiError(
-            schedulesPayload,
-            "Unable to load workout schedules."
-          )
-        );
+        setSchedules(scheduleList);
+        setBroadcasts(broadcastList);
+      } catch (loadError) {
+        if (!silent) {
+          setError(errorMessage(loadError));
+        }
+      } finally {
+        if (!silent) {
+          setLoading(false);
+        }
       }
-
-      if (!broadcastsResponse.ok) {
-        throw new Error(
-          extractApiError(
-            broadcastsPayload,
-            "Unable to load broadcasts."
-          )
-        );
-      }
-
-      /*
-       * IMPORTANT:
-       * /api/workout-schedules currently returns the
-       * schedule array directly.
-       *
-       * Previously this page was doing:
-       *
-       * schedulesPayload.schedules
-       *
-       * which resulted in [].
-       */
-      setSchedules(
-        extractSchedules(schedulesPayload)
-      );
-
-      setBroadcasts(
-        extractBroadcasts(broadcastsPayload)
-      );
     },
-    [calendarMonth]
+    [branchId, rangeFrom, rangeTo]
   );
 
-  const loadData = useCallback(async () => {
-    try {
-      setIsLoading(true);
-      setError("");
+  useEffect(() => {
+    void loadMonth();
+  }, [loadMonth]);
 
-      const nextBranches = await loadBranches();
-
-      const branchId =
-        selectedBranchId || nextBranches[0]?.id;
-
-      if (branchId) {
-        await loadBranchData(branchId);
-      } else {
-        setSchedules([]);
-        setBroadcasts([]);
-      }
-    } catch (loadError) {
-      console.error(
-        "Load workout broadcasts error:",
-        loadError
-      );
-
-      setError(
-        loadError instanceof Error
-          ? loadError.message
-          : "Unable to load workout broadcasts."
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  }, [
-    loadBranches,
-    loadBranchData,
-    selectedBranchId,
-  ]);
+  // While anything is running, keep statuses fresh (auto-completion included).
+  const hasRunning = broadcasts.some((broadcast) => isRunning(broadcast.status));
 
   useEffect(() => {
-    void loadData();
-  }, [loadData]);
-
-  useEffect(() => {
-    if (!selectedBranchId) {
+    if (!hasRunning) {
       return;
     }
 
-    void loadBranchData(selectedBranchId).catch(
-      (loadError) => {
-        console.error(
-          "Reload broadcast calendar error:",
-          loadError
-        );
+    const timer = setInterval(() => void loadMonth(true), 5000);
+    return () => clearInterval(timer);
+  }, [hasRunning, loadMonth]);
 
-        setError(
-          loadError instanceof Error
-            ? loadError.message
-            : "Unable to reload broadcasts."
-        );
-      }
-    );
-  }, [calendarMonth, selectedBranchId, loadBranchData]);
+  // ---------------- Derived ----------------
 
-  function clearMessages() {
+  const broadcastsByDate = useMemo(() => {
+    const map = new Map<string, Broadcast[]>();
+    for (const broadcast of broadcasts) {
+      map.set(broadcast.dateKey, [...(map.get(broadcast.dateKey) ?? []), broadcast]);
+    }
+    return map;
+  }, [broadcasts]);
+
+  const schedulesByDate = useMemo(() => {
+    const map = new Map<string, Schedule[]>();
+    for (const schedule of schedules) {
+      map.set(schedule.dateKey, [...(map.get(schedule.dateKey) ?? []), schedule]);
+    }
+    return map;
+  }, [schedules]);
+
+  const dayBroadcasts = broadcastsByDate.get(selectedDate) ?? [];
+  const activeBranch = branches.find((branch) => branch.id === branchId) ?? null;
+
+  // ---------------- Actions ----------------
+
+  function notify(message: string) {
+    setError("");
+    setSuccess(message);
+  }
+
+  async function control(
+    broadcast: Broadcast,
+    action: "start" | "pause" | "resume" | "stop"
+  ) {
+    if (action === "stop" && !window.confirm("Stop this broadcast on all TVs?")) {
+      return;
+    }
+
+    try {
+      setBusyId(broadcast.id);
+      setError("");
+      setSuccess("");
+
+      await api(`/api/workout-broadcasts/${broadcast.id}/${action}`, { method: "POST" });
+      await loadMonth(true);
+
+      notify(
+        {
+          start: "Broadcast started.",
+          pause: "Broadcast paused.",
+          resume: "Broadcast resumed.",
+          stop: "Broadcast stopped.",
+        }[action]
+      );
+    } catch (actionError) {
+      setError(errorMessage(actionError));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function remove(broadcast: Broadcast) {
+    if (!window.confirm("Delete this broadcast?")) {
+      return;
+    }
+
+    try {
+      setBusyId(broadcast.id);
+      setError("");
+      await api(`/api/workout-broadcasts/${broadcast.id}`, { method: "DELETE" });
+      await loadMonth(true);
+      notify("Broadcast deleted.");
+    } catch (deleteError) {
+      setError(errorMessage(deleteError));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  function openCreate(dateKey: string) {
     setError("");
     setSuccess("");
+    resetPicker();
+    setDraft(blankDraft(dateKey));
   }
 
-  function changeMonth(offset: number) {
-    setCalendarMonth(
-      (current) =>
-        new Date(
-          current.getFullYear(),
-          current.getMonth() + offset,
-          1
-        )
-    );
+  function openEdit(broadcast: Broadcast) {
+    setError("");
+    setSuccess("");
+    resetPicker();
+    setDraft(draftFromBroadcast(broadcast));
   }
 
-  function selectCalendarDate(date: Date) {
-    setSelectedDate(dateKey(date));
+  function resetPicker() {
+    setLibrarySearch("");
+    setManualName("");
+    setReplacingKey(null);
+    setShowAllSchedules(false);
   }
 
-  function openCreate(date = selectedDate) {
-    clearMessages();
+  function openPreview(broadcast: Broadcast, tvId?: string) {
+    const tvName = broadcast.tvs.find((tv) => tv.tvDeviceId === tvId)?.tvDevice.name;
+    const result = previewFromDraft(draftFromBroadcast(broadcast), tvId, tvName);
 
-    setEditingBroadcast(null);
-    setFormMode("SCHEDULE");
-    setSelectedScheduleId("");
-    setSelectedSchedule(null);
-
-    setBroadcastTitle("");
-    setBroadcastSubtitle("");
-    setBroadcastDescription("");
-    setBroadcastIntensity("");
-
-    setTimers({ ...emptyTimers });
-
-    setBroadcastExercises([]);
-
-    setSelectedTvIds([]);
-    setTvExerciseIds({});
-
-    setSelectedDate(date);
-    setIsFormOpen(true);
-  }
-
-  async function openEdit(
-    broadcast: WorkoutBroadcast
-  ) {
-    clearMessages();
-  
-    try {
-      setUpdatingId(broadcast.id);
-  
-      const broadcastResponse = await fetch(
-        `/api/workout-broadcasts/${broadcast.id}`,
-        {
-          cache: "no-store",
-        }
-      );
-  
-      const broadcastPayload =
-        await broadcastResponse.json();
-  
-      if (!broadcastResponse.ok) {
-        throw new Error(
-          extractApiError(
-            broadcastPayload,
-            "Unable to load broadcast."
-          )
-        );
-      }
-  
-      const fullBroadcast =
-        extractBroadcast(broadcastPayload);
-  
-      if (!fullBroadcast) {
-        throw new Error(
-          "Unable to load broadcast."
-        );
-      }
-  
-      /*
-       * A broadcast stores only scheduleId as its source
-       * reference. The broadcast GET endpoint intentionally
-       * does not need to return the complete Schedule.
-       *
-       * When editing, load the centralized Schedule separately
-       * so selectedSchedule contains:
-       *
-       * - program
-       * - exercises
-       * - timer values
-       *
-       * Broadcast values remain the editable snapshot.
-       */
-      let sourceSchedule: WorkoutSchedule | null =
-        null;
-  
-      if (
-        fullBroadcast.mode === "SCHEDULE" &&
-        fullBroadcast.scheduleId
-      ) {
-        const scheduleResponse = await fetch(
-          `/api/workout-schedules/${fullBroadcast.scheduleId}`,
-          {
-            cache: "no-store",
-          }
-        );
-  
-        const schedulePayload =
-          await scheduleResponse.json();
-  
-        if (!scheduleResponse.ok) {
-          throw new Error(
-            extractApiError(
-              schedulePayload,
-              "Unable to load the source workout schedule."
-            )
-          );
-        }
-  
-        sourceSchedule =
-          extractSchedule(schedulePayload);
-  
-        if (!sourceSchedule) {
-          throw new Error(
-            "The source workout schedule could not be loaded."
-          );
-        }
-      }
-  
-      setEditingBroadcast(fullBroadcast);
-  
-      setFormMode(fullBroadcast.mode);
-  
-      setSelectedScheduleId(
-        fullBroadcast.scheduleId ?? ""
-      );
-  
-      /*
-       * IMPORTANT:
-       *
-       * Do not use fullBroadcast.schedule here.
-       *
-       * The broadcast API returns only a lightweight
-       * schedule reference.
-       *
-       * Use the fully loaded centralized schedule instead.
-       */
-      setSelectedSchedule(sourceSchedule);
-  
-      setBroadcastTitle(
-        fullBroadcast.title ?? ""
-      );
-  
-      setBroadcastSubtitle(
-        fullBroadcast.subtitle ?? ""
-      );
-  
-      setBroadcastDescription(
-        fullBroadcast.description ?? ""
-      );
-  
-      setBroadcastIntensity(
-        fullBroadcast.intensity ?? ""
-      );
-  
-      /*
-       * Timers come from the Broadcast because these
-       * are the editable broadcast snapshot values.
-       *
-       * We must NOT replace them with Schedule timers
-       * when editing an existing broadcast.
-       */
-      setTimers(
-        timerFromBroadcast(fullBroadcast)
-      );
-  
-      /*
-       * Exercises also come from the Broadcast because
-       * these are the copied/editable broadcast exercises.
-       *
-       * We must NOT overwrite them with Schedule exercises.
-       */
-      const exercises =
-        fullBroadcast.exercises.map((exercise) => ({
-          id: exercise.id,
-          videoId: exercise.videoId,
-          exerciseName: exercise.exerciseName,
-          sortOrder: exercise.sortOrder,
-          video: exercise.video,
-        })) as ScheduleExercise[];
-  
-      setBroadcastExercises(exercises);
-  
-      const tvIds = fullBroadcast.tvs.map(
-        (tv) => tv.tvDeviceId
-      );
-  
-      setSelectedTvIds(tvIds);
-  
-      const nextTvExerciseIds: Record<
-        string,
-        string[]
-      > = {};
-  
-      for (const tv of fullBroadcast.tvs) {
-        nextTvExerciseIds[tv.tvDeviceId] =
-          tv.exercises
-            .slice()
-            .sort(
-              (first, second) =>
-                first.sortOrder -
-                second.sortOrder
-            )
-            .map((item) => item.exerciseId);
-      }
-  
-      setTvExerciseIds(nextTvExerciseIds);
-  
-      /*
-       * Keep the broadcast's own date.
-       *
-       * This is important because Broadcast.date is
-       * branch-level data and may differ from the
-       * centralized Schedule date.
-       */
-      setSelectedDate(
-        dateOnly(fullBroadcast.date)
-      );
-  
-      setIsFormOpen(true);
-    } catch (loadError) {
-      console.error(
-        "Open broadcast error:",
-        loadError
-      );
-  
-      setError(
-        loadError instanceof Error
-          ? loadError.message
-          : "Unable to open broadcast."
-      );
-    } finally {
-      setUpdatingId(null);
-    }
-  }
-
-  async function loadSchedule(scheduleId: string) {
-    setSelectedScheduleId(scheduleId);
-
-    if (!scheduleId) {
-      setSelectedSchedule(null);
-      setBroadcastTitle("");
-      setBroadcastSubtitle("");
-      setBroadcastDescription("");
-      setBroadcastIntensity("");
-      setTimers({ ...emptyTimers });
-      setBroadcastExercises([]);
+    if (typeof result === "string") {
+      setError(result);
       return;
     }
 
-    try {
-      setError("");
-
-      const response = await fetch(
-        `/api/workout-schedules/${scheduleId}`,
-        {
-          cache: "no-store",
-        }
-      );
-
-      const payload = await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          extractApiError(
-            payload,
-            "Unable to load selected schedule."
-          )
-        );
-      }
-
-      /*
-       * IMPORTANT:
-       * /api/workout-schedules/[id] returns the
-       * schedule object directly.
-       *
-       * Previously this page expected:
-       *
-       * payload.schedule
-       */
-      const schedule =
-        extractSchedule(payload);
-
-      if (!schedule) {
-        throw new Error(
-          "Unable to load selected schedule."
-        );
-      }
-
-      setSelectedSchedule(schedule);
-
-      setSelectedDate(dateOnly(schedule.date));
-
-      setBroadcastTitle(
-        schedule.program.name ?? ""
-      );
-      setBroadcastSubtitle(
-        schedule.program.subtitle ?? ""
-      );
-      setBroadcastDescription(
-        schedule.program.description ?? ""
-      );
-      setBroadcastIntensity(
-        schedule.program.intensity ?? ""
-      );
-
-      setTimers(timerFromSchedule(schedule));
-
-      setBroadcastExercises(
-        schedule.exercises
-          .slice()
-          .sort(
-            (first, second) =>
-              first.sortOrder - second.sortOrder
-          )
-      );
-
-      setSelectedTvIds([]);
-      setTvExerciseIds({});
-    } catch (loadError) {
-      console.error(
-        "Load schedule error:",
-        loadError
-      );
-
-      setError(
-        loadError instanceof Error
-          ? loadError.message
-          : "Unable to load schedule."
-      );
-    }
+    setPreview(result);
   }
 
-  function toggleTv(tvId: string) {
-    setSelectedTvIds((current) => {
-      if (current.includes(tvId)) {
-        const next = current.filter(
-          (id) => id !== tvId
-        );
+  // ---------------- Form mutations ----------------
 
-        setTvExerciseIds((existing) => {
-          const copy = { ...existing };
-          delete copy[tvId];
-          return copy;
-        });
+  function patch(changes: Partial<Draft>) {
+    setDraft((current) => (current ? { ...current, ...changes } : current));
+  }
 
-        return next;
+  function chooseMode(mode: Mode) {
+    setDraft((current) => {
+      if (!current || current.id) {
+        return current;
       }
 
-      setTvExerciseIds((existing) => ({
-        ...existing,
-        [tvId]: broadcastExercises.map(
-          (exercise) => exercise.id
-        ),
-      }));
-
-      return [...current, tvId];
+      return mode === "TIMER_ONLY"
+        ? {
+            ...current,
+            mode,
+            scheduleId: "",
+            exercises: [],
+            tvSelections: Object.fromEntries(
+              Object.keys(current.tvSelections).map((id) => [id, []])
+            ),
+          }
+        : { ...current, mode };
     });
   }
 
-  function toggleTvExercise(
-    tvId: string,
-    exerciseId: string
-  ) {
-    setTvExerciseIds((current) => {
-      const selected = current[tvId] ?? [];
+  function chooseSchedule(scheduleId: string) {
+    const schedule = schedules.find((item) => item.id === scheduleId);
 
-      const next = selected.includes(exerciseId)
-        ? selected.filter(
-            (id) => id !== exerciseId
-          )
-        : [...selected, exerciseId];
+    setDraft((current) => {
+      if (!current) {
+        return current;
+      }
+
+      if (!schedule) {
+        return { ...current, scheduleId: "" };
+      }
+
+      const exercises = schedule.exercises
+        .slice()
+        .sort((a, b) => a.sortOrder - b.sortOrder)
+        .map(exerciseFromSchedule);
+
+      const keys = exercises.map((exercise) => exercise.key);
 
       return {
         ...current,
-        [tvId]: next,
+        scheduleId,
+        title: schedule.program.name,
+        subtitle: schedule.program.subtitle ?? "",
+        description: schedule.program.description ?? "",
+        intensity: schedule.program.intensity ?? "",
+        timers: timersToForm(schedule),
+        nextSession: toLocalInput(schedule.nextSessionStartsAt),
+        exercises,
+        tvSelections: Object.fromEntries(
+          Object.keys(current.tvSelections).map((id) => [id, keys])
+        ),
       };
     });
   }
 
-  function selectAllTvExercises(tvId: string) {
-    setTvExerciseIds((current) => ({
-      ...current,
-      [tvId]: broadcastExercises.map(
-        (exercise) => exercise.id
-      ),
-    }));
-  }
+  function addExercise(exercise: DraftExercise) {
+    setDraft((current) => {
+      if (!current) {
+        return current;
+      }
 
-  function clearTvExercises(tvId: string) {
-    setTvExerciseIds((current) => ({
-      ...current,
-      [tvId]: [],
-    }));
-  }
+      if (replacingKey) {
+        const target = current.exercises.find((item) => item.key === replacingKey);
 
-  
-async function syncTvExerciseMappings(
-    broadcastId: string,
-    tvMappings: BroadcastTV[],
-    savedExercises: BroadcastExercise[]
-  ) {
-    const orderedFormExercises = broadcastExercises
-      .slice()
-      .sort((a, b) => a.sortOrder - b.sortOrder);
-  
-    const orderedSavedExercises = savedExercises
-      .slice()
-      .sort((a, b) => a.sortOrder - b.sortOrder);
-  
-    for (const mapping of tvMappings) {
-      const selectedFormIds =
-        tvExerciseIds[mapping.tvDeviceId] ?? [];
-  
-      const exerciseIds = selectedFormIds
-        .map((formExerciseId) => {
-          const index = orderedFormExercises.findIndex(
-            (exercise) => exercise.id === formExerciseId
-          );
-  
-          return index >= 0
-            ? orderedSavedExercises[index]?.id
-            : undefined;
-        })
-        .filter((exerciseId): exerciseId is string =>
-          Boolean(exerciseId)
-        );
-  
-      const response = await fetch(
-        `/api/workout-broadcasts/${mapping.id}/tvs/${mapping.tvDeviceId}/exercises`,
-        {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ exerciseIds }),
+        if (target) {
+          const replacement = { ...exercise, key: target.key };
+
+          return {
+            ...current,
+            exercises: current.exercises.map((item) =>
+              item.key === target.key ? replacement : item
+            ),
+          };
         }
-      );
-  
-      const payload = await response.json();
-  
-      if (!response.ok || payload?.success === false) {
-        throw new Error(
-          payload?.error ||
-            payload?.message ||
-            "Unable to save TV exercise selection."
-        );
-      }
-    }
-  
-    void broadcastId;
-  }
-  
-
-  async function saveBroadcast(
-    event: React.FormEvent<HTMLFormElement>
-  ) {
-    event.preventDefault();
-
-    clearMessages();
-
-    if (!selectedBranchId) {
-      setError("Select a branch.");
-      return;
-    }
-
-    if (!selectedDate) {
-      setError("Select a broadcast date.");
-      return;
-    }
-
-    if (
-      formMode === "SCHEDULE" &&
-      !selectedScheduleId
-    ) {
-      setError("Select a workout schedule.");
-      return;
-    }
-
-    if (
-      formMode === "SCHEDULE" &&
-      broadcastExercises.length === 0
-    ) {
-      setError(
-        "The selected schedule has no exercises."
-      );
-      return;
-    }
-
-    try {
-      setIsSaving(true);
-
-      const date = new Date(
-        `${selectedDate}T00:00:00`
-      );
-
-      if (Number.isNaN(date.getTime())) {
-        throw new Error(
-          "Select a valid broadcast date."
-        );
       }
 
-      const timerPayload =
-        timersToPayload(timers);
-
-      const exercisePayload =
-        broadcastExercises.map(
-          (exercise, index) => ({
-            videoId: exercise.videoId,
-            exerciseName: exercise.exerciseName,
-            sortOrder: index,
-          })
-        );
-
-      const tvs = selectedTvIds.map(
-        (tvDeviceId) => ({
-          tvDeviceId,
-        })
-      );
-
-      const body = {
-        branchId: selectedBranchId,
-        date: date.toISOString(),
-        scheduleId:
-          formMode === "SCHEDULE"
-            ? selectedScheduleId
-            : null,
-        mode: formMode,
-
-        title:
-          broadcastTitle.trim() || null,
-        subtitle:
-          broadcastSubtitle.trim() || null,
-        description:
-          broadcastDescription.trim() || null,
-        intensity:
-          broadcastIntensity.trim() || null,
-
-        ...timerPayload,
-
-        exercises:
-          formMode === "SCHEDULE"
-            ? exercisePayload
-            : [],
-
-        tvs,
+      return {
+        ...current,
+        exercises: [...current.exercises, exercise],
+        tvSelections: Object.fromEntries(
+          Object.entries(current.tvSelections).map(([id, keys]) => [
+            id,
+            [...keys, exercise.key],
+          ])
+        ),
       };
+    });
 
-      const response = await fetch(
-        editingBroadcast
-          ? `/api/workout-broadcasts/${editingBroadcast.id}`
-          : "/api/workout-broadcasts",
-        {
-          method: editingBroadcast
-            ? "PATCH"
-            : "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(body),
+    setReplacingKey(null);
+  }
+
+  function addManual() {
+    const name = manualName.trim();
+
+    if (!name) {
+      return;
+    }
+
+    addExercise({
+      key: newKey(),
+      videoId: null,
+      name,
+      videoUrl: null,
+      thumbnailUrl: null,
+      durationSeconds: null,
+    });
+    setManualName("");
+  }
+
+  function removeExercise(key: string) {
+    setDraft((current) =>
+      current
+        ? {
+            ...current,
+            exercises: current.exercises.filter((item) => item.key !== key),
+            tvSelections: Object.fromEntries(
+              Object.entries(current.tvSelections).map(([id, keys]) => [
+                id,
+                keys.filter((item) => item !== key),
+              ])
+            ),
+          }
+        : current
+    );
+
+    if (replacingKey === key) {
+      setReplacingKey(null);
+    }
+  }
+
+  function moveExercise(index: number, direction: -1 | 1) {
+    setDraft((current) => {
+      if (!current) {
+        return current;
+      }
+
+      const target = index + direction;
+
+      if (target < 0 || target >= current.exercises.length) {
+        return current;
+      }
+
+      const exercises = current.exercises.slice();
+      [exercises[index], exercises[target]] = [exercises[target], exercises[index]];
+
+      return { ...current, exercises };
+    });
+  }
+
+  function toggleTv(tvId: string) {
+    setDraft((current) => {
+      if (!current) {
+        return current;
+      }
+
+      const next = { ...current.tvSelections };
+
+      if (tvId in next) {
+        delete next[tvId];
+      } else {
+        next[tvId] =
+          current.mode === "SCHEDULE" ? current.exercises.map((item) => item.key) : [];
+      }
+
+      return { ...current, tvSelections: next };
+    });
+  }
+
+  function toggleTvExercise(tvId: string, key: string) {
+    setDraft((current) => {
+      if (!current) {
+        return current;
+      }
+
+      const selected = current.tvSelections[tvId] ?? [];
+
+      return {
+        ...current,
+        tvSelections: {
+          ...current.tvSelections,
+          [tvId]: selected.includes(key)
+            ? selected.filter((item) => item !== key)
+            : [...selected, key],
+        },
+      };
+    });
+  }
+
+  function setTvAll(tvId: string, all: boolean) {
+    setDraft((current) =>
+      current
+        ? {
+            ...current,
+            tvSelections: {
+              ...current.tvSelections,
+              [tvId]: all ? current.exercises.map((item) => item.key) : [],
+            },
+          }
+        : current
+    );
+  }
+
+  // ---------------- Save ----------------
+
+  async function save() {
+    if (!draft || !branchId) {
+      return;
+    }
+
+    setError("");
+
+    const parsed = parseTimers(draft.timers);
+
+    if ("error" in parsed) {
+      setError(parsed.error);
+      return;
+    }
+
+    if (draft.mode === "SCHEDULE") {
+      if (!draft.scheduleId) {
+        setError("Select a workout schedule.");
+        return;
+      }
+
+      if (draft.exercises.length === 0) {
+        setError("Add at least one exercise.");
+        return;
+      }
+    }
+
+    const selectedTvIds = Object.keys(draft.tvSelections);
+
+    if (draft.mode === "SCHEDULE") {
+      for (const tvId of selectedTvIds) {
+        if (draft.tvSelections[tvId].length === 0) {
+          const name = tvs.find((tv) => tv.id === tvId)?.name ?? "A selected TV";
+          setError(`${name} needs at least one exercise.`);
+          return;
         }
+      }
+    }
+
+    const body = {
+      branchId,
+      dateKey: draft.dateKey,
+      mode: draft.mode,
+      scheduleId: draft.mode === "SCHEDULE" ? draft.scheduleId : null,
+      title: draft.title.trim() || null,
+      subtitle: draft.subtitle.trim() || null,
+      description: draft.description.trim() || null,
+      intensity: draft.intensity || null,
+      ...parsed.values,
+      nextSessionStartsAt: fromLocalInput(draft.nextSession),
+      exercises:
+        draft.mode === "SCHEDULE"
+          ? draft.exercises.map((exercise) =>
+              exercise.videoId
+                ? { videoId: exercise.videoId }
+                : { exerciseName: exercise.name }
+            )
+          : [],
+      tvs: selectedTvIds.map((tvDeviceId) => ({
+        tvDeviceId,
+        ...(draft.mode === "SCHEDULE"
+          ? {
+              exerciseSortOrders: draft.exercises.flatMap((exercise, index) =>
+                draft.tvSelections[tvDeviceId].includes(exercise.key) ? [index] : []
+              ),
+            }
+          : {}),
+      })),
+    };
+
+    try {
+      setSaving(true);
+
+      await api(
+        draft.id ? `/api/workout-broadcasts/${draft.id}` : "/api/workout-broadcasts",
+        { method: draft.id ? "PUT" : "POST", body: JSON.stringify(body) }
       );
 
-      const payload = await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          extractApiError(
-            payload,
-            "Unable to save broadcast."
-          )
-        );
-      }
-
-      const savedBroadcast =
-        extractBroadcast(payload);
-
-      if (!savedBroadcast) {
-        throw new Error(
-          "Broadcast was saved but the server returned an invalid response."
-        );
-      }
-
-      if (
-        selectedTvIds.length > 0 &&
-        savedBroadcast.tvs
-      ) {
-        
-await syncTvExerciseMappings(
-    savedBroadcast.id,
-    savedBroadcast.tvs,
-    savedBroadcast.exercises
-  );
-  
-      }
-
-      setSuccess(
-        editingBroadcast
-          ? "Broadcast updated successfully."
-          : "Broadcast created successfully."
-      );
-
-      setIsFormOpen(false);
-      setEditingBroadcast(null);
-
-      await loadBranchData(selectedBranchId);
+      setSelectedDate(draft.dateKey);
+      setDraft(null);
+      await loadMonth(true);
+      notify(draft.id ? "Broadcast updated." : "Broadcast created.");
     } catch (saveError) {
-      console.error(
-        "Save workout broadcast error:",
-        saveError
-      );
-
-      setError(
-        saveError instanceof Error
-          ? saveError.message
-          : "Unable to save broadcast."
-      );
+      setError(errorMessage(saveError));
     } finally {
-      setIsSaving(false);
+      setSaving(false);
     }
   }
 
-  async function deleteBroadcast(
-    broadcast: WorkoutBroadcast
-  ) {
-    if (broadcast.status === "LIVE") {
-      setError(
-        "A live broadcast cannot be deleted."
-      );
+  function previewDraft() {
+    if (!draft) {
       return;
     }
 
-    const confirmed = window.confirm(
-      `Delete this ${
-        broadcast.mode === "SCHEDULE"
-          ? "schedule"
-          : "timer-only"
-      } broadcast?`
-    );
+    const firstTvId = Object.keys(draft.tvSelections)[0];
+    const tvName = tvs.find((tv) => tv.id === firstTvId)?.name;
+    const result = previewFromDraft(draft, firstTvId, tvName);
 
-    if (!confirmed) {
+    if (typeof result === "string") {
+      setError(result);
       return;
     }
 
-    try {
-      setDeletingId(broadcast.id);
-      clearMessages();
-
-      const response = await fetch(
-        `/api/workout-broadcasts/${broadcast.id}`,
-        {
-          method: "DELETE",
-        }
-      );
-
-      const payload = await response.json();
-
-      if (!response.ok || payload?.success === false) {
-        throw new Error(
-          payload?.error ||
-            payload?.message ||
-            "Unable to delete broadcast."
-        );
-      }
-
-      setSuccess(
-        "Broadcast deleted successfully."
-      );
-
-      await loadBranchData(selectedBranchId);
-    } catch (deleteError) {
-      console.error(
-        "Delete broadcast error:",
-        deleteError
-      );
-
-      setError(
-        deleteError instanceof Error
-          ? deleteError.message
-          : "Unable to delete broadcast."
-      );
-    } finally {
-      setDeletingId(null);
-    }
+    setPreview(result);
   }
 
-  async function startBroadcast(
-    broadcast: WorkoutBroadcast
-  ) {
-    if (broadcast.tvs.length === 0) {
-      setError(
-        "Select at least one TV before starting the broadcast."
-      );
-      return;
+  // ---------------- Render helpers ----------------
+
+  const libraryMatches = useMemo(() => {
+    const query = librarySearch.trim().toLowerCase();
+
+    return videos
+      .filter((video) => !query || video.name.toLowerCase().includes(query))
+      .slice(0, 30);
+  }, [videos, librarySearch]);
+
+  const scheduleOptions = useMemo(() => {
+    if (!draft) {
+      return [];
     }
 
-    try {
-      setUpdatingId(broadcast.id);
-      clearMessages();
+    const pool = showAllSchedules ? schedules : schedulesByDate.get(draft.dateKey) ?? [];
+    const options = pool.slice();
+    const selected = schedules.find((item) => item.id === draft.scheduleId);
 
-      const response = await fetch(
-        `/api/workout-broadcasts/${broadcast.id}`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            status: "LIVE",
-          }),
-        }
-      );
-
-      const payload = await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          extractApiError(
-            payload,
-            "Unable to start broadcast."
-          )
-        );
-      }
-
-      setSuccess(
-        "Broadcast started successfully."
-      );
-
-      await loadBranchData(selectedBranchId);
-    } catch (startError) {
-      console.error(
-        "Start broadcast error:",
-        startError
-      );
-
-      setError(
-        startError instanceof Error
-          ? startError.message
-          : "Unable to start broadcast."
-      );
-    } finally {
-      setUpdatingId(null);
+    if (selected && !options.some((item) => item.id === selected.id)) {
+      options.unshift(selected);
     }
-  }
 
-  function renderTimerInput(
-    label: string,
-    key: keyof TimerValues,
-    suffix = "sec"
-  ) {
-    return (
-      <div>
-        <label className="mb-1.5 block text-xs font-medium text-zinc-400">
-          {label}
-        </label>
+    return options;
+  }, [draft, schedules, schedulesByDate, showAllSchedules]);
 
-        <div className="relative">
-          <input
-            type={
-              key === "nextSessionStartsAt"
-                ? "datetime-local"
-                : "number"
-            }
-            min={
-              key === "nextSessionStartsAt"
-                ? undefined
-                : 0
-            }
-            value={timers[key]}
-            onChange={(event) =>
-              setTimers((current) => ({
-                ...current,
-                [key]: event.target.value,
-              }))
-            }
-            className="w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-sm text-white outline-none transition focus:border-lime-400"
-          />
-
-          {key !== "nextSessionStartsAt" && (
-            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-zinc-600">
-              {suffix}
-            </span>
-          )}
-        </div>
-      </div>
-    );
-  }
+  // ---------------- UI ----------------
 
   return (
     <div className="min-h-screen bg-zinc-950 px-4 py-6 text-white sm:px-6 lg:px-8">
@@ -1661,38 +1035,24 @@ await syncTvExerciseMappings(
                 TV Broadcasting
               </span>
             </div>
-
-            <h1 className="text-2xl font-semibold tracking-tight">
-              Workout Broadcasts
-            </h1>
-
+            <h1 className="text-2xl font-semibold tracking-tight">Workout Broadcasts</h1>
             <p className="mt-1 text-sm text-zinc-500">
-              Create branch-wise broadcasts from centralized
-              workout schedules.
+              Branch-wise broadcasts built from centralized schedules, or timer only.
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
             <select
-              value={selectedBranchId}
+              value={branchId}
               onChange={(event) => {
-                setSelectedBranchId(event.target.value);
-                setSelectedDate(
-                  dateKey(new Date())
-                );
-                clearMessages();
+                setBranchId(event.target.value);
+                setError("");
               }}
               className="rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2.5 text-sm text-white outline-none focus:border-lime-400"
             >
-              <option value="">
-                Select branch
-              </option>
-
+              <option value="">Select branch</option>
               {branches.map((branch) => (
-                <option
-                  key={branch.id}
-                  value={branch.id}
-                >
+                <option key={branch.id} value={branch.id}>
                   {branch.name}
                 </option>
               ))}
@@ -1700,26 +1060,19 @@ await syncTvExerciseMappings(
 
             <button
               type="button"
-              onClick={() => void loadData()}
-              disabled={isLoading}
-              className="inline-flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2.5 text-sm font-medium text-zinc-300 transition hover:border-zinc-700 hover:text-white disabled:opacity-50"
+              onClick={() => void loadMonth()}
+              disabled={loading}
+              className="inline-flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2.5 text-sm font-medium text-zinc-300 hover:border-zinc-700 hover:text-white disabled:opacity-50"
             >
-              <RefreshCw
-                size={16}
-                className={
-                  isLoading
-                    ? "animate-spin"
-                    : ""
-                }
-              />
+              <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
               Refresh
             </button>
 
             <button
               type="button"
-              onClick={() => openCreate()}
-              disabled={!selectedBranchId}
-              className="inline-flex items-center gap-2 rounded-lg bg-lime-400 px-4 py-2.5 text-sm font-semibold text-black transition hover:bg-lime-300 disabled:cursor-not-allowed disabled:opacity-40"
+              onClick={() => openCreate(selectedDate)}
+              disabled={!branchId}
+              className="inline-flex items-center gap-2 rounded-lg bg-lime-400 px-4 py-2.5 text-sm font-semibold text-black hover:bg-lime-300 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Plus size={17} />
               New Broadcast
@@ -1727,75 +1080,56 @@ await syncTvExerciseMappings(
           </div>
         </div>
 
-        {/* Messages */}
-        {error && (
-          <div className="mb-4 flex items-center justify-between rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
-            <span>{error}</span>
-            <button
-              type="button"
-              onClick={() => setError("")}
-            >
-              <X size={16} />
-            </button>
-          </div>
+        {error && !draft && (
+          <Banner tone="error" onClose={() => setError("")}>
+            {error}
+          </Banner>
         )}
-
         {success && (
-          <div className="mb-4 flex items-center justify-between rounded-lg border border-lime-400/20 bg-lime-400/10 px-4 py-3 text-sm text-lime-400">
-            <span>{success}</span>
-            <button
-              type="button"
-              onClick={() => setSuccess("")}
-            >
-              <X size={16} />
-            </button>
-          </div>
+          <Banner tone="success" onClose={() => setSuccess("")}>
+            {success}
+          </Banner>
         )}
 
-        {/* Calendar */}
-        <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
+          {/* Calendar */}
           <section className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/60">
             <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-4">
               <div>
                 <h2 className="font-semibold">
-                  {new Intl.DateTimeFormat(
-                    "en-IN",
-                    {
-                      month: "long",
-                      year: "numeric",
-                    }
-                  ).format(calendarMonth)}
+                  {new Intl.DateTimeFormat("en-IN", {
+                    month: "long",
+                    year: "numeric",
+                  }).format(month)}
                 </h2>
-
-                <p className="mt-0.5 text-xs text-zinc-500">
-                  Broadcast calendar
-                </p>
+                <p className="mt-0.5 text-xs text-zinc-500">Broadcast calendar</p>
               </div>
 
               <div className="flex items-center gap-1">
                 <button
                   type="button"
-                  onClick={() =>
-                    setCalendarMonth(
-                      new Date()
-                    )
-                  }
+                  onClick={() => {
+                    setMonth(new Date());
+                    setSelectedDate(todayKey);
+                  }}
                   className="rounded-md px-2.5 py-1.5 text-xs text-zinc-400 hover:bg-zinc-800 hover:text-white"
                 >
                   Today
                 </button>
-
                 <button
                   type="button"
-                  onClick={() => changeMonth(-1)}
+                  onClick={() =>
+                    setMonth((c) => new Date(c.getFullYear(), c.getMonth() - 1, 1))
+                  }
                   className="rounded-md p-2 text-zinc-400 hover:bg-zinc-800 hover:text-white"
                 >
                   <ChevronLeft size={17} />
                 </button>
-
                 <button
                   type="button"
-                  onClick={() => changeMonth(1)}
+                  onClick={() =>
+                    setMonth((c) => new Date(c.getFullYear(), c.getMonth() + 1, 1))
+                  }
                   className="rounded-md p-2 text-zinc-400 hover:bg-zinc-800 hover:text-white"
                 >
                   <ChevronRight size={17} />
@@ -1804,15 +1138,7 @@ await syncTvExerciseMappings(
             </div>
 
             <div className="grid grid-cols-7 border-b border-zinc-800">
-              {[
-                "Sun",
-                "Mon",
-                "Tue",
-                "Wed",
-                "Thu",
-                "Fri",
-                "Sat",
-              ].map((day) => (
+              {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
                 <div
                   key={day}
                   className="px-2 py-3 text-center text-[11px] font-semibold uppercase tracking-wider text-zinc-600"
@@ -1822,97 +1148,64 @@ await syncTvExerciseMappings(
               ))}
             </div>
 
-            {isLoading ? (
+            {loading ? (
               <div className="flex min-h-[580px] items-center justify-center">
-                <Loader2
-                  className="animate-spin text-lime-400"
-                  size={26}
-                />
+                <Loader2 className="animate-spin text-lime-400" size={26} />
               </div>
             ) : (
               <div className="grid grid-cols-7">
-                {calendarDays.map((date, index) => {
-                  const key = dateKey(date);
-                  const isCurrentMonth =
-                    date.getMonth() ===
-                    calendarMonth.getMonth();
-
-                  const isSelected =
-                    key === selectedDate;
-
-                  const isToday =
-                    key ===
-                    dateKey(new Date());
-
-                  const dayBroadcasts =
-                    broadcastsByDate.get(key) ?? [];
-
-                  const daySchedules =
-                    schedulesByDate.get(key) ?? [];
+                {cells.map((date) => {
+                  const key = ymd(date);
+                  const inMonth = date.getMonth() === month.getMonth();
+                  const selected = key === selectedDate;
+                  const items = broadcastsByDate.get(key) ?? [];
+                  const scheduleCount = schedulesByDate.get(key)?.length ?? 0;
 
                   return (
                     <button
                       type="button"
-                      key={`${key}-${index}`}
-                      onClick={() =>
-                        selectCalendarDate(date)
-                      }
+                      key={key}
+                      onClick={() => setSelectedDate(key)}
                       className={`min-h-[105px] border-b border-r border-zinc-800 p-2 text-left transition ${
-                        isSelected
-                          ? "bg-lime-400/[0.06]"
-                          : "hover:bg-zinc-800/40"
+                        selected ? "bg-lime-400/[0.06]" : "hover:bg-zinc-800/40"
                       }`}
                     >
                       <div className="mb-2 flex items-center justify-between">
                         <span
                           className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-medium ${
-                            isToday
+                            key === todayKey
                               ? "bg-lime-400 text-black"
-                              : isSelected
+                              : selected
                               ? "border border-lime-400/40 text-lime-400"
-                              : isCurrentMonth
+                              : inMonth
                               ? "text-zinc-300"
                               : "text-zinc-700"
                           }`}
                         >
                           {date.getDate()}
                         </span>
-
-                        {daySchedules.length > 0 && (
+                        {scheduleCount > 0 && (
                           <span className="text-[10px] text-zinc-600">
-                            {daySchedules.length} schedule
-                            {daySchedules.length !== 1
-                              ? "s"
-                              : ""}
+                            {scheduleCount} schedule{scheduleCount !== 1 ? "s" : ""}
                           </span>
                         )}
                       </div>
 
                       <div className="space-y-1">
-                        {dayBroadcasts
-                          .slice(0, 3)
-                          .map((broadcast) => (
-                            <div
-                              key={broadcast.id}
-                              className={`truncate rounded border px-1.5 py-1 text-[10px] ${statusClasses(
-                                broadcast.status
-                              )}`}
-                            >
-                              {broadcast.title ||
-                                (broadcast.mode ===
-                                "TIMER_ONLY"
-                                  ? "Timer Only"
-                                  : "Workout Broadcast")}
-                            </div>
-                          ))}
-
-                        {dayBroadcasts.length >
-                          3 && (
+                        {items.slice(0, 3).map((broadcast) => (
+                          <div
+                            key={broadcast.id}
+                            className={`truncate rounded border px-1.5 py-1 text-[10px] ${
+                              STATUS_STYLE[broadcast.status]
+                            }`}
+                          >
+                            {broadcast.title ||
+                              (broadcast.mode === "TIMER_ONLY" ? "Timer Only" : "Workout")}
+                          </div>
+                        ))}
+                        {items.length > 3 && (
                           <div className="px-1 text-[10px] text-zinc-600">
-                            +
-                            {dayBroadcasts.length -
-                              3}{" "}
-                            more
+                            +{items.length - 3} more
                           </div>
                         )}
                       </div>
@@ -1925,512 +1218,187 @@ await syncTvExerciseMappings(
 
           {/* Selected day */}
           <aside className="rounded-xl border border-zinc-800 bg-zinc-900/60">
-            <div className="border-b border-zinc-800 px-5 py-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="font-semibold">
-                    {new Intl.DateTimeFormat(
-                      "en-IN",
-                      {
-                        weekday: "long",
-                        day: "2-digit",
-                        month: "short",
-                      }
-                    ).format(
-                      new Date(
-                        `${selectedDate}T12:00:00`
-                      )
-                    )}
-                  </h2>
-
-                  <p className="mt-0.5 text-xs text-zinc-500">
-                    {activeBranch?.name ||
-                      "No branch selected"}
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    openCreate(selectedDate)
-                  }
-                  disabled={!selectedBranchId}
-                  className="rounded-lg bg-lime-400 p-2 text-black transition hover:bg-lime-300 disabled:opacity-40"
-                >
-                  <Plus size={17} />
-                </button>
+            <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-4">
+              <div>
+                <h2 className="font-semibold">{formatDay(selectedDate)}</h2>
+                <p className="mt-0.5 text-xs text-zinc-500">
+                  {activeBranch?.name ?? "No branch selected"}
+                </p>
               </div>
+              <button
+                type="button"
+                onClick={() => openCreate(selectedDate)}
+                disabled={!branchId}
+                className="rounded-lg bg-lime-400 p-2 text-black hover:bg-lime-300 disabled:opacity-40"
+              >
+                <Plus size={17} />
+              </button>
             </div>
 
-            <div className="max-h-[650px] space-y-3 overflow-y-auto p-4">
-              {selectedDateBroadcasts.length ===
-              0 ? (
+            <div className="max-h-[680px] space-y-3 overflow-y-auto p-4">
+              {dayBroadcasts.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-zinc-800 px-4 py-8 text-center">
-                  <CalendarDays
-                    size={28}
-                    className="mx-auto mb-3 text-zinc-700"
-                  />
-
-                  <p className="text-sm font-medium text-zinc-400">
-                    No broadcasts
-                  </p>
-
+                  <CalendarDays size={28} className="mx-auto mb-3 text-zinc-700" />
+                  <p className="text-sm font-medium text-zinc-400">No broadcasts</p>
                   <p className="mt-1 text-xs text-zinc-600">
-                    Create a broadcast for this
-                    date.
+                    Create a broadcast for this date.
                   </p>
-
                   <button
                     type="button"
-                    onClick={() =>
-                      openCreate(selectedDate)
-                    }
-                    className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-lime-400 px-3 py-2 text-xs font-semibold text-black hover:bg-lime-300"
+                    onClick={() => openCreate(selectedDate)}
+                    disabled={!branchId}
+                    className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-lime-400 px-3 py-2 text-xs font-semibold text-black hover:bg-lime-300 disabled:opacity-40"
                   >
                     <Plus size={14} />
                     New Broadcast
                   </button>
                 </div>
               ) : (
-                selectedDateBroadcasts.map(
-                  (broadcast) => (
-                    <div
-                      key={broadcast.id}
-                      className="rounded-lg border border-zinc-800 bg-zinc-950/60 p-4"
-                    >
-                      <div className="mb-3 flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="mb-1 flex items-center gap-2">
-                            {broadcast.mode ===
-                            "TIMER_ONLY" ? (
-                              <TimerReset
-                                size={14}
-                                className="text-lime-400"
-                              />
-                            ) : (
-                              <Film
-                                size={14}
-                                className="text-lime-400"
-                              />
-                            )}
-
-                            <span className="truncate text-sm font-medium text-white">
-                              {broadcast.title ||
-                                "Workout Broadcast"}
-                            </span>
-                          </div>
-
-                          <p className="text-xs text-zinc-500">
-                            {formatTime(
-                              broadcast.date
-                            )}
-                          </p>
-                        </div>
-
-                        <span
-                          className={`shrink-0 rounded-full border px-2 py-1 text-[10px] font-medium ${statusClasses(
-                            broadcast.status
-                          )}`}
-                        >
-                          {broadcast.status}
-                        </span>
-                      </div>
-
-                      <div className="mb-3 grid grid-cols-2 gap-2 text-xs">
-                        <div className="rounded-md bg-zinc-900 px-2.5 py-2">
-                          <span className="block text-zinc-600">
-                            Mode
-                          </span>
-                          <span className="text-zinc-300">
-                            {broadcast.mode ===
-                            "SCHEDULE"
-                              ? "Schedule"
-                              : "Timer Only"}
-                          </span>
-                        </div>
-
-                        <div className="rounded-md bg-zinc-900 px-2.5 py-2">
-                          <span className="block text-zinc-600">
-                            TVs
-                          </span>
-                          <span className="text-zinc-300">
-                            {broadcast.tvs.length}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-1.5">
-                        {broadcast.status !==
-                          "COMPLETED" &&
-                          broadcast.status !==
-                            "CANCELLED" && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                void openEdit(
-                                  broadcast
-                                )
-                              }
-                              disabled={
-                                updatingId ===
-                                broadcast.id
-                              }
-                              className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md border border-zinc-800 px-2 py-2 text-xs text-zinc-300 hover:border-zinc-700 hover:text-white"
-                            >
-                              {updatingId ===
-                              broadcast.id ? (
-                                <Loader2
-                                  size={13}
-                                  className="animate-spin"
-                                />
-                              ) : (
-                                <Edit3 size={13} />
-                              )}
-                              Edit
-                            </button>
-                          )}
-
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setPreviewBroadcast(
-                              broadcast
-                            )
-                          }
-                          className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md border border-zinc-800 px-2 py-2 text-xs text-zinc-300 hover:border-zinc-700 hover:text-white"
-                        >
-                          <Play size={13} />
-                          Preview
-                        </button>
-
-                        {broadcast.status !==
-                          "LIVE" &&
-                          broadcast.status !==
-                            "COMPLETED" &&
-                          broadcast.status !==
-                            "CANCELLED" && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                void startBroadcast(
-                                  broadcast
-                                )
-                              }
-                              disabled={
-                                updatingId ===
-                                broadcast.id
-                              }
-                              className="rounded-md bg-lime-400 px-2.5 py-2 text-xs font-semibold text-black hover:bg-lime-300 disabled:opacity-50"
-                            >
-                              Start
-                            </button>
-                          )}
-                      </div>
-
-                      {broadcast.status !==
-                        "LIVE" && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            void deleteBroadcast(
-                              broadcast
-                            )
-                          }
-                          disabled={
-                            deletingId ===
-                            broadcast.id
-                          }
-                          className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] text-zinc-600 hover:bg-red-500/10 hover:text-red-400"
-                        >
-                          {deletingId ===
-                          broadcast.id ? (
-                            <Loader2
-                              size={12}
-                              className="animate-spin"
-                            />
-                          ) : (
-                            <Trash2 size={12} />
-                          )}
-                          Delete broadcast
-                        </button>
-                      )}
-                    </div>
-                  )
-                )
+                dayBroadcasts.map((broadcast) => (
+                  <BroadcastCard
+                    key={broadcast.id}
+                    broadcast={broadcast}
+                    busy={busyId === broadcast.id}
+                    onEdit={() => openEdit(broadcast)}
+                    onPreview={(tvId) => openPreview(broadcast, tvId)}
+                    onControl={(action) => void control(broadcast, action)}
+                    onDelete={() => void remove(broadcast)}
+                  />
+                ))
               )}
             </div>
           </aside>
         </div>
       </div>
 
-      {/* Create/Edit modal */}
-      {isFormOpen && (
+      {/* Form */}
+      {draft && (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/75 p-4 backdrop-blur-sm">
           <div className="my-6 w-full max-w-6xl overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900 shadow-2xl">
             <div className="flex items-center justify-between border-b border-zinc-800 px-6 py-4">
               <div>
                 <h2 className="text-lg font-semibold">
-                  {editingBroadcast
-                    ? "Edit Broadcast"
-                    : "New Broadcast"}
+                  {draft.id ? "Edit Broadcast" : "New Broadcast"}
                 </h2>
-
                 <p className="mt-1 text-xs text-zinc-500">
-                  Branch:{" "}
-                  {activeBranch?.name ||
-                    "Unknown branch"}
+                  Branch: {activeBranch?.name ?? "Unknown"}
                 </p>
               </div>
-
               <button
                 type="button"
-                onClick={() =>
-                  setIsFormOpen(false)
-                }
+                onClick={() => setDraft(null)}
+                disabled={saving}
                 className="rounded-lg p-2 text-zinc-500 hover:bg-zinc-800 hover:text-white"
               >
                 <X size={19} />
               </button>
             </div>
 
-            <form
-              onSubmit={saveBroadcast}
-              className="max-h-[calc(100vh-140px)] overflow-y-auto"
-            >
-              <div className="grid gap-6 p-6 lg:grid-cols-[280px_minmax(0,1fr)]">
-                {/* Left */}
-                <div className="space-y-4">
-                  <div>
-                    <label className="mb-2 block text-xs font-medium text-zinc-400">
-                      Broadcast date
-                    </label>
+            <div className="max-h-[calc(100vh-190px)] overflow-y-auto">
+              {error && (
+                <div className="mx-6 mt-4">
+                  <Banner tone="error" onClose={() => setError("")}>
+                    {error}
+                  </Banner>
+                </div>
+              )}
 
+              <div className="grid gap-6 p-6 lg:grid-cols-[290px_minmax(0,1fr)]">
+                {/* Left column */}
+                <div className="space-y-5">
+                  <Field label="Broadcast date">
                     <input
                       type="date"
-                      style={{
-                        colorScheme: "dark",
-                      }}
-                      value={selectedDate}
-                      onChange={(event) =>
-                        setSelectedDate(
-                          event.target.value
-                        )
-                      }
-                      className="w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-sm text-white outline-none focus:border-lime-400"
+                      style={{ colorScheme: "dark" }}
+                      value={draft.dateKey}
+                      onChange={(event) => patch({ dateKey: event.target.value })}
+                      className={inputClass}
                     />
-                  </div>
+                  </Field>
 
-                  <div>
-                    <label className="mb-2 block text-xs font-medium text-zinc-400">
-                      Broadcast mode
-                    </label>
-
+                  <Field label="Broadcast mode">
                     <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (
-                            editingBroadcast
-                          ) {
-                            return;
-                          }
-
-                          setFormMode(
-                            "SCHEDULE"
-                          );
-                        }}
-                        className={`rounded-lg border p-3 text-left transition ${
-                          formMode ===
-                          "SCHEDULE"
-                            ? "border-lime-400/40 bg-lime-400/10 text-lime-400"
-                            : "border-zinc-800 bg-zinc-950 text-zinc-400 hover:border-zinc-700"
-                        } ${
-                          editingBroadcast
-                            ? "cursor-default"
-                            : ""
-                        }`}
-                      >
-                        <Film
-                          size={17}
-                          className="mb-2"
-                        />
-                        <span className="block text-xs font-semibold">
-                          Schedule
-                        </span>
-                        <span className="mt-1 block text-[10px] text-zinc-600">
-                          Use a workout schedule
-                        </span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (
-                            editingBroadcast
-                          ) {
-                            return;
-                          }
-
-                          setFormMode(
-                            "TIMER_ONLY"
-                          );
-                          setSelectedScheduleId(
-                            ""
-                          );
-                          setSelectedSchedule(
-                            null
-                          );
-                          setBroadcastExercises(
-                            []
-                          );
-                        }}
-                        className={`rounded-lg border p-3 text-left transition ${
-                          formMode ===
-                          "TIMER_ONLY"
-                            ? "border-lime-400/40 bg-lime-400/10 text-lime-400"
-                            : "border-zinc-800 bg-zinc-950 text-zinc-400 hover:border-zinc-700"
-                        } ${
-                          editingBroadcast
-                            ? "cursor-default"
-                            : ""
-                        }`}
-                      >
-                        <TimerReset
-                          size={17}
-                          className="mb-2"
-                        />
-                        <span className="block text-xs font-semibold">
-                          Timer Only
-                        </span>
-                        <span className="mt-1 block text-[10px] text-zinc-600">
-                          Timer without exercises
-                        </span>
-                      </button>
+                      <ModeButton
+                        active={draft.mode === "SCHEDULE"}
+                        locked={!!draft.id}
+                        icon={<Film size={17} className="mb-2" />}
+                        title="Schedule"
+                        hint="Use a workout schedule"
+                        onClick={() => chooseMode("SCHEDULE")}
+                      />
+                      <ModeButton
+                        active={draft.mode === "TIMER_ONLY"}
+                        locked={!!draft.id}
+                        icon={<TimerReset size={17} className="mb-2" />}
+                        title="Timer Only"
+                        hint="Timer without exercises"
+                        onClick={() => chooseMode("TIMER_ONLY")}
+                      />
                     </div>
-                  </div>
+                  </Field>
 
-                  {formMode ===
-                    "SCHEDULE" && (
-                    <div>
-                      <label className="mb-2 block text-xs font-medium text-zinc-400">
-                        Workout schedule
-                      </label>
-
+                  {draft.mode === "SCHEDULE" && (
+                    <Field label="Workout schedule">
                       <select
-                        value={
-                          selectedScheduleId
-                        }
-                        onChange={(event) =>
-                          void loadSchedule(
-                            event.target
-                              .value
-                          )
-                        }
-                        disabled={
-                          !!editingBroadcast
-                        }
-                        className="w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-sm text-white outline-none focus:border-lime-400 disabled:opacity-50"
+                        value={draft.scheduleId}
+                        onChange={(event) => chooseSchedule(event.target.value)}
+                        className={inputClass}
                       >
-                        <option value="">
-                          Select schedule
-                        </option>
-
-                        {selectedDateSchedules.map(
-                          (schedule) => (
-                            <option
-                              key={
-                                schedule.id
-                              }
-                              value={
-                                schedule.id
-                              }
-                            >
-                              {
-                                schedule
-                                  .program
-                                  .name
-                              }
-                            </option>
-                          )
-                        )}
+                        <option value="">Select schedule</option>
+                        {scheduleOptions.map((schedule) => (
+                          <option key={schedule.id} value={schedule.id}>
+                            {schedule.program.name}
+                            {schedule.dateKey !== draft.dateKey
+                              ? ` (${schedule.dateKey})`
+                              : ""}
+                          </option>
+                        ))}
                       </select>
 
-                      {selectedDateSchedules.length ===
-                        0 && (
-                        <p className="mt-2 text-[11px] text-amber-400">
-                          No centralized workout
-                          schedule exists for this
-                          date.
+                      <label className="mt-2 flex cursor-pointer items-center gap-2 text-[11px] text-zinc-500">
+                        <input
+                          type="checkbox"
+                          checked={showAllSchedules}
+                          onChange={(event) => setShowAllSchedules(event.target.checked)}
+                          className="accent-lime-400"
+                        />
+                        Show schedules from other dates this month
+                      </label>
+
+                      {!showAllSchedules &&
+                        (schedulesByDate.get(draft.dateKey) ?? []).length === 0 && (
+                          <p className="mt-2 text-[11px] text-amber-400">
+                            No schedule exists for this date.
+                          </p>
+                        )}
+
+                      {draft.scheduleId && (
+                        <p className="mt-2 text-[11px] text-zinc-600">
+                          Details are copied into this broadcast. Editing them here never
+                          changes the schedule.
                         </p>
                       )}
-
-                      {selectedSchedule && (
-                        <div className="mt-3 rounded-lg border border-zinc-800 bg-zinc-950 p-3">
-                          <div className="flex items-center gap-2">
-                            <Check
-                              size={14}
-                              className="text-lime-400"
-                            />
-                            <span className="text-xs font-medium text-zinc-300">
-                              {
-                                selectedSchedule.program?.name ?? "Untitled Program"
-                              }
-                            </span>
-                          </div>
-
-                          <p className="mt-1 text-[11px] text-zinc-600">
-                            {
-                              selectedSchedule
-                                .exercises
-                                .length
-                            }{" "}
-                            exercise
-                            {selectedSchedule
-                              .exercises
-                              .length !== 1
-                              ? "s"
-                              : ""}{" "}
-                            copied to this
-                            broadcast.
-                          </p>
-                        </div>
-                      )}
-                    </div>
+                    </Field>
                   )}
 
-                  <div>
-                    <label className="mb-2 block text-xs font-medium text-zinc-400">
-                      TVs
-                    </label>
-
-                    {branchTvs.length ===
-                    0 ? (
+                  <Field label="TVs">
+                    {tvs.length === 0 ? (
                       <div className="rounded-lg border border-dashed border-zinc-800 p-4 text-center">
-                        <Monitor
-                          size={22}
-                          className="mx-auto mb-2 text-zinc-700"
-                        />
+                        <Monitor size={22} className="mx-auto mb-2 text-zinc-700" />
                         <p className="text-xs text-zinc-500">
-                          No TV devices are
-                          available for this
-                          branch.
+                          No TVs are paired to this branch.
                         </p>
                       </div>
                     ) : (
                       <div className="space-y-2">
-                        {branchTvs.map((tv) => {
-                          const selected =
-                            selectedTvIds.includes(
-                              tv.id
-                            );
+                        {tvs.map((tv) => {
+                          const selected = tv.id in draft.tvSelections;
 
                           return (
                             <button
                               key={tv.id}
                               type="button"
-                              onClick={() =>
-                                toggleTv(tv.id)
-                              }
+                              onClick={() => toggleTv(tv.id)}
                               className={`flex w-full items-center justify-between rounded-lg border px-3 py-2.5 text-left transition ${
                                 selected
                                   ? "border-lime-400/30 bg-lime-400/10"
@@ -2438,30 +1406,15 @@ await syncTvExerciseMappings(
                               }`}
                             >
                               <div className="flex items-center gap-2.5">
-                                <span
-                                  className={`flex h-5 w-5 items-center justify-center rounded border ${
-                                    selected
-                                      ? "border-lime-400 bg-lime-400 text-black"
-                                      : "border-zinc-700"
-                                  }`}
-                                >
-                                  {selected && (
-                                    <Check
-                                      size={12}
-                                    />
-                                  )}
-                                </span>
-
+                                <Checkbox checked={selected} />
                                 <span className="text-xs font-medium text-zinc-300">
                                   {tv.name}
                                 </span>
                               </div>
-
                               <span
+                                title={tv.isOnline ? "Online" : "Offline"}
                                 className={`h-1.5 w-1.5 rounded-full ${
-                                  tv.isOnline
-                                    ? "bg-lime-400"
-                                    : "bg-zinc-700"
+                                  tv.isOnline ? "bg-lime-400" : "bg-zinc-700"
                                 }`}
                               />
                             </button>
@@ -2469,685 +1422,929 @@ await syncTvExerciseMappings(
                         })}
                       </div>
                     )}
-                  </div>
+                  </Field>
                 </div>
 
-                {/* Right */}
-                <div className="space-y-6">
-                  {/* Metadata */}
-                  <section>
-                    <div className="mb-3 flex items-center gap-2">
-                      <div className="h-5 w-1 rounded-full bg-lime-400" />
-                      <h3 className="text-sm font-semibold">
-                        Broadcast Details
-                      </h3>
-                    </div>
-
+                {/* Right column */}
+                <div className="space-y-7">
+                  <Section title="Broadcast Details">
                     <div className="grid gap-4 sm:grid-cols-2">
-                      <div>
-                        <label className="mb-1.5 block text-xs font-medium text-zinc-400">
-                          Title
-                        </label>
-
+                      <Field label="Title">
                         <input
-                          value={broadcastTitle}
-                          onChange={(event) =>
-                            setBroadcastTitle(
-                              event.target
-                                .value
-                            )
-                          }
+                          value={draft.title}
+                          onChange={(event) => patch({ title: event.target.value })}
                           placeholder="Broadcast title"
-                          className="w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-sm text-white outline-none placeholder:text-zinc-700 focus:border-lime-400"
+                          className={inputClass}
                         />
-                      </div>
-
-                      <div>
-                        <label className="mb-1.5 block text-xs font-medium text-zinc-400">
-                          Subtitle
-                        </label>
-
+                      </Field>
+                      <Field label="Subtitle">
                         <input
-                          value={
-                            broadcastSubtitle
-                          }
-                          onChange={(event) =>
-                            setBroadcastSubtitle(
-                              event.target
-                                .value
-                            )
-                          }
+                          value={draft.subtitle}
+                          onChange={(event) => patch({ subtitle: event.target.value })}
                           placeholder="Optional subtitle"
-                          className="w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-sm text-white outline-none placeholder:text-zinc-700 focus:border-lime-400"
+                          className={inputClass}
                         />
-                      </div>
-
-                      <div>
-                        <label className="mb-1.5 block text-xs font-medium text-zinc-400">
-                          Intensity
-                        </label>
-
-                        <input
-                          value={
-                            broadcastIntensity
-                          }
+                      </Field>
+                      <Field label="Intensity">
+                        <select
+                          value={draft.intensity}
                           onChange={(event) =>
-                            setBroadcastIntensity(
-                              event.target
-                                .value
-                            )
+                            patch({ intensity: event.target.value as Intensity | "" })
                           }
-                          placeholder="e.g. High"
-                          className="w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-sm text-white outline-none placeholder:text-zinc-700 focus:border-lime-400"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="mb-1.5 block text-xs font-medium text-zinc-400">
-                          Description
-                        </label>
-
+                          className={inputClass}
+                        >
+                          <option value="">Not set</option>
+                          <option value="LOW">Low</option>
+                          <option value="MEDIUM">Medium</option>
+                          <option value="HIGH">High</option>
+                        </select>
+                      </Field>
+                      <Field label="Description">
                         <input
-                          value={
-                            broadcastDescription
-                          }
-                          onChange={(event) =>
-                            setBroadcastDescription(
-                              event.target
-                                .value
-                            )
-                          }
+                          value={draft.description}
+                          onChange={(event) => patch({ description: event.target.value })}
                           placeholder="Optional description"
-                          className="w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-sm text-white outline-none placeholder:text-zinc-700 focus:border-lime-400"
+                          className={inputClass}
                         />
-                      </div>
+                      </Field>
                     </div>
-                  </section>
+                  </Section>
 
-                  {/* Timers */}
-                  <section>
-                    <div className="mb-3 flex items-center gap-2">
-                      <div className="h-5 w-1 rounded-full bg-lime-400" />
-                      <h3 className="text-sm font-semibold">
-                        Timer Settings
-                      </h3>
-
-                      {formMode ===
-                        "SCHEDULE" &&
-                        selectedSchedule && (
-                          <span className="ml-auto text-[10px] text-zinc-600">
-                            Copied from schedule —
-                            editable here
-                          </span>
-                        )}
-                    </div>
-
+                  <Section title="Timer Settings">
                     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                      {renderTimerInput(
-                        "Demonstration",
-                        "demonstrationSeconds"
-                      )}
-
-                      {renderTimerInput(
-                        "Warm-up",
-                        "warmupSeconds"
-                      )}
-
-                      {renderTimerInput(
-                        "Prepare",
-                        "prepareSeconds"
-                      )}
-
-                      {renderTimerInput(
-                        "Work",
-                        "workSeconds"
-                      )}
-
-                      {renderTimerInput(
-                        "Rest",
-                        "restSeconds"
-                      )}
-
-                      {renderTimerInput(
-                        "Sets",
-                        "sets",
-                        "sets"
-                      )}
-
-                      {renderTimerInput(
-                        "Cycles",
-                        "cycles",
-                        "cycles"
-                      )}
-
-                      {renderTimerInput(
-                        "Rest Between Cycle",
-                        "restBetweenCycleSeconds"
-                      )}
-
-                      {renderTimerInput(
-                        "Cool Down",
-                        "coolDownSeconds"
-                      )}
+                      {TIMER_FIELDS.map((field) => (
+                        <Field key={field.key} label={field.label}>
+                          <div className="relative">
+                            <input
+                              type="number"
+                              min={field.key === "sets" || field.key === "cycles" ? 1 : 0}
+                              value={draft.timers[field.key]}
+                              onChange={(event) =>
+                                patch({
+                                  timers: { ...draft.timers, [field.key]: event.target.value },
+                                })
+                              }
+                              className={inputClass}
+                            />
+                            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-zinc-600">
+                              {field.unit}
+                            </span>
+                          </div>
+                        </Field>
+                      ))}
 
                       <div className="sm:col-span-2 lg:col-span-3">
-                        {renderTimerInput(
-                          "Next Session Starts At",
-                          "nextSessionStartsAt"
-                        )}
+                        <Field label="Next Session Starts At">
+                          <input
+                            type="datetime-local"
+                            style={{ colorScheme: "dark" }}
+                            value={draft.nextSession}
+                            onChange={(event) => patch({ nextSession: event.target.value })}
+                            className={inputClass}
+                          />
+                        </Field>
                       </div>
                     </div>
-                  </section>
+                  </Section>
 
-                  {/* Exercises */}
-                  {formMode ===
-                    "SCHEDULE" && (
-                    <section>
-                      <div className="mb-3 flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <div className="h-5 w-1 rounded-full bg-lime-400" />
-                          <h3 className="text-sm font-semibold">
-                            Broadcast Exercises
-                          </h3>
-                        </div>
-
-                        <span className="text-xs text-zinc-600">
-                          {
-                            broadcastExercises.length
-                          }{" "}
-                          selected
-                        </span>
-                      </div>
-
-                      <div className="space-y-2 rounded-xl border border-zinc-800 bg-zinc-950 p-3">
-                        {broadcastExercises.length ===
-                        0 ? (
-                          <div className="py-8 text-center text-xs text-zinc-600">
-                            Select a schedule to
-                            load exercises.
+                  {draft.mode === "SCHEDULE" && (
+                    <Section
+                      title="Broadcast Exercises"
+                      aside={`${draft.exercises.length} selected`}
+                    >
+                      {/* Library picker */}
+                      <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-3">
+                        {replacingKey && (
+                          <div className="mb-2 flex items-center justify-between rounded-md bg-amber-500/10 px-3 py-2 text-[11px] text-amber-400">
+                            <span>Pick a library video to replace the selected exercise.</span>
+                            <button
+                              type="button"
+                              onClick={() => setReplacingKey(null)}
+                              className="font-semibold hover:text-amber-300"
+                            >
+                              Cancel
+                            </button>
                           </div>
-                        ) : (
-                          broadcastExercises
-                            .slice()
-                            .sort(
-                              (
-                                first,
-                                second
-                              ) =>
-                                first.sortOrder -
-                                second.sortOrder
-                            )
-                            .map(
-                              (
-                                exercise,
-                                index
-                              ) => (
-                                <div
-                                  key={
-                                    exercise.id
-                                  }
-                                  className="flex items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2.5"
-                                >
-                                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-zinc-800 text-[10px] font-semibold text-zinc-500">
-                                    {index +
-                                      1}
-                                  </span>
-
-                                  {exercise.video
-                                    ?.thumbnailUrl ? (
-                                    <img
-                                      src={
-                                        exercise
-                                          .video
-                                          .thumbnailUrl
-                                      }
-                                      alt=""
-                                      className="h-9 w-14 rounded object-cover"
-                                    />
-                                  ) : (
-                                    <div className="flex h-9 w-14 items-center justify-center rounded bg-zinc-800">
-                                      <Film
-                                        size={15}
-                                        className="text-zinc-600"
-                                      />
-                                    </div>
-                                  )}
-
-                                  <div className="min-w-0 flex-1">
-                                    <p className="truncate text-xs font-medium text-zinc-300">
-                                      {exercise
-                                        .video
-                                        ?.name ||
-                                        exercise.exerciseName ||
-                                        "Unnamed exercise"}
-                                    </p>
-
-                                    {exercise.video
-                                      ?.durationSeconds !=
-                                      null && (
-                                      <p className="mt-0.5 text-[10px] text-zinc-600">
-                                        {
-                                          exercise
-                                            .video
-                                            .durationSeconds
-                                        }
-                                        s
-                                      </p>
-                                    )}
-                                  </div>
-
-                                  <span className="text-[10px] text-zinc-600">
-                                    Broadcast copy
-                                  </span>
-                                </div>
-                              )
-                            )
                         )}
-                      </div>
-                    </section>
-                  )}
 
-                  {/* TV exercise selection */}
-                  {formMode ===
-                    "SCHEDULE" &&
-                    selectedTvIds.length > 0 &&
-                    broadcastExercises.length >
-                      0 && (
-                      <section>
-                        <div className="mb-3 flex items-center gap-2">
-                          <div className="h-5 w-1 rounded-full bg-lime-400" />
-                          <h3 className="text-sm font-semibold">
-                            TV Exercise Selection
-                          </h3>
-                        </div>
+                        <input
+                          value={librarySearch}
+                          onChange={(event) => setLibrarySearch(event.target.value)}
+                          placeholder="Search library by name..."
+                          className={inputClass}
+                        />
 
-                        <div className="space-y-3">
-                          {selectedTvIds.map(
-                            (tvId) => {
-                              const tv =
-                                branchTvs.find(
-                                  (item) =>
-                                    item.id ===
-                                    tvId
-                                );
-
-                              if (!tv) {
-                                return null;
-                              }
-
-                              const selected =
-                                tvExerciseIds[
-                                  tvId
-                                ] ?? [];
-
-                              return (
-                                <div
-                                  key={tvId}
-                                  className="rounded-xl border border-zinc-800 bg-zinc-950 p-4"
-                                >
-                                  <div className="mb-3 flex items-center justify-between">
-                                    <div className="flex items-center gap-2">
-                                      <Monitor
-                                        size={
-                                          15
-                                        }
-                                        className="text-lime-400"
-                                      />
-
-                                      <span className="text-xs font-semibold text-zinc-300">
-                                        {tv.name}
-                                      </span>
-                                    </div>
-
-                                    <div className="flex items-center gap-2">
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          selectAllTvExercises(
-                                            tvId
-                                          )
-                                        }
-                                        className="text-[10px] text-lime-400 hover:text-lime-300"
-                                      >
-                                        Select all
-                                      </button>
-
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          clearTvExercises(
-                                            tvId
-                                          )
-                                        }
-                                        className="text-[10px] text-zinc-600 hover:text-zinc-400"
-                                      >
-                                        Clear
-                                      </button>
-                                    </div>
-                                  </div>
-
-                                  <div className="grid gap-2 sm:grid-cols-2">
-                                    {broadcastExercises.map(
-                                      (
-                                        exercise,
-                                        index
-                                      ) => {
-                                        const checked =
-                                          selected.includes(
-                                            exercise.id
-                                          );
-
-                                        return (
-                                          <button
-                                            key={
-                                              exercise.id
-                                            }
-                                            type="button"
-                                            onClick={() =>
-                                              toggleTvExercise(
-                                                tvId,
-                                                exercise.id
-                                              )
-                                            }
-                                            className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-left transition ${
-                                              checked
-                                                ? "border-lime-400/20 bg-lime-400/[0.06]"
-                                                : "border-zinc-800 bg-zinc-900"
-                                            }`}
-                                          >
-                                            <span
-                                              className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
-                                                checked
-                                                  ? "border-lime-400 bg-lime-400 text-black"
-                                                  : "border-zinc-700"
-                                              }`}
-                                            >
-                                              {checked && (
-                                                <Check
-                                                  size={
-                                                    10
-                                                  }
-                                                />
-                                              )}
-                                            </span>
-
-                                            <span className="truncate text-[11px] text-zinc-400">
-                                              {index +
-                                                1}
-                                              .{" "}
-                                              {exercise
-                                                .video
-                                                ?.name ||
-                                                exercise.exerciseName ||
-                                                "Unnamed"}
-                                            </span>
-                                          </button>
-                                        );
-                                      }
-                                    )}
-                                  </div>
-                                </div>
-                              );
-                            }
+                        <div className="mt-2 max-h-44 space-y-1 overflow-y-auto">
+                          {libraryMatches.length === 0 ? (
+                            <p className="px-2 py-4 text-center text-xs text-zinc-600">
+                              No matching videos.
+                            </p>
+                          ) : (
+                            libraryMatches.map((video) => (
+                              <button
+                                type="button"
+                                key={video.id}
+                                onClick={() => addExercise(exerciseFromVideo(video))}
+                                className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left hover:bg-zinc-800"
+                              >
+                                <span className="truncate text-xs text-zinc-300">
+                                  {video.name}
+                                </span>
+                                <span className="ml-3 shrink-0 text-[10px] text-zinc-600">
+                                  {replacingKey ? "Replace" : "Add"}
+                                </span>
+                              </button>
+                            ))
                           )}
                         </div>
-                      </section>
+
+                        <div className="mt-3 flex gap-2 border-t border-zinc-800 pt-3">
+                          <input
+                            value={manualName}
+                            onChange={(event) => setManualName(event.target.value)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") {
+                                event.preventDefault();
+                                addManual();
+                              }
+                            }}
+                            placeholder="Or type an exercise name (shows on TV without a video)"
+                            className={inputClass}
+                          />
+                          <button
+                            type="button"
+                            onClick={addManual}
+                            className="shrink-0 rounded-lg border border-zinc-700 px-3 text-xs font-medium text-zinc-300 hover:border-lime-400/40 hover:text-lime-300"
+                          >
+                            Add
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Current list */}
+                      <div className="mt-3 space-y-2">
+                        {draft.exercises.length === 0 ? (
+                          <div className="rounded-xl border border-dashed border-zinc-800 py-8 text-center text-xs text-zinc-600">
+                            Select a schedule, or add exercises from the library.
+                          </div>
+                        ) : (
+                          draft.exercises.map((exercise, index) => (
+                            <div
+                              key={exercise.key}
+                              className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 ${
+                                replacingKey === exercise.key
+                                  ? "border-amber-500/40 bg-amber-500/5"
+                                  : "border-zinc-800 bg-zinc-950"
+                              }`}
+                            >
+                              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-zinc-800 text-[10px] font-semibold text-zinc-500">
+                                {index + 1}
+                              </span>
+
+                              {exercise.thumbnailUrl ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={exercise.thumbnailUrl}
+                                  alt=""
+                                  className="h-9 w-14 shrink-0 rounded object-cover"
+                                />
+                              ) : (
+                                <div className="flex h-9 w-14 shrink-0 items-center justify-center rounded bg-zinc-800">
+                                  <Film size={15} className="text-zinc-600" />
+                                </div>
+                              )}
+
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-xs font-medium text-zinc-300">
+                                  {exercise.name}
+                                </p>
+                                <p className="mt-0.5 text-[10px] text-zinc-600">
+                                  {exercise.videoUrl ? "Library video" : "Name only"}
+                                  {exercise.durationSeconds
+                                    ? ` · ${exercise.durationSeconds}s`
+                                    : ""}
+                                </p>
+                              </div>
+
+                              <div className="flex shrink-0 items-center gap-0.5">
+                                <IconButton
+                                  label="Replace from library"
+                                  onClick={() => setReplacingKey(exercise.key)}
+                                >
+                                  <span className="px-1 text-[10px] font-medium">Replace</span>
+                                </IconButton>
+                                <IconButton
+                                  label="Move up"
+                                  disabled={index === 0}
+                                  onClick={() => moveExercise(index, -1)}
+                                >
+                                  <ChevronUp size={15} />
+                                </IconButton>
+                                <IconButton
+                                  label="Move down"
+                                  disabled={index === draft.exercises.length - 1}
+                                  onClick={() => moveExercise(index, 1)}
+                                >
+                                  <ChevronDown size={15} />
+                                </IconButton>
+                                <IconButton
+                                  label="Remove"
+                                  danger
+                                  onClick={() => removeExercise(exercise.key)}
+                                >
+                                  <Trash2 size={14} />
+                                </IconButton>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </Section>
+                  )}
+
+                  {draft.mode === "SCHEDULE" &&
+                    Object.keys(draft.tvSelections).length > 0 &&
+                    draft.exercises.length > 0 && (
+                      <Section title="TV Exercise Selection">
+                        <div className="space-y-3">
+                          {Object.keys(draft.tvSelections).map((tvId) => {
+                            const tv = tvs.find((item) => item.id === tvId);
+                            const selected = draft.tvSelections[tvId];
+
+                            return (
+                              <div
+                                key={tvId}
+                                className="rounded-xl border border-zinc-800 bg-zinc-950 p-4"
+                              >
+                                <div className="mb-3 flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <Monitor size={15} className="text-lime-400" />
+                                    <span className="text-xs font-semibold text-zinc-300">
+                                      {tv?.name ?? "TV"}
+                                    </span>
+                                    <span className="text-[10px] text-zinc-600">
+                                      {selected.length} of {draft.exercises.length}
+                                    </span>
+                                  </div>
+                                  <div className="flex gap-3">
+                                    <button
+                                      type="button"
+                                      onClick={() => setTvAll(tvId, true)}
+                                      className="text-[10px] text-lime-400 hover:text-lime-300"
+                                    >
+                                      Select all
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setTvAll(tvId, false)}
+                                      className="text-[10px] text-zinc-600 hover:text-zinc-400"
+                                    >
+                                      Clear
+                                    </button>
+                                  </div>
+                                </div>
+
+                                <div className="grid gap-2 sm:grid-cols-2">
+                                  {draft.exercises.map((exercise, index) => {
+                                    const checked = selected.includes(exercise.key);
+
+                                    return (
+                                      <button
+                                        key={exercise.key}
+                                        type="button"
+                                        onClick={() => toggleTvExercise(tvId, exercise.key)}
+                                        className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-left ${
+                                          checked
+                                            ? "border-lime-400/20 bg-lime-400/[0.06]"
+                                            : "border-zinc-800 bg-zinc-900"
+                                        }`}
+                                      >
+                                        <Checkbox checked={checked} small />
+                                        <span className="truncate text-[11px] text-zinc-400">
+                                          {index + 1}. {exercise.name}
+                                        </span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </Section>
                     )}
                 </div>
               </div>
+            </div>
 
-              {/* Footer */}
-              <div className="flex items-center justify-between border-t border-zinc-800 bg-zinc-950/60 px-6 py-4">
-                <div className="text-xs text-zinc-600">
-                  {formMode === "SCHEDULE"
-                    ? "Schedule data is copied into the broadcast. Changes here will not modify the original schedule."
-                    : "Timer-only broadcasts do not require a workout schedule."}
-                </div>
+            <div className="flex items-center justify-between border-t border-zinc-800 bg-zinc-950/60 px-6 py-4">
+              <button
+                type="button"
+                onClick={previewDraft}
+                className="inline-flex items-center gap-2 rounded-lg border border-zinc-800 px-4 py-2.5 text-sm text-zinc-300 hover:border-zinc-700 hover:text-white"
+              >
+                <Eye size={15} />
+                Preview
+              </button>
 
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setIsFormOpen(false)
-                    }
-                    className="rounded-lg border border-zinc-800 px-4 py-2.5 text-sm text-zinc-400 hover:border-zinc-700 hover:text-white"
-                  >
-                    Cancel
-                  </button>
-
-                  <button
-                    type="submit"
-                    disabled={
-                      isSaving ||
-                      !selectedBranchId
-                    }
-                    className="inline-flex items-center gap-2 rounded-lg bg-lime-400 px-5 py-2.5 text-sm font-semibold text-black hover:bg-lime-300 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {isSaving ? (
-                      <>
-                        <Loader2
-                          size={16}
-                          className="animate-spin"
-                        />
-                        Saving...
-                      </>
-                    ) : (
-                      <>
-                        <Check size={16} />
-                        {editingBroadcast
-                          ? "Update Broadcast"
-                          : "Create Broadcast"}
-                      </>
-                    )}
-                  </button>
-                </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setDraft(null)}
+                  disabled={saving}
+                  className="rounded-lg border border-zinc-800 px-4 py-2.5 text-sm text-zinc-400 hover:border-zinc-700 hover:text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void save()}
+                  disabled={saving || !branchId}
+                  className="inline-flex items-center gap-2 rounded-lg bg-lime-400 px-5 py-2.5 text-sm font-semibold text-black hover:bg-lime-300 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {saving ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Check size={16} />
+                      {draft.id ? "Update Broadcast" : "Create Broadcast"}
+                    </>
+                  )}
+                </button>
               </div>
-            </form>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Preview modal */}
-      {previewBroadcast && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-2xl overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-4">
-              <div>
-                <h2 className="font-semibold">
-                  Broadcast Preview
-                </h2>
+      {preview && <BroadcastPreview data={preview} onClose={() => setPreview(null)} />}
+    </div>
+  );
+}
 
-                <p className="mt-1 text-xs text-zinc-500">
-                  {formatDate(
-                    previewBroadcast.date
-                  )}{" "}
-                  ·{" "}
-                  {formatTime(
-                    previewBroadcast.date
+// ------------------------------------------------------------------
+// Day card
+// ------------------------------------------------------------------
+
+function BroadcastCard({
+  broadcast,
+  busy,
+  onEdit,
+  onPreview,
+  onControl,
+  onDelete,
+}: {
+  broadcast: Broadcast;
+  busy: boolean;
+  onEdit: () => void;
+  onPreview: (tvId?: string) => void;
+  onControl: (action: "start" | "pause" | "resume" | "stop") => void;
+  onDelete: () => void;
+}) {
+  const running = isRunning(broadcast.status);
+  const editable = broadcast.status === "SCHEDULED" || broadcast.status === "DRAFT";
+
+  return (
+    <div className="rounded-lg border border-zinc-800 bg-zinc-950/60 p-4">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            {broadcast.mode === "TIMER_ONLY" ? (
+              <TimerReset size={14} className="shrink-0 text-lime-400" />
+            ) : (
+              <Film size={14} className="shrink-0 text-lime-400" />
+            )}
+            <span className="truncate text-sm font-medium text-white">
+              {broadcast.title || "Workout Broadcast"}
+            </span>
+          </div>
+          <p className="mt-1 text-xs text-zinc-500">
+            {broadcast.mode === "SCHEDULE"
+              ? `${broadcast.exercises.length} exercise${
+                  broadcast.exercises.length !== 1 ? "s" : ""
+                }`
+              : "Timer only"}
+          </p>
+        </div>
+
+        <span
+          className={`shrink-0 rounded-full border px-2 py-1 text-[10px] font-medium ${
+            STATUS_STYLE[broadcast.status]
+          }`}
+        >
+          {broadcast.status}
+        </span>
+      </div>
+
+      <div className="mb-3 space-y-1.5">
+        {broadcast.tvs.length === 0 ? (
+          <p className="text-[11px] text-amber-400">No TV selected yet.</p>
+        ) : (
+          broadcast.tvs.map((tv) => (
+            <div
+              key={tv.id}
+              className="flex items-center justify-between rounded-md bg-zinc-900 px-2.5 py-1.5"
+            >
+              <span className="flex min-w-0 items-center gap-2 text-xs text-zinc-300">
+                <span
+                  className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                    tv.tvDevice.isOnline ? "bg-lime-400" : "bg-zinc-700"
+                  }`}
+                />
+                <span className="truncate">{tv.tvDevice.name}</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => onPreview(tv.tvDeviceId)}
+                className="shrink-0 text-[10px] text-zinc-500 hover:text-lime-400"
+              >
+                Preview
+              </button>
+            </div>
+          ))
+        )}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-1.5">
+        {editable && (
+          <CardButton onClick={onEdit} disabled={busy}>
+            <Edit3 size={13} />
+            Edit
+          </CardButton>
+        )}
+
+        <CardButton onClick={() => onPreview()}>
+          <Eye size={13} />
+          Preview
+        </CardButton>
+
+        {editable && (
+          <CardButton primary onClick={() => onControl("start")} disabled={busy}>
+            {busy ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
+            Start
+          </CardButton>
+        )}
+
+        {broadcast.status === "LIVE" && (
+          <CardButton onClick={() => onControl("pause")} disabled={busy}>
+            <Pause size={13} />
+            Pause
+          </CardButton>
+        )}
+
+        {broadcast.status === "PAUSED" && (
+          <CardButton primary onClick={() => onControl("resume")} disabled={busy}>
+            <Play size={13} />
+            Resume
+          </CardButton>
+        )}
+
+        {running && (
+          <CardButton danger onClick={() => onControl("stop")} disabled={busy}>
+            <Square size={13} />
+            Stop
+          </CardButton>
+        )}
+      </div>
+
+      {running && (
+        <p className="mt-2 text-[10px] text-zinc-600">
+          Running broadcasts can't be edited. Stop it first.
+        </p>
+      )}
+
+      {!running && (
+        <button
+          type="button"
+          onClick={onDelete}
+          disabled={busy}
+          className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] text-zinc-600 hover:bg-red-500/10 hover:text-red-400"
+        >
+          <Trash2 size={12} />
+          Delete broadcast
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------
+// Preview: runs the real plan engine, the same one the TV follows
+// ------------------------------------------------------------------
+
+function clock(ms: number) {
+  const total = Math.max(0, Math.ceil(ms / 1000));
+  return `${pad(Math.floor(total / 60))}:${pad(total % 60)}`;
+}
+
+function BroadcastPreview({ data, onClose }: { data: PreviewData; onClose: () => void }) {
+  const built = useMemo(() => {
+    try {
+      return {
+        plan: buildPlan(
+          {
+            broadcastId: "preview",
+            version: 1,
+            status: "LIVE",
+            mode: data.mode,
+            title: data.title,
+            subtitle: data.subtitle,
+            nextSessionStartsAt: null,
+            timers: data.timers,
+            exercises: data.exercises,
+            run: { startedAt: 0, pausedAt: null, pausedTotalMs: 0 },
+          },
+          0
+        ),
+        problem: "",
+      };
+    } catch (previewError) {
+      return {
+        plan: null,
+        problem:
+          previewError instanceof PlanError
+            ? previewError.message
+            : "Unable to build the preview.",
+      };
+    }
+  }, [data]);
+
+  const plan = built.plan;
+  const [elapsed, setElapsed] = useState(0);
+  const [playing, setPlaying] = useState(true);
+  const [speed, setSpeed] = useState(1);
+
+  useEffect(() => {
+    if (!plan || !playing) {
+      return;
+    }
+
+    const timer = setInterval(
+      () => setElapsed((current) => Math.min(plan.totalMs, current + 100 * speed)),
+      100
+    );
+
+    return () => clearInterval(timer);
+  }, [plan, playing, speed]);
+
+  const position = plan
+    ? phaseAt(plan, { startedAt: 0, pausedAt: null, pausedTotalMs: 0 }, elapsed)
+    : null;
+
+  const running = position && (position.state === "RUNNING" || position.state === "PAUSED");
+  const phase = running ? position.phase : null;
+  const exercise =
+    plan && phase && phase.exerciseIndex !== null
+      ? plan.exercises[phase.exerciseIndex]
+      : null;
+  const showVideo =
+    !!exercise?.videoUrl && (phase?.type === "WORK" || phase?.type === "DEMONSTRATION");
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-3xl overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900 shadow-2xl">
+        <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-4">
+          <div>
+            <h2 className="font-semibold">Broadcast Preview</h2>
+            <p className="mt-1 text-xs text-zinc-500">
+              {data.heading}. This runs the same timeline the TV follows.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg p-2 text-zinc-500 hover:bg-zinc-800 hover:text-white"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        {!plan ? (
+          <div className="p-8 text-center text-sm text-red-400">{built.problem}</div>
+        ) : (
+          <div className="space-y-4 p-5">
+            {/* Simulated TV screen */}
+            <div className="relative aspect-video overflow-hidden rounded-xl border border-zinc-800 bg-black">
+              {showVideo && exercise?.videoUrl && (
+                <video
+                  key={`${exercise.id}-${phase?.index}`}
+                  src={exercise.videoUrl}
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                  className="absolute inset-0 h-full w-full object-contain"
+                />
+              )}
+
+              <div className="absolute inset-x-0 top-0 flex items-start justify-between bg-gradient-to-b from-black/80 to-transparent p-4">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.3em] text-lime-400">
+                    Fuel TV
+                  </p>
+                  <p className="mt-1 text-sm font-bold">{data.title}</p>
+                  {data.subtitle && (
+                    <p className="text-xs text-zinc-400">{data.subtitle}</p>
                   )}
-                </p>
+                </div>
+                {phase && (
+                  <div className="text-right text-[11px] text-zinc-300">
+                    {phase.set !== null && (
+                      <p>
+                        Set {phase.set}/{plan.sets} · Cycle {phase.cycle}/{plan.cycles}
+                      </p>
+                    )}
+                    {plan.exercises.length > 0 && phase.exerciseIndex !== null && (
+                      <p className="text-zinc-500">
+                        Exercise {phase.exerciseIndex + 1}/{plan.exercises.length}
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
+
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+                {position?.state === "DONE" ? (
+                  <>
+                    <div className="flex h-16 w-16 items-center justify-center rounded-full border border-lime-700 bg-lime-950 text-3xl text-lime-400">
+                      ✓
+                    </div>
+                    <p className="mt-4 text-xs font-black tracking-[0.25em] text-lime-400">
+                      WORKOUT COMPLETED
+                    </p>
+                  </>
+                ) : phase && running ? (
+                  <div className={showVideo ? "rounded-2xl bg-black/55 px-8 py-4" : ""}>
+                    <p className="text-xs font-black tracking-[0.3em] text-lime-400">
+                      {PHASE_LABEL[phase.type]}
+                    </p>
+                    <p className="mt-2 text-6xl font-black tabular-nums">
+                      {clock(position.remainingMs)}
+                    </p>
+                    {exercise && (
+                      <p className="mt-2 text-lg font-bold text-zinc-100">{exercise.name}</p>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+
+              {running && position.nextPhase && (
+                <div className="absolute bottom-3 left-4 rounded-md bg-black/60 px-2.5 py-1 text-[10px] text-zinc-400">
+                  Next: {PHASE_LABEL[position.nextPhase.type]}
+                  {position.nextPhase.exerciseIndex !== null &&
+                  position.nextPhase.exerciseIndex !== phase?.exerciseIndex
+                    ? ` · ${plan.exercises[position.nextPhase.exerciseIndex]?.name ?? ""}`
+                    : ""}
+                </div>
+              )}
+            </div>
+
+            {/* Transport */}
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  if (elapsed >= plan.totalMs) {
+                    setElapsed(0);
+                  }
+                  setPlaying((current) => !current);
+                }}
+                className="inline-flex items-center gap-2 rounded-lg bg-lime-400 px-4 py-2 text-xs font-semibold text-black hover:bg-lime-300"
+              >
+                {playing ? <Pause size={14} /> : <Play size={14} />}
+                {playing ? "Pause" : "Play"}
+              </button>
 
               <button
                 type="button"
-                onClick={() =>
-                  setPreviewBroadcast(null)
-                }
-                className="rounded-lg p-2 text-zinc-500 hover:bg-zinc-800 hover:text-white"
+                onClick={() => {
+                  setElapsed(0);
+                  setPlaying(true);
+                }}
+                className="rounded-lg border border-zinc-800 px-3 py-2 text-xs text-zinc-300 hover:border-zinc-700 hover:text-white"
               >
-                <X size={18} />
+                Restart
               </button>
-            </div>
 
-            <div className="space-y-5 p-5">
-              <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-5">
-                <div className="mb-2 flex items-center gap-2">
-                  {previewBroadcast.mode ===
-                  "TIMER_ONLY" ? (
-                    <TimerReset
-                      size={17}
-                      className="text-lime-400"
-                    />
-                  ) : (
-                    <Film
-                      size={17}
-                      className="text-lime-400"
-                    />
-                  )}
-
-                  <span className="text-xs uppercase tracking-wider text-zinc-600">
-                    {previewBroadcast.mode ===
-                    "TIMER_ONLY"
-                      ? "Timer Only"
-                      : "Workout Session"}
-                  </span>
-                </div>
-
-                <h3 className="text-xl font-semibold">
-                  {previewBroadcast.title ||
-                    "Workout Broadcast"}
-                </h3>
-
-                {previewBroadcast.subtitle && (
-                  <p className="mt-1 text-sm text-zinc-400">
-                    {previewBroadcast.subtitle}
-                  </p>
-                )}
-
-                {previewBroadcast.description && (
-                  <p className="mt-3 text-sm leading-6 text-zinc-500">
-                    {previewBroadcast.description}
-                  </p>
-                )}
-              </div>
-
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-3">
-                  <span className="block text-[10px] uppercase tracking-wider text-zinc-600">
-                    Status
-                  </span>
-                  <span
-                    className={`mt-1 inline-block rounded border px-1.5 py-0.5 text-[10px] ${statusClasses(
-                      previewBroadcast.status
-                    )}`}
+              <div className="flex items-center gap-1">
+                {[1, 5, 20].map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setSpeed(value)}
+                    className={`rounded-md px-2.5 py-1.5 text-[11px] font-semibold ${
+                      speed === value
+                        ? "bg-zinc-700 text-white"
+                        : "text-zinc-500 hover:text-white"
+                    }`}
                   >
-                    {previewBroadcast.status}
-                  </span>
-                </div>
-
-                <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-3">
-                  <span className="block text-[10px] uppercase tracking-wider text-zinc-600">
-                    TVs
-                  </span>
-                  <span className="mt-1 block text-sm text-zinc-300">
-                    {previewBroadcast.tvs.length}
-                  </span>
-                </div>
-
-                <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-3">
-                  <span className="block text-[10px] uppercase tracking-wider text-zinc-600">
-                    Exercises
-                  </span>
-                  <span className="mt-1 block text-sm text-zinc-300">
-                    {
-                      previewBroadcast
-                        .exercises.length
-                    }
-                  </span>
-                </div>
-
-                <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-3">
-                  <span className="block text-[10px] uppercase tracking-wider text-zinc-600">
-                    Intensity
-                  </span>
-                  <span className="mt-1 block truncate text-sm text-zinc-300">
-                    {previewBroadcast.intensity ||
-                      "—"}
-                  </span>
-                </div>
-              </div>
-
-              {previewBroadcast.exercises.length >
-                0 && (
-                <div>
-                  <div className="mb-2 flex items-center gap-2">
-                    <Copy
-                      size={14}
-                      className="text-zinc-600"
-                    />
-                    <h3 className="text-xs font-semibold text-zinc-400">
-                      Exercises
-                    </h3>
-                  </div>
-
-                  <div className="max-h-48 space-y-1.5 overflow-y-auto">
-                    {previewBroadcast.exercises
-                      .slice()
-                      .sort(
-                        (first, second) =>
-                          first.sortOrder -
-                          second.sortOrder
-                      )
-                      .map(
-                        (
-                          exercise,
-                          index
-                        ) => (
-                          <div
-                            key={exercise.id}
-                            className="flex items-center gap-3 rounded-lg bg-zinc-950 px-3 py-2"
-                          >
-                            <span className="text-[10px] text-zinc-700">
-                              {index + 1}
-                            </span>
-
-                            <span className="text-xs text-zinc-400">
-                              {exercise.video
-                                ?.name ||
-                                exercise.exerciseName ||
-                                "Unnamed exercise"}
-                            </span>
-                          </div>
-                        )
-                      )}
-                  </div>
-                </div>
-              )}
-
-              <div className="grid gap-2 sm:grid-cols-3">
-                {[
-                  [
-                    "Warm-up",
-                    previewBroadcast.warmupSeconds,
-                  ],
-                  [
-                    "Work",
-                    previewBroadcast.workSeconds,
-                  ],
-                  [
-                    "Rest",
-                    previewBroadcast.restSeconds,
-                  ],
-                ].map(([label, value]) => (
-                  <div
-                    key={label as string}
-                    className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2.5"
-                  >
-                    <span className="text-xs text-zinc-600">
-                      {label}
-                    </span>
-                    <span className="text-xs text-zinc-300">
-                      {value != null
-                        ? `${value}s`
-                        : "—"}
-                    </span>
-                  </div>
+                    {value}x
+                  </button>
                 ))}
               </div>
+
+              <span className="ml-auto text-xs tabular-nums text-zinc-500">
+                {clock(elapsed)} / {clock(plan.totalMs)}
+              </span>
+            </div>
+
+            <input
+              type="range"
+              min={0}
+              max={plan.totalMs}
+              step={1000}
+              value={elapsed}
+              onChange={(event) => setElapsed(Number(event.target.value))}
+              className="w-full accent-lime-400"
+            />
+
+            {/* Phase strip */}
+            <div className="flex h-2 gap-px overflow-hidden rounded-full">
+              {plan.phases.map((item) => (
+                <div
+                  key={item.index}
+                  title={`${PHASE_LABEL[item.type]} · ${item.durationMs / 1000}s`}
+                  style={{ flexGrow: item.durationMs }}
+                  className={
+                    item.index === phase?.index
+                      ? "bg-lime-400"
+                      : item.type === "WORK"
+                      ? "bg-zinc-500"
+                      : "bg-zinc-800"
+                  }
+                />
+              ))}
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
+  );
+}
+
+// ------------------------------------------------------------------
+// Small presentational pieces
+// ------------------------------------------------------------------
+
+function Banner({
+  tone,
+  onClose,
+  children,
+}: {
+  tone: "error" | "success";
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className={`mb-4 flex items-start justify-between gap-4 rounded-lg border px-4 py-3 text-sm ${
+        tone === "error"
+          ? "border-red-500/20 bg-red-500/10 text-red-400"
+          : "border-lime-400/20 bg-lime-400/10 text-lime-400"
+      }`}
+    >
+      <span>{children}</span>
+      <button type="button" onClick={onClose} className="shrink-0">
+        <X size={16} />
+      </button>
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label className="mb-1.5 block text-xs font-medium text-zinc-400">{label}</label>
+      {children}
+    </div>
+  );
+}
+
+function Section({
+  title,
+  aside,
+  children,
+}: {
+  title: string;
+  aside?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section>
+      <div className="mb-3 flex items-center gap-2">
+        <div className="h-5 w-1 rounded-full bg-lime-400" />
+        <h3 className="text-sm font-semibold">{title}</h3>
+        {aside && <span className="ml-auto text-xs text-zinc-600">{aside}</span>}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function Checkbox({ checked, small }: { checked: boolean; small?: boolean }) {
+  return (
+    <span
+      className={`flex shrink-0 items-center justify-center rounded border ${
+        small ? "h-4 w-4" : "h-5 w-5"
+      } ${checked ? "border-lime-400 bg-lime-400 text-black" : "border-zinc-700"}`}
+    >
+      {checked && <Check size={small ? 10 : 12} />}
+    </span>
+  );
+}
+
+function ModeButton({
+  active,
+  locked,
+  icon,
+  title,
+  hint,
+  onClick,
+}: {
+  active: boolean;
+  locked: boolean;
+  icon: React.ReactNode;
+  title: string;
+  hint: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={locked && !active}
+      className={`rounded-lg border p-3 text-left transition ${
+        active
+          ? "border-lime-400/40 bg-lime-400/10 text-lime-400"
+          : "border-zinc-800 bg-zinc-950 text-zinc-400 hover:border-zinc-700 disabled:opacity-40"
+      } ${locked ? "cursor-default" : ""}`}
+    >
+      {icon}
+      <span className="block text-xs font-semibold">{title}</span>
+      <span className="mt-1 block text-[10px] text-zinc-600">{hint}</span>
+    </button>
+  );
+}
+
+function IconButton({
+  label,
+  onClick,
+  disabled,
+  danger,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  danger?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      title={label}
+      aria-label={label}
+      onClick={onClick}
+      disabled={disabled}
+      className={`rounded-md p-1.5 text-zinc-500 disabled:opacity-20 ${
+        danger ? "hover:bg-red-500/10 hover:text-red-400" : "hover:bg-zinc-800 hover:text-white"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function CardButton({
+  onClick,
+  disabled,
+  primary,
+  danger,
+  children,
+}: {
+  onClick: () => void;
+  disabled?: boolean;
+  primary?: boolean;
+  danger?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={`inline-flex items-center justify-center gap-1.5 rounded-md px-2.5 py-2 text-xs font-medium disabled:opacity-50 ${
+        primary
+          ? "bg-lime-400 font-semibold text-black hover:bg-lime-300"
+          : danger
+          ? "border border-red-500/30 text-red-400 hover:bg-red-500/10"
+          : "border border-zinc-800 text-zinc-300 hover:border-zinc-700 hover:text-white"
+      }`}
+    >
+      {children}
+    </button>
   );
 }

@@ -464,6 +464,7 @@ model Service {
   isActive       Boolean                @default(true)
   websiteContent ServiceWebsiteContent?
   subCategories  ServiceSubCategory[]
+  trials ServiceTrial[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -511,6 +512,7 @@ model ServiceSubCategory {
   schedules     ServiceSchedule[]
   invoices      Invoice[]
   subscriptions Subscription[]
+  trials ServiceTrial[]
 
   packages  ServicePackageSubCategory[]
   createdAt DateTime                    @default(now())
@@ -1519,4 +1521,30 @@ model MemberAttendance {
   @@index([memberId, dateKey])
   @@index([branchId, dateKey])
   @@index([subscriptionId])
+}
+
+model ServiceTrial {
+  id String @id @default(cuid())
+
+  serviceId String
+  service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  // Optional: null means the trial applies to the whole service
+  subCategoryId String?
+  subCategory   ServiceSubCategory? @relation(fields: [subCategoryId], references: [id], onDelete: Cascade)
+
+  days Int
+
+  // Same unit as ServicePackage.price (your formatMoney divides by 100, so paise)
+  sellingPrice  Int // 0 allowed
+  originalPrice Int?
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([serviceId])
+  @@index([subCategoryId])
+  @@unique([serviceId, subCategoryId, days])
 }

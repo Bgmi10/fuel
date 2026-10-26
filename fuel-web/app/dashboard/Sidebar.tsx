@@ -98,7 +98,6 @@ const navSections: NavSection[] = [
         href: "/dashboard/attendance",
         icon: ClipboardCheck,
       },
-      
       {
         label: "Member Attendance",
         href: "/dashboard/member-attendance",
@@ -117,7 +116,7 @@ const navSections: NavSection[] = [
     items: [
       {
         label: "Fuel TV",
-        href: "/dashboard/tv",  
+        href: "/dashboard/tv-devices",
         icon: MonitorPlay,
       },
       {
@@ -128,7 +127,7 @@ const navSections: NavSection[] = [
       {
         label: "Workout Schedules Centralized",
         href: "/dashboard/workout-schedules-centralized",
-        icon: Video
+        icon: Video,
       },
       {
         label: "Workout Programs",
@@ -152,14 +151,21 @@ const navSections: NavSection[] = [
     label: "Administration",
     items: [
       {
-        label: "Transferred Memberships",
-        href: "/dashboard/members/transferred",
-        icon: ArrowRightLeft,
-      },
-      {
         label: "Memberships",
         href: "/dashboard/memberships",
         icon: User,
+        children: [
+          {
+            label: "All Memberships",
+            href: "/dashboard/memberships",
+            icon: User,
+          },
+          {
+            label: "Transferred Memberships",
+            href: "/dashboard/memberships/transferred",
+            icon: ArrowRightLeft,
+          },
+        ],
       },
       {
         label: "Payroll",
@@ -171,13 +177,11 @@ const navSections: NavSection[] = [
         href: "/dashboard/expanse",
         icon: Receipt,
       },
-      
       {
         label: "Collection",
         href: "/dashboard/collection",
         icon: Receipt,
       },
-      
       {
         label: "Invoices",
         href: "/dashboard/invoices",
@@ -218,11 +222,7 @@ export default function Sidebar() {
   return (
     <aside className="flex w-64 flex-col overflow-y-auto border-r border-neutral-800 bg-neutral-950 p-5">
       <div className="mb-8">
-        <img
-          src="/logo.png"
-          alt="Fuel Gym"
-          className="w-20"
-        />
+        <img src="/logo.png" alt="Fuel Gym" className="w-20" />
       </div>
 
       <nav className="space-y-7">
@@ -238,8 +238,7 @@ export default function Sidebar() {
 
                 const isActive =
                   pathname === item.href ||
-                  (hasChildren &&
-                    pathname.startsWith(`${item.href}/`));
+                  (hasChildren && pathname.startsWith(`${item.href}/`));
 
                 const Icon = item.icon;
 
@@ -275,9 +274,7 @@ export default function Sidebar() {
                         `}
                       />
 
-                      <span className="relative z-10">
-                        {item.label}
-                      </span>
+                      <span className="relative z-10">{item.label}</span>
 
                       {isActive && (
                         <div className="absolute right-0 top-2 h-8 w-1 rounded-l-full bg-lime-400" />
@@ -290,8 +287,7 @@ export default function Sidebar() {
                         {item.children!.map((child) => {
                           const ChildIcon = child.icon;
 
-                          const isChildActive =
-                            pathname === child.href;
+                          const isChildActive = pathname === child.href;
 
                           return (
                             <Link

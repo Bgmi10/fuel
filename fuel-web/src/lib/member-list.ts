@@ -57,6 +57,7 @@ export async function listMembers(
         include: {
           invoice: { select: { intent: true } },
           incomingTransfer: { select: { id: true } },
+          subCategory: { select: { id: true, name: true } }, // NEW
         },
       },
     },
@@ -124,6 +125,8 @@ export async function listMembers(
 
       membershipName: current?.packageName ?? null,
       serviceName: current?.serviceName ?? null,
+      subCategoryId: current?.subCategory?.id ?? null, // NEW
+      subCategoryName: current?.subCategory?.name ?? null, // NEW
       startDate: current?.startDate ?? null,
       endDate: current?.endDate ?? null,
 

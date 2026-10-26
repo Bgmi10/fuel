@@ -1,1044 +1,355 @@
 import { createServer } from "node:http";
 import next from "next";
-import { Server, Socket } from "socket.io";
-import crypto from "node:crypto";
+import { Server } from "socket.io";
 
 import { setSocketServer } from "./src/lib/socket-runtime";
 import { prisma } from "./prisma";
+import { completeFinishedBroadcasts } from "./src/lib/tv/broadcast-service";
+import { publishBroadcastState } from "./src/lib/tv/realtime";
+import { adminBranchRoom, pairingRoom, tvRoom } from "./src/lib/tv/rooms";
+import { verifyAdminSocketToken } from "./src/lib/tv/security";
+import {
+  cleanupPairingSessions,
+  findDeviceByToken,
+  getTvState,
+} from "./src/lib/tv/tv-service";
+
+/**
+ * Realtime contract
+ *
+ * TV  -> server
+ *   tv:pairing:join   { pairingCode }                    ack { success }
+ *   tv:authenticate   { deviceToken }                    ack { success, data: TvState }
+ *   tv:status         { broadcastId, phaseIndex, state, message? }
+ *
+ * server -> TV   (room tv:{deviceId})
+ *   tv:paired         { deviceId, deviceToken, ... }     (pairing room only)
+ *   broadcast:state   BroadcastPlan   start / pause / resume / finish
+ *   broadcast:clear   { broadcastId, reason }            admin stop
+ *   tv:revoked        { deviceId }
+ *
+ * Admin browser -> server
+ *   admin:subscribe   { token, branchId }                ack { success, data }
+ *   Admin sockets can only listen. Every command is a REST call.
+ *
+ * server -> admin   (room admin:branch:{branchId})
+ *   tv:device-status  { deviceId, isOnline, lastSeenAt }
+ *   tv:status         { deviceId, broadcastId, phaseIndex, state, message?, at }
+ *   broadcast:status  { broadcastId, status, version }
+ */
 
 const dev = process.env.NODE_ENV !== "production";
+const hostname = process.env.HOSTNAME || "0.0.0.0";
+const port = Number(process.env.PORT || 3000);
 
-const hostname =
-  process.env.HOSTNAME || "0.0.0.0";
+const SWEEP_INTERVAL_MS = 5_000;
+const OFFLINE_GRACE_MS = 1_500;
 
-const port = Number(
-  process.env.PORT || 3000
-);
-
-type AdminDashboardJoinResponse = {
-  success: boolean;
-  onlineDeviceIds: string[];
-  message?: string;
-};
-
-type TvCommand =
-  | "START"
-  | "PLAY"
-  | "PAUSE"
-  | "NEXT"
-  | "PREVIOUS"
-  | "STOP";
-
-type TvPlaybackStatus =
-  | "IDLE"
-  | "PLAYING"
-  | "PAUSED"
-  | "COMPLETED";
-
-type TvPlaybackState = {
+type TvStatusPayload = {
   deviceId: string;
-  assignmentId?: string;
-  status: TvPlaybackStatus;
-
-  currentVideoId?: string | null;
-  currentVideoName?: string | null;
-
-  currentIndex: number;
-  totalVideos: number;
-  currentTime: number;
-  updatedAt: string;
+  broadcastId: string | null;
+  phaseIndex: number | null;
+  state: string;
+  message: string | null;
+  at: string;
 };
 
-type ControllerDeviceSnapshot = {
-  id: string;
-  name: string;
-  branchId: string;
-  branchName: string;
-  isOnline: boolean;
-  lastSeenAt: string | null;
-  playbackState: TvPlaybackState | null;
-};
+/** Last status per TV, so a newly opened admin page can show it immediately. */
+const latestTvStatus = new Map<string, TvStatusPayload>();
 
-type ControllerJoinResponse = {
-  success: boolean;
-  device?: ControllerDeviceSnapshot;
-  message?: string;
-};
+const nextApp = next({ dev, hostname, port });
+const requestHandler = nextApp.getRequestHandler();
 
-type CommandResponse = {
-  success: boolean;
-  message?: string;
-};
-
-const allowedTvCommands =
-  new Set<TvCommand>([
-    "START",
-    "PLAY",
-    "PAUSE",
-    "NEXT",
-    "PREVIOUS",
-    "STOP",
-  ]);
-
-/*
- * Latest playback state is kept in memory.
- * It lets a newly opened controller immediately
- * show what the TV is currently playing.
- */
-const latestPlaybackByDevice =
-  new Map<string, TvPlaybackState>();
-
-const nextApp = next({
-  dev,
-  hostname,
-  port,
-});
-
-const requestHandler =
-  nextApp.getRequestHandler();
-
-function getTvRoom(
-  deviceId: string
-) {
-  return `tv:${deviceId}`;
+function isTvConnected(io: Server, deviceId: string) {
+  return Boolean(io.sockets.adapter.rooms.get(tvRoom(deviceId))?.size);
 }
 
-function getAdminControllerRoom(
-  deviceId: string
-) {
-  return `admin:tv:${deviceId}`;
-}
+function connectedTvIds(io: Server): Set<string> {
+  const ids = new Set<string>();
 
-function isTvConnected(
-  io: Server,
-  deviceId: string
-) {
-  const room =
-    io.sockets.adapter.rooms.get(
-      getTvRoom(deviceId)
-    );
-
-  return Boolean(room?.size);
-}
-
-async function getControllerDeviceSnapshot(
-  io: Server,
-  deviceId: string
-): Promise<
-  ControllerDeviceSnapshot | null
-> {
-  const device =
-    await prisma.tvDevice.findUnique({
-      where: {
-        id: deviceId,
-      },
-
-      select: {
-        id: true,
-        name: true,
-        branchId: true,
-        isOnline: true,
-        lastSeenAt: true,
-      },
-    });
-
-  if (!device) {
-    return null;
-  }
-
-  const branch =
-    device.branchId
-      ? await prisma.branch.findUnique({
-          where: {
-            id: device.branchId,
-          },
-
-          select: {
-            name: true,
-          },
-        })
-      : null;
-
-  return {
-    id: device.id,
-    name: device.name,
-    branchId:
-      device.branchId || "",
-    branchName:
-      branch?.name || "",
-    isOnline:
-      isTvConnected(
-        io,
-        device.id
-      ),
-    lastSeenAt:
-      device.lastSeenAt
-        ?.toISOString() || null,
-    playbackState:
-      latestPlaybackByDevice.get(
-        device.id
-      ) || null,
-  };
-}
-
-function emitDeviceStatus(
-  io: Server,
-  payload: {
-    deviceId: string;
-    isOnline: boolean;
-    lastSeenAt: string;
-  }
-) {
-  /*
-   * Existing dashboard event.
-   */
-  io.to(
-    "admin:tv-dashboard"
-  ).emit(
-    "tv:device-status",
-    payload
-  );
-
-  /*
-   * Event consumed by the individual
-   * remote-controller page.
-   */
-  io.to(
-    getAdminControllerRoom(
-      payload.deviceId
-    )
-  ).emit(
-    "tv:connection-state",
-    {
-      deviceId:
-        payload.deviceId,
-      online:
-        payload.isOnline,
-      isOnline:
-        payload.isOnline,
-      lastSeenAt:
-        payload.lastSeenAt,
+  for (const [room, sockets] of io.sockets.adapter.rooms) {
+    if (room.startsWith("tv:") && sockets.size > 0) {
+      ids.add(room.slice(3));
     }
-  );
+  }
+
+  return ids;
+}
+
+function text(value: unknown, max: number): string | null {
+  return typeof value === "string" && value ? value.slice(0, max) : null;
 }
 
 async function startServer() {
   try {
     await nextApp.prepare();
 
-    const httpServer =
-      createServer(
+    // Online flags from before a restart are meaningless.
+    await prisma.tvDevice.updateMany({ data: { isOnline: false } });
+
+    const httpServer = createServer(async (request, response) => {
+      try {
+        await requestHandler(request, response);
+      } catch (error) {
+        console.error("Next.js request error:", error);
+
+        if (!response.headersSent) {
+          response.statusCode = 500;
+          response.end("Internal server error");
+        }
+      }
+    });
+
+    const io = new Server(httpServer, {
+      path: "/socket.io",
+      cors: {
+        origin: dev
+          ? ["http://localhost:3000", "http://localhost:8081", "http://localhost:8082"]
+          : [process.env.NEXT_PUBLIC_APP_URL].filter((o): o is string => Boolean(o)),
+        methods: ["GET", "POST"],
+        credentials: true,
+      },
+      transports: ["websocket", "polling"],
+    });
+
+    setSocketServer(io);
+
+    io.on("connection", (socket) => {
+      // ------------------------------------------------------------
+      // Pairing
+      // ------------------------------------------------------------
+      socket.on(
+        "tv:pairing:join",
+        (
+          payload: { pairingCode?: string },
+          acknowledge?: (response: { success: boolean; message?: string }) => void
+        ) => {
+          const code = payload?.pairingCode?.trim().toUpperCase();
+
+          if (!code) {
+            acknowledge?.({ success: false, message: "Pairing code is required." });
+            return;
+          }
+
+          void socket.join(pairingRoom(code));
+          acknowledge?.({ success: true });
+        }
+      );
+
+      // ------------------------------------------------------------
+      // TV authentication. The ack carries the full state, so a TV that
+      // reboots mid-workout rejoins the running plan with one round trip.
+      // ------------------------------------------------------------
+      socket.on(
+        "tv:authenticate",
         async (
-          request,
-          response
+          payload: { deviceToken?: string },
+          acknowledge?: (response: {
+            success: boolean;
+            message?: string;
+            data?: Awaited<ReturnType<typeof getTvState>>;
+          }) => void
         ) => {
           try {
-            await requestHandler(
-              request,
-              response
-            );
-          } catch (error) {
-            console.error(
-              "Next.js request error:",
-              error
-            );
+            const device = await findDeviceByToken(payload?.deviceToken?.trim() ?? "");
 
-            if (
-              !response.headersSent
-            ) {
-              response.statusCode =
-                500;
-
-              response.end(
-                "Internal server error"
-              );
+            if (!device) {
+              acknowledge?.({ success: false, message: "Invalid TV credentials." });
+              return;
             }
+
+            socket.data.deviceId = device.id;
+            socket.data.branchId = device.branchId;
+
+            await socket.join(tvRoom(device.id));
+
+            const now = new Date();
+
+            await prisma.tvDevice.update({
+              where: { id: device.id },
+              data: { isOnline: true, lastSeenAt: now },
+            });
+
+            io.to(adminBranchRoom(device.branchId)).emit("tv:device-status", {
+              deviceId: device.id,
+              isOnline: true,
+              lastSeenAt: now.toISOString(),
+            });
+
+            acknowledge?.({ success: true, data: await getTvState(device) });
+          } catch (error) {
+            console.error("TV authentication error:", error);
+            acknowledge?.({ success: false, message: "Unable to authenticate TV." });
           }
         }
       );
 
-    const io =
-      new Server(httpServer, {
-        path: "/socket.io",
+      // ------------------------------------------------------------
+      // TV -> admin status relay. Identity always comes from the
+      // authenticated socket, never from the payload.
+      // ------------------------------------------------------------
+      socket.on(
+        "tv:status",
+        (payload: {
+          broadcastId?: string;
+          phaseIndex?: number;
+          state?: string;
+          message?: string;
+        }) => {
+          const deviceId = socket.data.deviceId as string | undefined;
+          const branchId = socket.data.branchId as string | undefined;
 
-        cors: {
-          origin: dev
-            ? [
-                "http://localhost:3000",
-                "http://localhost:8081",
-                "http://localhost:8082",
-              ]
-            : [
-                process.env
-                  .NEXT_PUBLIC_APP_URL,
-              ].filter(
-                (
-                  origin
-                ): origin is string =>
-                  Boolean(origin)
-              ),
-
-          methods: [
-            "GET",
-            "POST",
-          ],
-
-          credentials: true,
-        },
-
-        transports: [
-          "websocket",
-          "polling",
-        ],
-      });
-
-    setSocketServer(io);
-
-    io.on(
-      "connection",
-      (socket) => {
-        console.log(
-          "Socket connected:",
-          socket.id
-        );
-
-        /*
-         * Admin dashboard online/offline list.
-         */
-        socket.on(
-          "admin:tv-dashboard:join",
-          async (
-            _payload: Record<
-              string,
-              never
-            >,
-            acknowledge?: (
-              response:
-                AdminDashboardJoinResponse
-            ) => void
-          ) => {
-            try {
-              await socket.join(
-                "admin:tv-dashboard"
-              );
-
-              const connectedSockets =
-                await io.fetchSockets();
-
-              const onlineDeviceIds =
-                Array.from(
-                  new Set(
-                    connectedSockets
-                      .filter(
-                        (
-                          connectedSocket
-                        ) =>
-                          connectedSocket
-                            .data
-                            .connectionType ===
-                            "TV" &&
-                          typeof connectedSocket
-                            .data
-                            .deviceId ===
-                            "string"
-                      )
-                      .map(
-                        (
-                          connectedSocket
-                        ) =>
-                          connectedSocket
-                            .data
-                            .deviceId as string
-                      )
-                  )
-                );
-
-              acknowledge?.({
-                success: true,
-                onlineDeviceIds,
-              });
-            } catch (error) {
-              console.error(
-                "Join TV dashboard error:",
-                error
-              );
-
-              acknowledge?.({
-                success: false,
-                onlineDeviceIds: [],
-                message:
-                  "Unable to load live TV statuses.",
-              });
-            }
+          if (!deviceId || !branchId) {
+            return;
           }
-        );
 
-        /*
-         * Pairing-code room.
-         */
-        socket.on(
-          "tv:pairing:join",
-          (
-            payload: {
-              pairingCode?: string;
-            },
-            acknowledge?: (
-              response: {
-                success: boolean;
-                message?: string;
-              }
-            ) => void
-          ) => {
-            const pairingCode =
-              payload
-                ?.pairingCode
-                ?.trim()
-                .toUpperCase();
+          const status: TvStatusPayload = {
+            deviceId,
+            broadcastId: text(payload?.broadcastId, 64),
+            phaseIndex: Number.isInteger(payload?.phaseIndex)
+              ? (payload.phaseIndex as number)
+              : null,
+            state: text(payload?.state, 24) ?? "UNKNOWN",
+            message: text(payload?.message, 200),
+            at: new Date().toISOString(),
+          };
 
-            if (!pairingCode) {
-              acknowledge?.({
-                success: false,
-                message:
-                  "Pairing code is required.",
-              });
+          latestTvStatus.set(deviceId, status);
+          io.to(adminBranchRoom(branchId)).emit("tv:status", status);
+        }
+      );
 
+      // ------------------------------------------------------------
+      // Admin subscription (listen only)
+      // ------------------------------------------------------------
+      socket.on(
+        "admin:subscribe",
+        async (
+          payload: { token?: string; branchId?: string },
+          acknowledge?: (response: {
+            success: boolean;
+            message?: string;
+            data?: {
+              onlineDeviceIds: string[];
+              statuses: TvStatusPayload[];
+            };
+          }) => void
+        ) => {
+          try {
+            const branchId = payload?.branchId?.trim();
+
+            if (!branchId || !verifyAdminSocketToken(payload?.token)) {
+              acknowledge?.({ success: false, message: "Not authorised." });
               return;
             }
 
-            const room =
-              `pairing:${pairingCode}`;
+            await socket.join(adminBranchRoom(branchId));
 
-            socket.join(room);
+            const devices = await prisma.tvDevice.findMany({
+              where: { branchId, revokedAt: null },
+              select: { id: true },
+            });
 
-            console.log(
-              `${socket.id} joined ${room}`
-            );
+            const online = connectedTvIds(io);
+            const ids = devices.map((device) => device.id);
 
             acknowledge?.({
               success: true,
-            });
-          }
-        );
-
-        /*
-         * Authenticate the Android TV.
-         *
-         * This should run while the TV is on
-         * Pair, Home, or Player, not only while
-         * a video is open.
-         */
-        socket.on(
-          "tv:authenticate",
-          async (
-            payload: {
-              deviceId?: string;
-              deviceToken?: string;
-            },
-            acknowledge?: (
-              response: {
-                success: boolean;
-                message?: string;
-              }
-            ) => void
-          ) => {
-            try {
-              const deviceId =
-                payload
-                  ?.deviceId
-                  ?.trim();
-
-              const deviceToken =
-                payload
-                  ?.deviceToken
-                  ?.trim();
-
-              if (
-                !deviceId ||
-                !deviceToken
-              ) {
-                acknowledge?.({
-                  success: false,
-                  message:
-                    "Device credentials are missing.",
-                });
-
-                return;
-              }
-
-              const tokenHash =
-                crypto
-                  .createHash(
-                    "sha256"
-                  )
-                  .update(
-                    deviceToken
-                  )
-                  .digest("hex");
-
-              const device =
-                await prisma
-                  .tvDevice
-                  .findFirst({
-                    where: {
-                      id: deviceId,
-                    
-                    },
-
-                    select: {
-                      id: true,
-                      branchId: true,
-                    },
-                  });
-
-              if (!device) {
-                acknowledge?.({
-                  success: false,
-                  message:
-                    "Invalid TV credentials.",
-                });
-
-                return;
-              }
-
-              socket.data
-                .connectionType =
-                "TV";
-
-              socket.data.deviceId =
-                device.id;
-
-              socket.data.branchId =
-                device.branchId;
-
-              await socket.join(
-                getTvRoom(
-                  device.id
-                )
-              );
-
-              if (
-                device.branchId
-              ) {
-                await socket.join(
-                  `branch:${device.branchId}`
-                );
-              }
-
-              const now =
-                new Date();
-
-              await prisma
-                .tvDevice
-                .update({
-                  where: {
-                    id: device.id,
-                  },
-
-                  data: {
-                    isOnline: true,
-                    lastSeenAt: now,
-                  },
-                });
-
-              emitDeviceStatus(
-                io,
-                {
-                  deviceId:
-                    device.id,
-                  isOnline: true,
-                  lastSeenAt:
-                    now.toISOString(),
-                }
-              );
-
-              acknowledge?.({
-                success: true,
-              });
-            } catch (error) {
-              console.error(
-                "TV authentication error:",
-                error
-              );
-
-              acknowledge?.({
-                success: false,
-                message:
-                  "Unable to authenticate TV.",
-              });
-            }
-          }
-        );
-
-        /*
-         * Open one TV's remote controller.
-         *
-         * Both event names are supported:
-         * - admin:tv-controller:join (new)
-         * - admin:join-device (old)
-         */
-        const joinController =
-          async (
-            payload: {
-              deviceId?: string;
-            },
-            acknowledge?: (
-              response:
-                ControllerJoinResponse
-            ) => void
-          ) => {
-            try {
-              const deviceId =
-                payload
-                  ?.deviceId
-                  ?.trim();
-
-              if (!deviceId) {
-                acknowledge?.({
-                  success: false,
-                  message:
-                    "Device ID is required.",
-                });
-
-                return;
-              }
-
-              /*
-               * Add your admin-session authorization
-               * check here before allowing the join.
-               */
-              const device =
-                await getControllerDeviceSnapshot(
-                  io,
-                  deviceId
-                );
-
-              if (!device) {
-                acknowledge?.({
-                  success: false,
-                  message:
-                    "TV device was not found.",
-                });
-
-                return;
-              }
-
-              await socket.join(
-                getAdminControllerRoom(
-                  deviceId
-                )
-              );
-
-              socket.data
-                .controllerDeviceId =
-                deviceId;
-
-              acknowledge?.({
-                success: true,
-                device,
-              });
-            } catch (error) {
-              console.error(
-                "Join TV controller error:",
-                error
-              );
-
-              acknowledge?.({
-                success: false,
-                message:
-                  "Unable to open the TV controller.",
-              });
-            }
-          };
-
-        socket.on(
-          "admin:tv-controller:join",
-          joinController
-        );
-
-        socket.on(
-          "admin:join-device",
-          joinController
-        );
-
-        socket.on(
-          "admin:tv-controller:leave",
-          async (
-            payload: {
-              deviceId?: string;
-            }
-          ) => {
-            const deviceId =
-              payload
-                ?.deviceId
-                ?.trim();
-
-            if (!deviceId) {
-              return;
-            }
-
-            await socket.leave(
-              getAdminControllerRoom(
-                deviceId
-              )
-            );
-          }
-        );
-
-        /*
-         * Send a remote command.
-         *
-         * Both event names are supported:
-         * - admin:tv:command (new)
-         * - admin:tv-command (old)
-         */
-        const sendTvCommand =
-          async (
-            payload: {
-              deviceId?: string;
-              command?: TvCommand;
-              assignmentId?: string;
-            },
-            acknowledge?: (
-              response:
-                CommandResponse
-            ) => void
-          ) => {
-            try {
-              const deviceId =
-                payload
-                  ?.deviceId
-                  ?.trim();
-
-              const command =
-                payload?.command;
-
-              const assignmentId =
-                payload
-                  ?.assignmentId
-                  ?.trim();
-
-              if (
-                !deviceId ||
-                !command ||
-                !allowedTvCommands
-                  .has(command)
-              ) {
-                acknowledge?.({
-                  success: false,
-                  message:
-                    "Invalid TV command.",
-                });
-
-                return;
-              }
-
-              if (
-                command === "START" &&
-                !assignmentId
-              ) {
-                acknowledge?.({
-                  success: false,
-                  message:
-                    "An assignment ID is required to start a workout.",
-                });
-
-                return;
-              }
-
-              if (
-                !isTvConnected(
-                  io,
-                  deviceId
-                )
-              ) {
-                acknowledge?.({
-                  success: false,
-                  message:
-                    "This TV is currently offline.",
-                });
-
-                return;
-              }
-
-              io.to(
-                getTvRoom(
-                  deviceId
-                )
-              ).emit(
-                "tv:command",
-                {
-                  command,
-                  assignmentId:
-                    assignmentId ||
-                    null,
-                  issuedAt:
-                    new Date()
-                      .toISOString(),
-                }
-              );
-
-              acknowledge?.({
-                success: true,
-              });
-            } catch (error) {
-              console.error(
-                "Send TV command error:",
-                error
-              );
-
-              acknowledge?.({
-                success: false,
-                message:
-                  "Unable to send the TV command.",
-              });
-            }
-          };
-
-        socket.on(
-          "admin:tv:command",
-          sendTvCommand
-        );
-
-        socket.on(
-          "admin:tv-command",
-          sendTvCommand
-        );
-
-        /*
-         * Receive playback state from the
-         * authenticated Android TV.
-         */
-        socket.on(
-          "tv:playback-state",
-          (
-            payload: {
-              assignmentId?: string;
-
-              status?:
-                | "IDLE"
-                | "PLAYING"
-                | "PAUSED"
-                | "COMPLETED";
-
-              currentVideoId?:
-                | string
-                | null;
-
-              currentVideoName?:
-                | string
-                | null;
-
-              currentIndex?: number;
-              totalVideos?: number;
-              currentTime?: number;
-            }
-          ) => {
-            /*
-             * Never trust deviceId from the client.
-             * Always use the authenticated socket.
-             */
-            const deviceId =
-              socket.data
-                .deviceId as
-                | string
-                | undefined;
-
-            if (
-              !deviceId ||
-              !payload?.status
-            ) {
-              return;
-            }
-
-            const playbackState:
-              TvPlaybackState = {
-              deviceId,
-
-              assignmentId:
-                payload.assignmentId,
-
-              status:
-                payload.status,
-
-              currentVideoId:
-                payload.currentVideoId ??
-                null,
-
-              currentVideoName:
-                payload.currentVideoName ??
-                null,
-
-              currentIndex:
-                Number.isFinite(
-                  payload.currentIndex
-                )
-                  ? Number(
-                      payload.currentIndex
-                    )
-                  : 0,
-
-              totalVideos:
-                Number.isFinite(
-                  payload.totalVideos
-                )
-                  ? Number(
-                      payload.totalVideos
-                    )
-                  : 0,
-
-              currentTime:
-                Number.isFinite(
-                  payload.currentTime
-                )
-                  ? Number(
-                      payload.currentTime
-                    )
-                  : 0,
-
-              updatedAt:
-                new Date()
-                  .toISOString(),
-            };
-
-            latestPlaybackByDevice.set(
-              deviceId,
-              playbackState
-            );
-
-            /*
-             * New controller event.
-             */
-            io.to(
-              getAdminControllerRoom(
-                deviceId
-              )
-            ).emit(
-              "tv:playback-state",
-              playbackState
-            );
-
-            /*
-             * Backward-compatible old event.
-             */
-            io.to(
-              getAdminControllerRoom(
-                deviceId
-              )
-            ).emit(
-              "tv:playback-updated",
-              playbackState
-            );
-          }
-        );
-
-        socket.on(
-          "disconnect",
-          (reason) => {
-            console.log(
-              "Socket disconnected:",
-              socket.id,
-              reason
-            );
-
-            const deviceId =
-              socket.data
-                .deviceId as
-                | string
-                | undefined;
-
-            if (!deviceId) {
-              return;
-            }
-
-            /*
-             * Wait briefly before marking offline.
-             * A TV may reconnect immediately using
-             * a new Socket.IO connection.
-             */
-            setTimeout(
-              async () => {
-                if (
-                  isTvConnected(
-                    io,
-                    deviceId
-                  )
-                ) {
-                  return;
-                }
-
-                try {
-                  const now =
-                    new Date();
-
-                  await prisma
-                    .tvDevice
-                    .update({
-                      where: {
-                        id: deviceId,
-                      },
-
-                      data: {
-                        isOnline: false,
-                        lastSeenAt: now,
-                      },
-                    });
-
-                  emitDeviceStatus(
-                    io,
-                    {
-                      deviceId,
-                      isOnline: false,
-                      lastSeenAt:
-                        now.toISOString(),
-                    }
-                  );
-                } catch (error) {
-                  console.error(
-                    "TV offline update error:",
-                    error
-                  );
-                }
+              data: {
+                onlineDeviceIds: ids.filter((id) => online.has(id)),
+                statuses: ids.flatMap((id) => {
+                  const status = latestTvStatus.get(id);
+                  return status ? [status] : [];
+                }),
               },
-              1_500
-            );
+            });
+          } catch (error) {
+            console.error("Admin subscribe error:", error);
+            acknowledge?.({ success: false, message: "Unable to subscribe." });
           }
-        );
+        }
+      );
+
+      socket.on("disconnect", () => {
+        const deviceId = socket.data.deviceId as string | undefined;
+        const branchId = socket.data.branchId as string | undefined;
+
+        if (!deviceId || !branchId) {
+          return;
+        }
+
+        // A TV usually reconnects within a second; avoid flapping.
+        setTimeout(async () => {
+          if (isTvConnected(io, deviceId)) {
+            return;
+          }
+
+          try {
+            const now = new Date();
+
+            await prisma.tvDevice.updateMany({
+              where: { id: deviceId },
+              data: { isOnline: false, lastSeenAt: now },
+            });
+
+            latestTvStatus.delete(deviceId);
+
+            io.to(adminBranchRoom(branchId)).emit("tv:device-status", {
+              deviceId,
+              isOnline: false,
+              lastSeenAt: now.toISOString(),
+            });
+          } catch (error) {
+            console.error("TV offline update error:", error);
+          }
+        }, OFFLINE_GRACE_MS);
+      });
+    });
+
+    // ------------------------------------------------------------
+    // Sweeper: finish broadcasts whose plans have run out, and tidy
+    // expired pairing codes.
+    // ------------------------------------------------------------
+    let sweeping = false;
+    let sweeps = 0;
+
+    setInterval(async () => {
+      if (sweeping) {
+        return;
       }
-    );
 
-    httpServer.once(
-      "error",
-      (error) => {
-        console.error(
-          "Server error:",
-          error
-        );
+      sweeping = true;
 
-        process.exit(1);
+      try {
+        for (const broadcast of await completeFinishedBroadcasts()) {
+          publishBroadcastState(io, broadcast);
+        }
+
+        sweeps += 1;
+
+        if (sweeps % 60 === 0) {
+          await cleanupPairingSessions();
+        }
+      } catch (error) {
+        console.error("Broadcast sweeper error:", error);
+      } finally {
+        sweeping = false;
       }
-    );
+    }, SWEEP_INTERVAL_MS);
 
-    httpServer.listen(
-      port,
-      hostname,
-      () => {
-        console.log(
-          `Fuel server running at http://${hostname}:${port}`
-        );
+    httpServer.once("error", (error) => {
+      console.error("Server error:", error);
+      process.exit(1);
+    });
 
-        console.log(
-          "Socket.IO path: /socket.io"
-        );
-      }
-    );
+    httpServer.listen(port, hostname, () => {
+      console.log(`Fuel server running at http://${hostname}:${port}`);
+      console.log("Socket.IO path: /socket.io");
+    });
   } catch (error) {
-    console.error(
-      "Unable to start server:",
-      error
-    );
-
+    console.error("Unable to start server:", error);
     process.exit(1);
   }
 }
 
-startServer();
+void startServer();

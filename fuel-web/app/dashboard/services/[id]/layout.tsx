@@ -5,6 +5,7 @@ import {
   Dumbbell,
   Globe,
   Layers,
+  Ticket,
 } from "lucide-react";
 
 import {
@@ -146,6 +147,21 @@ const ServiceLayout = ({
           <Layers size={16} />
           Subcategories
         </button>
+
+        <button
+  type="button"
+  onClick={() =>
+    router.push(`/dashboard/services/${serviceId}/trials`)
+  }
+  className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition ${
+    isActive("/trials")
+      ? "bg-lime-400 text-black"
+      : "text-neutral-400 hover:bg-neutral-800 hover:text-white"
+  }`}
+>
+  <Ticket size={16} />
+  Trials
+</button>
       </div>
 
       {/* CHILD PAGE */}

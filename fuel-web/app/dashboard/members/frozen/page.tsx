@@ -45,6 +45,8 @@ type FrozenMember = {
   currentStatus: "FROZEN";
   membershipName: string | null;
   serviceName: string | null;
+  subCategoryId: string | null;
+  subCategoryName: string | null;
   freezeStart: string | null;
   freezeEnd: string | null;
   endDate: string | null;
@@ -99,6 +101,7 @@ const FrozenMembers = () => {
   const [coachFilter, setCoachFilter] = useState("");
   const [membershipFilter, setMembershipFilter] = useState("");
   const [serviceFilter, setServiceFilter] = useState("");
+  const [subCategoryFilter, setSubCategoryFilter] = useState("");
   const [genderFilter, setGenderFilter] = useState("");
   const [onboardingFilter, setOnboardingFilter] = useState("");
 
@@ -158,12 +161,21 @@ const FrozenMembers = () => {
     const coaches = new Map<string, string>();
     const memberships = new Set<string>();
     const services = new Set<string>();
+    const subCategories = new Set<string>();
 
     for (const m of members) {
       if (m.branch) branches.set(m.branch.id, m.branch.name);
       if (m.coach) coaches.set(m.coach.id, m.coach.name);
       if (m.membershipName) memberships.add(m.membershipName);
       if (m.serviceName) services.add(m.serviceName);
+
+      // When a service is picked, only offer its own subcategories
+      if (
+        m.subCategoryName &&
+        (!serviceFilter || m.serviceName === serviceFilter)
+      ) {
+        subCategories.add(m.subCategoryName);
+      }
     }
 
     const byName = (a: [string, string], b: [string, string]) =>
@@ -176,8 +188,9 @@ const FrozenMembers = () => {
       coaches: Array.from(coaches.entries()).sort(byName),
       memberships: Array.from(memberships).sort(sortText),
       services: Array.from(services).sort(sortText),
+      subCategories: Array.from(subCategories).sort(sortText),
     };
-  }, [members]);
+  }, [members, serviceFilter]);
 
   /* ---------------- FILTERING ---------------- */
 
@@ -216,6 +229,9 @@ const FrozenMembers = () => {
         return false;
       }
       if (serviceFilter && m.serviceName !== serviceFilter) return false;
+      if (subCategoryFilter && m.subCategoryName !== subCategoryFilter) {
+        return false;
+      }
 
       if (
         genderFilter &&
@@ -243,6 +259,7 @@ const FrozenMembers = () => {
     coachFilter,
     membershipFilter,
     serviceFilter,
+    subCategoryFilter,
     genderFilter,
     onboardingFilter,
     freezeStartFrom,
@@ -294,12 +311,19 @@ const FrozenMembers = () => {
     }
   };
 
+  // Changing the service resets the subcategory so they never conflict
+  const changeService = (value: string) => {
+    setServiceFilter(value);
+    setSubCategoryFilter("");
+  };
+
   const clearFilters = () => {
     setSearch("");
     setBranchFilter("");
     setCoachFilter("");
     setMembershipFilter("");
     setServiceFilter("");
+    setSubCategoryFilter("");
     setGenderFilter("");
     setOnboardingFilter("");
     setFreezeStartFrom("");
@@ -318,6 +342,7 @@ const FrozenMembers = () => {
       coachFilter ||
       membershipFilter ||
       serviceFilter ||
+      subCategoryFilter ||
       genderFilter ||
       onboardingFilter ||
       freezeStartFrom ||
@@ -353,6 +378,7 @@ const FrozenMembers = () => {
       Branch: m.branch?.name ?? "",
       Coach: m.coach?.name ?? "",
       Service: m.serviceName ?? "",
+      Subcategory: m.subCategoryName ?? "",
       Membership: m.membershipName ?? "",
       "Freeze Start Date": formatDate(m.freezeStart),
       "Freeze End Date": formatDate(m.freezeEnd),
@@ -383,8 +409,9 @@ const FrozenMembers = () => {
         Value:
           options.coaches.find(([id]) => id === coachFilter)?.[1] || "All",
       },
-      { Filter: "Membership", Value: membershipFilter || "All" },
       { Filter: "Service", Value: serviceFilter || "All" },
+      { Filter: "Subcategory", Value: subCategoryFilter || "All" },
+      { Filter: "Membership", Value: membershipFilter || "All" },
       { Filter: "Gender", Value: genderFilter || "All" },
       { Filter: "Onboarding", Value: onboardingFilter || "All" },
       { Filter: "Freeze Start From", Value: freezeStartFrom || "All" },
@@ -426,6 +453,8 @@ const FrozenMembers = () => {
     "DOB",
     "Branch",
     "Coach",
+    "Service",
+    "Subcategory",
     "Membership",
     "Freeze Start",
     "Freeze End",
@@ -433,6 +462,9 @@ const FrozenMembers = () => {
     "Onboarding",
     "Status",
   ];
+
+  // checkbox + headings + arrow column
+  const columnCount = headings.length + 2;
 
   const dateFilters = [
     ["Freeze Start From", freezeStartFrom, setFreezeStartFrom],
@@ -541,14 +573,14 @@ const FrozenMembers = () => {
               </div>
 
               <div>
-                <label className={labelClass}>Membership</label>
+                <label className={labelClass}>Service</label>
                 <select
-                  value={membershipFilter}
-                  onChange={(e) => setMembershipFilter(e.target.value)}
+                  value={serviceFilter}
+                  onChange={(e) => changeService(e.target.value)}
                   className={inputClass}
                 >
-                  <option value="">All Memberships</option>
-                  {options.memberships.map((name) => (
+                  <option value="">All Services</option>
+                  {options.services.map((name) => (
                     <option key={name} value={name}>
                       {name}
                     </option>
@@ -557,14 +589,30 @@ const FrozenMembers = () => {
               </div>
 
               <div>
-                <label className={labelClass}>Service</label>
+                <label className={labelClass}>Subcategory</label>
                 <select
-                  value={serviceFilter}
-                  onChange={(e) => setServiceFilter(e.target.value)}
+                  value={subCategoryFilter}
+                  onChange={(e) => setSubCategoryFilter(e.target.value)}
                   className={inputClass}
                 >
-                  <option value="">All Services</option>
-                  {options.services.map((name) => (
+                  <option value="">All Subcategories</option>
+                  {options.subCategories.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className={labelClass}>Membership</label>
+                <select
+                  value={membershipFilter}
+                  onChange={(e) => setMembershipFilter(e.target.value)}
+                  className={inputClass}
+                >
+                  <option value="">All Memberships</option>
+                  {options.memberships.map((name) => (
                     <option key={name} value={name}>
                       {name}
                     </option>
@@ -691,7 +739,7 @@ const FrozenMembers = () => {
 
         {/* Table */}
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1450px]">
+          <table className="w-full min-w-[1700px]">
             <thead>
               <tr className="border-b border-neutral-800 bg-neutral-950 text-left">
                 <th className="w-12 px-6 py-3">
@@ -723,7 +771,7 @@ const FrozenMembers = () => {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={13} className="px-6 py-16 text-center">
+                  <td colSpan={columnCount} className="px-6 py-16 text-center">
                     <div className="flex items-center justify-center gap-3 text-sm text-neutral-500">
                       <RefreshCcw size={16} className="animate-spin" />
                       Loading frozen members...
@@ -732,7 +780,7 @@ const FrozenMembers = () => {
                 </tr>
               ) : filteredMembers.length === 0 ? (
                 <tr>
-                  <td colSpan={13} className="px-6 py-16 text-center">
+                  <td colSpan={columnCount} className="px-6 py-16 text-center">
                     <div className="flex flex-col items-center justify-center">
                       <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-neutral-900">
                         <Filter size={20} className="text-neutral-600" />
@@ -774,6 +822,7 @@ const FrozenMembers = () => {
                         </button>
                       </td>
 
+                      {/* Name */}
                       <td className={cell} onClick={() => openMember(m.id)}>
                         <div className="font-medium text-white hover:text-lime-400">
                           {m.name}
@@ -784,6 +833,7 @@ const FrozenMembers = () => {
                         </div>
                       </td>
 
+                      {/* Phone */}
                       <td
                         className={`${cell} text-sm text-neutral-300`}
                         onClick={() => openMember(m.id)}
@@ -791,6 +841,7 @@ const FrozenMembers = () => {
                         {m.phone}
                       </td>
 
+                      {/* DOB */}
                       <td
                         className={`${cell} text-sm text-neutral-400`}
                         onClick={() => openMember(m.id)}
@@ -798,6 +849,7 @@ const FrozenMembers = () => {
                         {formatDate(m.dob)}
                       </td>
 
+                      {/* Branch */}
                       <td
                         className={`${cell} text-sm text-neutral-300`}
                         onClick={() => openMember(m.id)}
@@ -805,6 +857,7 @@ const FrozenMembers = () => {
                         {m.branch?.name || "-"}
                       </td>
 
+                      {/* Coach */}
                       <td
                         className={`${cell} text-sm text-neutral-300`}
                         onClick={() => openMember(m.id)}
@@ -812,18 +865,31 @@ const FrozenMembers = () => {
                         {m.coach?.name || "-"}
                       </td>
 
-                      <td className={cell} onClick={() => openMember(m.id)}>
-                        <div className="text-sm text-neutral-200">
-                          {m.membershipName || "-"}
-                        </div>
-
-                        {m.serviceName && (
-                          <div className="mt-0.5 text-xs text-neutral-600">
-                            {m.serviceName}
-                          </div>
-                        )}
+                      {/* Service */}
+                      <td
+                        className={`${cell} text-sm font-medium text-neutral-200`}
+                        onClick={() => openMember(m.id)}
+                      >
+                        {m.serviceName || "-"}
                       </td>
 
+                      {/* Subcategory */}
+                      <td
+                        className={`${cell} text-sm text-neutral-300`}
+                        onClick={() => openMember(m.id)}
+                      >
+                        {m.subCategoryName || "-"}
+                      </td>
+
+                      {/* Membership */}
+                      <td
+                        className={`${cell} text-sm text-neutral-200`}
+                        onClick={() => openMember(m.id)}
+                      >
+                        {m.membershipName || "-"}
+                      </td>
+
+                      {/* Freeze start */}
                       <td
                         className={`${cell} whitespace-nowrap text-sm text-blue-300`}
                         onClick={() => openMember(m.id)}
@@ -831,6 +897,7 @@ const FrozenMembers = () => {
                         {formatDate(m.freezeStart)}
                       </td>
 
+                      {/* Freeze end */}
                       <td
                         className={`${cell} whitespace-nowrap text-sm text-blue-300`}
                         onClick={() => openMember(m.id)}
@@ -838,6 +905,7 @@ const FrozenMembers = () => {
                         {formatDate(m.freezeEnd)}
                       </td>
 
+                      {/* Membership end */}
                       <td
                         className={`${cell} whitespace-nowrap text-sm text-neutral-400`}
                         onClick={() => openMember(m.id)}
@@ -845,6 +913,7 @@ const FrozenMembers = () => {
                         {formatDate(m.endDate)}
                       </td>
 
+                      {/* Onboarding */}
                       <td className={cell} onClick={() => openMember(m.id)}>
                         <span
                           className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${
@@ -857,6 +926,7 @@ const FrozenMembers = () => {
                         </span>
                       </td>
 
+                      {/* Status */}
                       <td className={cell} onClick={() => openMember(m.id)}>
                         <span className="inline-flex items-center rounded-full bg-blue-500/10 px-2.5 py-1 text-xs font-medium text-blue-400">
                           FROZEN

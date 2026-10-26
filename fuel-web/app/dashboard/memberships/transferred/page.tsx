@@ -7,7 +7,6 @@ import * as XLSX from "xlsx";
 import {
   Calendar,
   Check,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Download,
@@ -34,6 +33,8 @@ type TransferRow = {
   branchName: string | null;
   packageName: string | null;
   serviceName: string | null;
+  subCategoryId: string | null;
+  subCategoryName: string | null;
   startDate: string | null;
   endDate: string | null;
 
@@ -161,6 +162,7 @@ const Transferred = () => {
   const [branchFilter, setBranchFilter] = useState("");
   const [membershipFilter, setMembershipFilter] = useState("");
   const [serviceFilter, setServiceFilter] = useState("");
+  const [subCategoryFilter, setSubCategoryFilter] = useState("");
   const [modeFilter, setModeFilter] = useState("");
   const [byFilter, setByFilter] = useState("");
 
@@ -223,6 +225,7 @@ const Transferred = () => {
     const branches = new Set<string>();
     const memberships = new Set<string>();
     const services = new Set<string>();
+    const subCategories = new Set<string>();
     const modes = new Set<string>();
     const handlers = new Set<string>();
 
@@ -232,6 +235,14 @@ const Transferred = () => {
       if (t.serviceName) services.add(t.serviceName);
       if (t.paymentMode) modes.add(t.paymentMode);
       if (t.transferredByName) handlers.add(t.transferredByName);
+
+      // When a service is picked, only offer its own subcategories
+      if (
+        t.subCategoryName &&
+        (!serviceFilter || t.serviceName === serviceFilter)
+      ) {
+        subCategories.add(t.subCategoryName);
+      }
     }
 
     const sort = (set: Set<string>) =>
@@ -241,10 +252,11 @@ const Transferred = () => {
       branches: sort(branches),
       memberships: sort(memberships),
       services: sort(services),
+      subCategories: sort(subCategories),
       modes: sort(modes),
       handlers: sort(handlers),
     };
-  }, [transfers]);
+  }, [transfers, serviceFilter]);
 
   /* ---------------- FILTERING ---------------- */
 
@@ -292,6 +304,9 @@ const Transferred = () => {
       if (branchFilter && t.branchName !== branchFilter) return false;
       if (membershipFilter && t.packageName !== membershipFilter) return false;
       if (serviceFilter && t.serviceName !== serviceFilter) return false;
+      if (subCategoryFilter && t.subCategoryName !== subCategoryFilter) {
+        return false;
+      }
       if (modeFilter && t.paymentMode !== modeFilter) return false;
       if (byFilter && t.transferredByName !== byFilter) return false;
 
@@ -314,6 +329,7 @@ const Transferred = () => {
     branchFilter,
     membershipFilter,
     serviceFilter,
+    subCategoryFilter,
     modeFilter,
     byFilter,
     startFrom,
@@ -371,6 +387,7 @@ const Transferred = () => {
     setBranchFilter("");
     setMembershipFilter("");
     setServiceFilter("");
+    setSubCategoryFilter("");
     setModeFilter("");
     setByFilter("");
     setStartFrom("");
@@ -390,6 +407,7 @@ const Transferred = () => {
       branchFilter ||
       membershipFilter ||
       serviceFilter ||
+      subCategoryFilter ||
       modeFilter ||
       byFilter ||
       startFrom ||
@@ -420,6 +438,7 @@ const Transferred = () => {
       Email: t.email ?? "",
       Branch: t.branchName ?? "",
       Service: t.serviceName ?? "",
+      Subcategory: t.subCategoryName ?? "",
       Membership: t.packageName ?? "",
       "Start Date": formatDate(t.startDate),
       "End Date": formatDate(t.endDate),
@@ -450,8 +469,9 @@ const Transferred = () => {
           : "All",
       },
       { Filter: "Branch", Value: branchFilter || "All" },
-      { Filter: "Membership", Value: membershipFilter || "All" },
       { Filter: "Service", Value: serviceFilter || "All" },
+      { Filter: "Subcategory", Value: subCategoryFilter || "All" },
+      { Filter: "Membership", Value: membershipFilter || "All" },
       { Filter: "Payment Mode", Value: modeFilter || "All" },
       { Filter: "Transferred By", Value: byFilter || "All" },
       { Filter: "Start Date From", Value: startFrom || "All" },
@@ -486,23 +506,30 @@ const Transferred = () => {
 
   const openMember = (id: string) => router.push(`/dashboard/members/${id}`);
 
+  // Changing the service resets the subcategory so they never conflict
+  const changeService = (value: string) => {
+    setServiceFilter(value);
+    setSubCategoryFilter("");
+  };
+
   const textFilters: [string, string, (v: string) => void, string[], string][] =
     [
       ["Status", statusFilter, setStatusFilter, STATUS_OPTIONS, "All Statuses"],
       ["Branch", branchFilter, setBranchFilter, options.branches, "All Branches"],
+      ["Service", serviceFilter, changeService, options.services, "All Services"],
+      [
+        "Subcategory",
+        subCategoryFilter,
+        setSubCategoryFilter,
+        options.subCategories,
+        "All Subcategories",
+      ],
       [
         "Membership",
         membershipFilter,
         setMembershipFilter,
         options.memberships,
         "All Memberships",
-      ],
-      [
-        "Service",
-        serviceFilter,
-        setServiceFilter,
-        options.services,
-        "All Services",
       ],
       [
         "Payment Mode",
@@ -533,6 +560,8 @@ const Transferred = () => {
     "Name",
     "Contact",
     "Branch",
+    "Service",
+    "Subcategory",
     "Membership",
     "Start Date",
     "End Date",
@@ -540,6 +569,9 @@ const Transferred = () => {
     "Amount",
     "Status",
   ];
+
+  // checkbox + headings + bill
+  const columnCount = headings.length + 2;
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -750,7 +782,7 @@ const Transferred = () => {
 
       {/* Table */}
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[1400px]">
+        <table className="w-full min-w-[1700px]">
           <thead>
             <tr className="border-b border-neutral-800 bg-neutral-950 text-left">
               <th className="w-12 px-6 py-3">
@@ -784,7 +816,7 @@ const Transferred = () => {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={11} className="px-6 py-16 text-center">
+                <td colSpan={columnCount} className="px-6 py-16 text-center">
                   <div className="flex items-center justify-center gap-3 text-sm text-neutral-500">
                     <RefreshCcw size={16} className="animate-spin" />
                     Loading transferred memberships...
@@ -793,7 +825,7 @@ const Transferred = () => {
               </tr>
             ) : filtered.length === 0 ? (
               <tr>
-                <td colSpan={11} className="px-6 py-16 text-center">
+                <td colSpan={columnCount} className="px-6 py-16 text-center">
                   <div className="flex flex-col items-center justify-center">
                     <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-neutral-900">
                       <Filter size={20} className="text-neutral-600" />
@@ -873,14 +905,26 @@ const Transferred = () => {
                       {t.branchName || "-"}
                     </td>
 
+                    {/* Service */}
+                    <td
+                      className={`${cell} text-sm font-medium text-neutral-200`}
+                      onClick={() => openMember(t.memberId)}
+                    >
+                      {t.serviceName || "-"}
+                    </td>
+
+                    {/* Subcategory */}
+                    <td
+                      className={`${cell} text-sm text-neutral-300`}
+                      onClick={() => openMember(t.memberId)}
+                    >
+                      {t.subCategoryName || "-"}
+                    </td>
+
                     {/* Membership */}
                     <td className={cell} onClick={() => openMember(t.memberId)}>
                       <div className="font-medium text-neutral-200">
                         {t.packageName || "-"}
-                      </div>
-
-                      <div className="mt-0.5 text-xs text-neutral-600">
-                        {t.serviceName || ""}
                       </div>
                     </td>
 
