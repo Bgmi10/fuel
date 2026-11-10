@@ -3,10 +3,21 @@ import { Prisma } from "@prisma/client";
 import type { Server } from "socket.io";
 
 import { prisma } from "../../../prisma";
-import { broadcastInclude, buildTvPlans } from "./broadcast-service";
+import {
+  broadcastInclude,
+  buildTvPlans,
+  LATE_START_GRACE_MS,
+  shouldLoop,
+} from "./broadcast-service";
 import { toDateKey } from "./date-key";
 import { HttpError } from "./errors";
-import { PlanError, type BroadcastPlan } from "./plan";
+import {
+  normalizeTimers,
+  PlanError,
+  type BroadcastPlan,
+  type PlanIntensity,
+  type PlanTimers,
+} from "./plan";
 import { pairingRoom } from "./rooms";
 import {
   generateDeviceToken,
@@ -50,19 +61,29 @@ export async function authenticateTvRequest(req: Request): Promise<TvIdentity> {
   return device;
 }
 
+/** One card on the idle screen. The first one is shown large with every field. */
+export interface TvUpcoming {
+  broadcastId: string;
+  title: string | null;
+  subtitle: string | null;
+  mode: "SCHEDULE" | "TIMER_ONLY";
+  intensity: PlanIntensity | null;
+  /** Auto-start time. null => an admin starts it manually. */
+  nextSessionStartsAt: string | null;
+  /** First video thumbnail for the small preview image (may be null). */
+  thumbnailUrl: string | null;
+  videoCount: number;
+  /** Demonstration, warm-up, prepare, work, rest, sets, cycles, cycle rest, cool down. */
+  timers: PlanTimers;
+}
+
 export interface TvState {
   serverNow: number;
   device: { id: string; name: string; branchId: string; branchName: string };
   /** Plan of the broadcast this TV should be showing right now, if any. */
   current: BroadcastPlan | null;
-  /** Today's broadcasts that have not started, for the idle screen. */
-  upcoming: {
-    broadcastId: string;
-    title: string | null;
-    subtitle: string | null;
-    mode: "SCHEDULE" | "TIMER_ONLY";
-    nextSessionStartsAt: string | null;
-  }[];
+  /** Today's broadcasts that have not started, soonest first. */
+  upcoming: TvUpcoming[];
 }
 
 export async function getTvState(device: TvIdentity): Promise<TvState> {
@@ -86,14 +107,17 @@ export async function getTvState(device: TvIdentity): Promise<TvState> {
         status: "SCHEDULED",
         dateKey: toDateKey(new Date(now)),
         tvs: { some: { tvDeviceId: device.id } },
+        // Hide timed broadcasts whose slot was missed by more than the grace window.
+        OR: [
+          { nextSessionStartsAt: null },
+          { nextSessionStartsAt: { gt: new Date(now - LATE_START_GRACE_MS) } },
+        ],
       },
-      orderBy: { createdAt: "asc" },
-      select: {
-        id: true,
-        title: true,
-        subtitle: true,
-        mode: true,
-        nextSessionStartsAt: true,
+      include: {
+        exercises: {
+          orderBy: { sortOrder: "asc" },
+          select: { thumbnailUrl: true, durationSeconds: true },
+        },
       },
     }),
   ]);
@@ -102,13 +126,21 @@ export async function getTvState(device: TvIdentity): Promise<TvState> {
 
   if (running) {
     try {
-      current = buildTvPlans(running, now).get(device.id) ?? null;
+      const loop = await shouldLoop(running);
+      current = buildTvPlans(running, now, loop).get(device.id) ?? null;
     } catch (error) {
       if (!(error instanceof PlanError)) {
         throw error;
       }
     }
   }
+
+  const sorted = [...upcoming].sort(
+    (a, b) =>
+      (a.nextSessionStartsAt?.getTime() ?? Infinity) -
+        (b.nextSessionStartsAt?.getTime() ?? Infinity) ||
+      a.createdAt.getTime() - b.createdAt.getTime()
+  );
 
   return {
     serverNow: now,
@@ -119,12 +151,24 @@ export async function getTvState(device: TvIdentity): Promise<TvState> {
       branchName: branch?.name ?? "",
     },
     current,
-    upcoming: upcoming.map((row) => ({
+    upcoming: sorted.map((row) => ({
       broadcastId: row.id,
       title: row.title,
       subtitle: row.subtitle,
       mode: row.mode,
+      intensity: row.intensity,
       nextSessionStartsAt: row.nextSessionStartsAt?.toISOString() ?? null,
+      thumbnailUrl:
+        row.exercises.find((exercise) => exercise.thumbnailUrl)?.thumbnailUrl ??
+        null,
+      videoCount: row.exercises.length,
+      timers: normalizeTimers(
+        row,
+        row.exercises.reduce(
+          (max, exercise) => Math.max(max, exercise.durationSeconds ?? 0),
+          0
+        )
+      ),
     })),
   };
 }

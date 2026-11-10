@@ -1,4 +1,3 @@
-
 "use client";
 
 import Image from "next/image";
@@ -446,6 +445,65 @@ export default function ServicePage() {
   };
 
   // ===================================================
+  // BOOK FREE TRIAL CTA
+  // Rendered below the packages:
+  //  - inside each subcategory dropdown (subCategory provided)
+  //  - directly below the service-level packages (subCategory = null)
+  // ===================================================
+
+  const renderBookTrialCTA = (
+    subCategory: ServiceSubCategory | null
+  ) => {
+    const programName = subCategory?.name || service.name;
+
+    return (
+      <div
+        className={`relative overflow-hidden rounded-[28px] border border-lime-400/20 bg-neutral-950 px-6 py-9 md:px-10 md:py-11 lg:px-12 ${
+          subCategory ? "mt-10" : ""
+        }`}
+      >
+        <div className="pointer-events-none absolute -right-20 -top-24 h-[300px] w-[300px] rounded-full bg-lime-400/[0.08] blur-[100px]" />
+
+        <div className="absolute left-10 top-0 h-[3px] w-20 bg-lime-400" />
+
+        <div className="relative z-10 flex flex-col gap-7 lg:flex-row lg:items-center lg:justify-between">
+          <div className="max-w-3xl">
+            <p className="text-xs font-bold uppercase tracking-[0.3em] text-lime-400">
+              Ready To Start?
+            </p>
+
+            <h2
+              className={`mt-3 font-black uppercase leading-tight tracking-tight text-white ${
+                subCategory
+                  ? "text-2xl md:text-3xl lg:text-4xl"
+                  : "text-3xl md:text-4xl lg:text-5xl"
+              }`}
+            >
+              Experience{" "}
+              <span className="text-lime-400">{programName}</span> At
+              Fuel
+            </h2>
+
+            <p className="mt-4 max-w-2xl text-sm leading-7 text-neutral-400 md:text-base">
+              Book a free trial session and experience our structured
+              training, expert coaching and FUEL community before
+              choosing your membership.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setIsBookTrialOpen(true)}
+            className="h-13 min-w-[190px] shrink-0 rounded-xl bg-lime-400 px-7 text-sm font-black uppercase tracking-wide text-black shadow-[0_0_30px_rgba(163,230,53,0.18)] transition-all duration-300 hover:scale-[1.02] hover:bg-lime-300 hover:shadow-[0_0_40px_rgba(163,230,53,0.28)]"
+          >
+            Book Free Trial
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  // ===================================================
   // SCHEDULE CARD
   // ===================================================
 
@@ -730,6 +788,9 @@ export default function ServicePage() {
                           </p>
                         </div>
                       )}
+
+                      {/* BOOK FREE TRIAL — BELOW THIS SUBCATEGORY'S PACKAGES */}
+                      {renderBookTrialCTA(subCategory)}
                     </div>
                   )}
                 </div>
@@ -842,89 +903,57 @@ export default function ServicePage() {
       </section>
 
       {/* ================================================= */}
-      {/* SERVICE-LEVEL PACKAGES */}
+      {/* SERVICE-LEVEL PACKAGES + BOOK FREE TRIAL */}
+      {/* (only for services without subcategories) */}
       {/* ================================================= */}
 
       {!hasSubCategories && (
-        <section className="border-t border-neutral-900 bg-neutral-950 px-6 py-16 md:py-20">
-          <div className="mx-auto max-w-7xl">
-            <div className="max-w-3xl">
-              <p className="text-xs font-bold uppercase tracking-[0.3em] text-lime-400">
-                Membership Options
-              </p>
+        <>
+          <section className="border-t border-neutral-900 bg-neutral-950 px-6 py-16 md:py-20">
+            <div className="mx-auto max-w-7xl">
+              <div className="max-w-3xl">
+                <p className="text-xs font-bold uppercase tracking-[0.3em] text-lime-400">
+                  Membership Options
+                </p>
 
-              <h2 className="mt-4 text-4xl font-black uppercase tracking-tight md:text-5xl">
-                Choose Your{" "}
-                <span className="text-lime-400">Package</span>
-              </h2>
+                <h2 className="mt-4 text-4xl font-black uppercase tracking-tight md:text-5xl">
+                  Choose Your{" "}
+                  <span className="text-lime-400">Package</span>
+                </h2>
 
-              <p className="mt-4 leading-7 text-neutral-500">
-                Select the membership option that works best for your
-                training goals.
-              </p>
-            </div>
-
-            {packages.length > 0 ? (
-              <div className="mt-10 grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
-                {packages.map((pkg) => renderPackageCard(pkg, null))}
-              </div>
-            ) : (
-              <div className="mt-10 rounded-3xl border border-neutral-800 bg-neutral-900/50 px-6 py-14 text-center">
-                <h3 className="text-2xl font-bold">
-                  Packages Coming Soon
-                </h3>
-
-                <p className="mt-3 text-neutral-500">
-                  Membership packages for this service are currently
-                  unavailable.
+                <p className="mt-4 leading-7 text-neutral-500">
+                  Select the membership option that works best for your
+                  training goals.
                 </p>
               </div>
-            )}
-          </div>
-        </section>
-      )}
 
-      {/* ================================================= */}
-      {/* BOOK FREE TRIAL CTA — NOW AFTER PACKAGES */}
-      {/* ================================================= */}
+              {packages.length > 0 ? (
+                <div className="mt-10 grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+                  {packages.map((pkg) => renderPackageCard(pkg, null))}
+                </div>
+              ) : (
+                <div className="mt-10 rounded-3xl border border-neutral-800 bg-neutral-900/50 px-6 py-14 text-center">
+                  <h3 className="text-2xl font-bold">
+                    Packages Coming Soon
+                  </h3>
 
-      <section className="relative bg-black px-6 pb-16 md:px-10 md:pb-20">
-        <div className="relative mx-auto max-w-7xl overflow-hidden rounded-[28px] border border-lime-400/20 bg-neutral-950 px-6 py-9 md:px-10 md:py-11 lg:px-12">
-          <div className="pointer-events-none absolute -right-20 -top-24 h-[300px] w-[300px] rounded-full bg-lime-400/[0.08] blur-[100px]" />
-
-          <div className="absolute left-10 top-0 h-[3px] w-20 bg-lime-400" />
-
-          <div className="relative z-10 flex flex-col gap-7 lg:flex-row lg:items-center lg:justify-between">
-            <div className="max-w-3xl">
-              <p className="text-xs font-bold uppercase tracking-[0.3em] text-lime-400">
-                Ready To Start?
-              </p>
-
-              <h2 className="mt-3 text-3xl font-black uppercase leading-tight tracking-tight text-white md:text-4xl lg:text-5xl">
-                Experience{" "}
-                <span className="text-lime-400">
-                  {service.name}
-                </span>{" "}
-                At Fuel
-              </h2>
-
-              <p className="mt-4 max-w-2xl text-sm leading-7 text-neutral-400 md:text-base">
-                Book a free trial session and experience our structured
-                training, expert coaching and FUEL community before
-                choosing your membership.
-              </p>
+                  <p className="mt-3 text-neutral-500">
+                    Membership packages for this service are currently
+                    unavailable.
+                  </p>
+                </div>
+              )}
             </div>
+          </section>
 
-            <button
-              type="button"
-              onClick={() => setIsBookTrialOpen(true)}
-              className="h-13 min-w-[190px] shrink-0 rounded-xl bg-lime-400 px-7 text-sm font-black uppercase tracking-wide text-black shadow-[0_0_30px_rgba(163,230,53,0.18)] transition-all duration-300 hover:scale-[1.02] hover:bg-lime-300 hover:shadow-[0_0_40px_rgba(163,230,53,0.28)]"
-            >
-              Book Free Trial
-            </button>
-          </div>
-        </div>
-      </section>
+          {/* BOOK FREE TRIAL — DIRECTLY BELOW PACKAGES */}
+          <section className="relative bg-black px-6 py-16 md:px-10 md:py-20">
+            <div className="mx-auto max-w-7xl">
+              {renderBookTrialCTA(null)}
+            </div>
+          </section>
+        </>
+      )}
 
       {/* ================================================= */}
       {/* SUBSCRIBE MODAL */}

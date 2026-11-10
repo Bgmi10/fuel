@@ -1,0 +1,1749 @@
+/**
+ * prisma/seed.ts
+ *
+ * Test-data seed that touches EVERY table in the schema.
+ *
+ * Run:
+ *   npm i -D tsx            (or ts-node)
+ *   npm i bcryptjs && npm i -D @types/bcryptjs
+ *
+ *   package.json:
+ *     "prisma": { "seed": "tsx prisma/seed.ts" }
+ *
+ *   npx prisma db seed
+ *
+ * WARNING: this script WIPES all data first. It refuses to run when
+ * NODE_ENV=production unless ALLOW_SEED=true is set.
+ *
+ * Money is stored in paise (Int), same as ServicePackage.price.
+ * Dates/dateKeys are Asia/Kolkata, relative to "today", so the data
+ * always looks fresh whenever you re-seed.
+ *
+ * Seeded logins (password for every user: Test@1234)
+ *   admin@fuelgym.test, manager@fuelgym.test, staff@fuelgym.test,
+ *   coach1@fuelgym.test, coach2@fuelgym.test
+ *
+ * Test scenarios worth trying on the website:
+ *   - "Group Training"      -> has subcategories (Zumba / Yoga / HIIT), each
+ *                              dropdown shows packages + its own trial CTA
+ *   - "Personal Training"   -> no subcategories
+ *   - "Strength & Cardio"   -> no subcategories
+ *   - "Pilates" (inactive)  -> should show "Service Not Available"
+ */
+
+import { PrismaClient } from "@prisma/client";
+import type {
+  Branch,
+  Coupon,
+  InvoiceIntent,
+  InvoicePaymentStatus,
+  InvoiceStatus,
+  Member,
+  PaymentType,
+  Service,
+  ServicePackage,
+  ServiceSubCategory,
+  Slot,
+  SlotWeekday,
+  SubscriptionStatus,
+  TvDevice,
+  User,
+  WorkoutBroadcastMode,
+  WorkoutBroadcastStatus,
+  WorkoutIntensity,
+  WorkoutSchedule,
+  WorkoutVideo,
+} from "@prisma/client";
+import { hashSync } from "bcryptjs";
+import { createHash } from "crypto";
+
+const prisma = new PrismaClient();
+
+// =====================================================
+// DATE HELPERS (Asia/Kolkata)
+// =====================================================
+
+const TZ = "Asia/Kolkata";
+const DAY = 86_400_000;
+const NOW = new Date();
+
+const addDays = (d: Date, n: number) => new Date(d.getTime() + n * DAY);
+
+const dateKeyOf = (d: Date) =>
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone: TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d); // YYYY-MM-DD
+
+/** "YYYY-MM-DD" for today + n days */
+const dayKey = (n: number) => dateKeyOf(addDays(NOW, n));
+
+/** Midnight (IST) of today + n days */
+const dayStart = (n: number) => new Date(`${dayKey(n)}T00:00:00+05:30`);
+
+/** Specific time (IST) on today + n days */
+const at = (n: number, hh: number, mm = 0) =>
+  new Date(
+    `${dayKey(n)}T${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:00+05:30`
+  );
+
+const pad = (n: number, len = 4) => String(n).padStart(len, "0");
+
+const sha256 = (value: string) =>
+  createHash("sha256").update(value).digest("hex");
+
+// =====================================================
+// MONEY / TAX HELPERS
+// =====================================================
+
+const GST = 9; // % each for CGST and SGST (matches Setting below)
+
+function priced(base: number, discount = 0, referralDiscount = 0) {
+  const taxable = base - discount - referralDiscount;
+  const cgstAmount = +((taxable * GST) / 100).toFixed(2);
+  const sgstAmount = cgstAmount;
+  const totalTax = +(cgstAmount + sgstAmount).toFixed(2);
+
+  return {
+    packageAmount: base,
+    discountAmount: discount,
+    referralDiscountAmount: referralDiscount,
+    cgstPercentage: GST,
+    sgstPercentage: GST,
+    cgstAmount,
+    sgstAmount,
+    totalTax,
+    finalAmount: Math.round(taxable + totalTax),
+  };
+}
+
+let invoiceSeq = 1;
+let receiptSeq = 1;
+const YEAR = NOW.getFullYear();
+
+type PaymentSpec = {
+  type: PaymentType;
+  /** fraction of the invoice's final amount, e.g. 0.5 */
+  ratio: number;
+  mode: "CASH" | "UPI" | "CARD" | "ONLINE";
+  status?: InvoicePaymentStatus;
+  daysAfter?: number;
+};
+
+type InvoiceOpts = {
+  member: Member;
+  branch: Branch;
+  service: Service;
+  pkg: ServicePackage;
+  subCategory?: ServiceSubCategory | null;
+  intent: InvoiceIntent;
+  discount?: number;
+  referralDiscount?: number;
+  baseAmount?: number;
+  status?: InvoiceStatus;
+  salesRep?: User | null;
+  linkedSubscriptionId?: string | null;
+  groupMemberCount?: number;
+  groupDiscountPercentage?: number;
+  notes?: string;
+  createdDaysAgo?: number;
+  payments?: PaymentSpec[];
+};
+
+async function makeInvoice(o: InvoiceOpts) {
+  const base = o.baseAmount ?? o.pkg.price;
+  const t = priced(base, o.discount ?? 0, o.referralDiscount ?? 0);
+
+  const payments = (o.payments ?? []).map((p) => ({
+    ...p,
+    amount: Math.round(t.finalAmount * p.ratio),
+    status: (p.status ?? "PAID") as InvoicePaymentStatus,
+  }));
+
+  const paid = payments
+    .filter((p) => p.status === "PAID")
+    .reduce((sum, p) => sum + p.amount, 0);
+
+  const status: InvoiceStatus =
+    o.status ??
+    (paid === 0 ? "PENDING" : paid >= t.finalAmount ? "FULLY_PAID" : "PARTIAL_PAID");
+
+  const createdAt = addDays(NOW, -(o.createdDaysAgo ?? 0));
+
+  const invoice = await prisma.invoice.create({
+    data: {
+      invoiceNumber: `INV-${YEAR}-${pad(invoiceSeq++)}`,
+      memberId: o.member.id,
+      branchId: o.branch.id,
+      packageId: o.pkg.id,
+      subCategoryId: o.subCategory?.id ?? null,
+      linkedSubscriptionId: o.linkedSubscriptionId ?? null,
+      salesRepId: o.salesRep?.id ?? null,
+      salesRepName: o.salesRep?.name ?? null,
+      intent: o.intent,
+      serviceName: o.service.name,
+      packageName: o.pkg.name,
+      packageDurationInDays: o.pkg.durationInDays,
+      branchName: o.branch.name,
+      memberName: o.member.name,
+      memberPhone: o.member.phone,
+      memberEmail: o.member.email,
+      ...t,
+      paidAmount: paid,
+      balanceAmount: status === "CANCELLED" ? 0 : t.finalAmount - paid,
+      status,
+      groupMemberCount: o.groupMemberCount ?? null,
+      groupDiscountPercentage: o.groupDiscountPercentage ?? null,
+      notes: o.notes ?? null,
+      createdAt,
+    },
+  });
+
+  for (const p of payments) {
+    await prisma.payment.create({
+      data: {
+        receiptNumber: `RCPT-${YEAR}-${pad(receiptSeq++)}`,
+        invoiceId: invoice.id,
+        memberId: o.member.id,
+        amount: p.amount,
+        paymentMode: p.mode,
+        paymentType: p.type,
+        status: p.status,
+        ...(p.mode === "ONLINE"
+          ? {
+              razorpayOrderId: `order_TEST${pad(receiptSeq, 6)}`,
+              razorpayPaymentId: `pay_TEST${pad(receiptSeq, 6)}`,
+              razorpaySignature: sha256(`sig-${invoice.id}-${receiptSeq}`),
+            }
+          : {}),
+        paidAt: addDays(createdAt, p.daysAfter ?? 0),
+        createdAt,
+      },
+    });
+  }
+
+  return { invoice, totals: t };
+}
+
+type SubscriptionOpts = {
+  member: Member;
+  branch: Branch;
+  service: Service;
+  pkg: ServicePackage;
+  subCategory?: ServiceSubCategory | null;
+  invoiceId?: string | null;
+  /** negative = started in the past */
+  startOffsetDays: number;
+  status: SubscriptionStatus;
+  finalPrice: number;
+  originalPrice?: number | null;
+  remainingSessions?: number | null;
+  freezeStartOffset?: number;
+  freezeEndOffset?: number;
+  endOverride?: Date;
+};
+
+async function makeSubscription(o: SubscriptionOpts) {
+  const startDate = dayStart(o.startOffsetDays);
+  const endDate = o.endOverride ?? addDays(startDate, o.pkg.durationInDays);
+
+  return prisma.subscription.create({
+    data: {
+      memberId: o.member.id,
+      branchId: o.branch.id,
+      packageId: o.pkg.id,
+      subCategoryId: o.subCategory?.id ?? null,
+      invoiceId: o.invoiceId ?? null,
+      serviceName: o.service.name,
+      packageName: o.pkg.name,
+      packageDurationInDays: o.pkg.durationInDays,
+      originalPrice: o.originalPrice ?? o.pkg.originalPrice ?? null,
+      finalPrice: o.finalPrice,
+      branchName: o.branch.name,
+      usageType: o.pkg.usageType,
+      totalSessions: o.pkg.totalSessions ?? null,
+      remainingSessions: o.remainingSessions ?? null,
+      startDate,
+      endDate,
+      freezeStart:
+        o.freezeStartOffset !== undefined ? dayStart(o.freezeStartOffset) : null,
+      freezeEnd:
+        o.freezeEndOffset !== undefined ? dayStart(o.freezeEndOffset) : null,
+      status: o.status,
+      createdAt: startDate,
+    },
+  });
+}
+
+// =====================================================
+// CLEANUP
+// =====================================================
+
+async function wipe() {
+  // Children first. Invoice <-> Subscription is circular, so null the link.
+  await prisma.memberAttendance.deleteMany();
+  await prisma.slotBooking.deleteMany();
+  await prisma.membershipTransfer.deleteMany();
+  await prisma.referral.deleteMany();
+  await prisma.payment.deleteMany();
+  await prisma.invoice.updateMany({ data: { linkedSubscriptionId: null } });
+  await prisma.subscription.deleteMany();
+  await prisma.invoice.deleteMany();
+  await prisma.slot.deleteMany();
+
+  await prisma.notification.deleteMany();
+  await prisma.foodLogMealItem.deleteMany();
+  await prisma.foodLogMeal.deleteMany();
+  await prisma.foodLog.deleteMany();
+  await prisma.dietPlanMealItem.deleteMany();
+  await prisma.dietPlanMeal.deleteMany();
+  await prisma.dietPlan.deleteMany();
+  await prisma.workoutExercise.deleteMany();
+  await prisma.workoutDay.deleteMany();
+  await prisma.workoutPlan.deleteMany();
+  await prisma.fitnessAssessment.deleteMany();
+  await prisma.member.deleteMany();
+
+  await prisma.attendance.deleteMany();
+  await prisma.payroll.deleteMany();
+  await prisma.employee.deleteMany();
+  await prisma.expense.deleteMany();
+  await prisma.user.deleteMany();
+
+  await prisma.coupon.deleteMany();
+  await prisma.serviceTrial.deleteMany();
+  await prisma.servicePackageSubCategory.deleteMany();
+  await prisma.servicePackage.deleteMany();
+  await prisma.serviceSchedule.deleteMany();
+  await prisma.serviceSubCategory.deleteMany();
+  await prisma.serviceWebsiteContent.deleteMany();
+  await prisma.service.deleteMany();
+
+  // Fuel TV
+  await prisma.workoutBroadcastTVExercise.deleteMany();
+  await prisma.workoutBroadcastTV.deleteMany();
+  await prisma.workoutBroadcastExercise.deleteMany();
+  await prisma.workoutBroadcast.deleteMany();
+  await prisma.tvPairingSession.deleteMany();
+  await prisma.tvDevice.deleteMany();
+  await prisma.workoutScheduleExercise.deleteMany();
+  await prisma.workoutSchedule.deleteMany();
+  await prisma.workoutProgramItem.deleteMany();
+  await prisma.workoutProgram.deleteMany();
+  await prisma.workoutVideo.deleteMany();
+
+  await prisma.branch.deleteMany();
+
+  await prisma.blogFaq.deleteMany();
+  await prisma.blog.deleteMany();
+  await prisma.blogCategory.deleteMany();
+  await prisma.setting.deleteMany();
+  await prisma.campaign.deleteMany();
+  await prisma.contactInquiry.deleteMany();
+  await prisma.trialBooking.deleteMany();
+}
+
+// =====================================================
+// MAIN
+// =====================================================
+
+async function main() {
+  if (process.env.NODE_ENV === "production" && process.env.ALLOW_SEED !== "true") {
+    throw new Error(
+      "Refusing to seed in production. Set ALLOW_SEED=true to override."
+    );
+  }
+
+  console.log("Wiping existing data...");
+  await wipe();
+
+  // ---------------------------------------------------
+  // SETTINGS
+  // ---------------------------------------------------
+  // NOTE: JSON shapes below are assumptions; adjust to what your admin UI writes.
+  await prisma.setting.create({
+    data: {
+      cgstPercentage: GST,
+      sgstPercentage: GST,
+      referralRewardType: "FIXED_AMOUNT",
+      referralRewardAmount: 500,
+      referralRewardPercentage: 10,
+      referralMembershipDays: 7,
+      groupJoiningEnabled: true,
+      groupJoiningMaxMembers: 5,
+      groupDiscountApplicability: ["NEW", "EXTEND"],
+      groupDiscountRules: [
+        { id: "grp-2", minMembers: 2, discountPercent: 5 },
+        { id: "grp-3", minMembers: 3, discountPercent: 10 },
+        { id: "grp-5", minMembers: 5, discountPercent: 15 },
+      ],
+      membershipTransferFeeRules: [
+        { id: "slab-1", label: "0 – 30 days left", minDays: 0, maxDays: 30, fee: 50000 },
+        { id: "slab-2", label: "31 – 90 days left", minDays: 31, maxDays: 90, fee: 100000 },
+        { id: "slab-3", label: "91+ days left", minDays: 91, maxDays: 365, fee: 200000 },
+      ],
+    },
+  });
+
+  // ---------------------------------------------------
+  // BRANCHES
+  // ---------------------------------------------------
+  const branch1 = await prisma.branch.create({
+    data: {
+      name: "Fuel Gym - Anna Nagar",
+      address: "12, 2nd Avenue, Anna Nagar, Chennai 600040",
+      phone: "9840000001",
+      gstNumber: "33ABCDE1234F1Z5",
+      terms:
+        "1. Memberships are non-refundable.\n2. Carry a towel and water bottle.\n3. Management may revise timings with notice.",
+      supportEmail: "annanagar@fuelgym.test",
+      supportPhone: "9840000011",
+    },
+  });
+
+  const branch2 = await prisma.branch.create({
+    data: {
+      name: "Fuel Gym - Velachery",
+      address: "45, Velachery Main Road, Chennai 600042",
+      phone: "9840000002",
+      gstNumber: "33ABCDE1234F1Z6",
+      terms: "Standard Fuel Gym terms and conditions apply.",
+      supportEmail: "velachery@fuelgym.test",
+      supportPhone: "9840000022",
+    },
+  });
+
+  // ---------------------------------------------------
+  // USERS (staff) + EMPLOYEES + ATTENDANCE + PAYROLL + EXPENSES
+  // ---------------------------------------------------
+  const password = hashSync("Test@1234", 10);
+
+  const mkUser = (name: string, email: string, role: User["role"], branchId: string | null) =>
+    prisma.user.create({ data: { name, email, password, role, branchId } });
+
+  const admin = await mkUser("Fuel Admin", "admin@fuelgym.test", "ADMIN", null);
+  const manager = await mkUser("Meena Manager", "manager@fuelgym.test", "MANAGER", branch1.id);
+  const staff = await mkUser("Suresh Staff", "staff@fuelgym.test", "STAFF", branch1.id);
+  const coach1 = await mkUser("Coach Aravind", "coach1@fuelgym.test", "COACH", branch1.id);
+  const coach2 = await mkUser("Coach Nisha", "coach2@fuelgym.test", "COACH", branch2.id);
+
+  const empManager = await prisma.employee.create({
+    data: { userId: manager.id, basicSalary: 45000, salaryType: "MONTHLY", bankName: "HDFC Bank", accountNo: "50100000000001", ifscCode: "HDFC0000123" },
+  });
+  const empStaff = await prisma.employee.create({
+    data: { userId: staff.id, basicSalary: 22000, salaryType: "MONTHLY", bankName: "SBI", accountNo: "30000000000002", ifscCode: "SBIN0000456" },
+  });
+  const empCoach1 = await prisma.employee.create({
+    data: { userId: coach1.id, basicSalary: 35000, salaryType: "MONTHLY", bankName: "ICICI Bank", accountNo: "00010000000003", ifscCode: "ICIC0000789" },
+  });
+  const empCoach2 = await prisma.employee.create({
+    data: { userId: coach2.id, basicSalary: 400, salaryType: "HOURLY", bankName: "Axis Bank", accountNo: "91000000000004", ifscCode: "UTIB0000321" },
+  });
+  // Employee without a login (e.g. housekeeping)
+  const empHousekeeping = await prisma.employee.create({
+    data: { userId: null, basicSalary: 12000, salaryType: "MONTHLY", bankName: null, accountNo: null, ifscCode: null },
+  });
+
+  const employees = [empManager, empStaff, empCoach1, empCoach2, empHousekeeping];
+
+  // Last 6 days of staff attendance
+  for (const emp of employees) {
+    for (let d = -5; d <= 0; d++) {
+      const roll = (d + 10 + employees.indexOf(emp)) % 6;
+      const status = roll === 0 ? "ABSENT" : roll === 1 ? "HALFDAY" : roll === 2 && d < 0 ? "LEAVE" : "PRESENT";
+      await prisma.attendance.create({
+        data: {
+          employeeId: emp.id,
+          date: dayStart(d),
+          status,
+          checkIn: status === "ABSENT" || status === "LEAVE" ? null : at(d, 6, 0),
+          checkOut: status === "ABSENT" || status === "LEAVE" || d === 0 ? null : at(d, status === "HALFDAY" ? 12 : 15, 0),
+        },
+      });
+    }
+  }
+
+  // Payroll for last month
+  const prev = new Date(NOW.getFullYear(), NOW.getMonth() - 1, 1);
+  const payMonth = prev.getMonth() + 1;
+  const payYear = prev.getFullYear();
+  const payrollRows: [typeof empManager, number, number, number, number, "CASH" | "BANK_TRANSFER" | "UPI"][] = [
+    [empManager, 45000, 5000, 0, 0, "BANK_TRANSFER"],
+    [empStaff, 22000, 1500, 500, 2000, "BANK_TRANSFER"],
+    [empCoach1, 35000, 8000, 0, 0, "UPI"],
+    [empCoach2, 28000, 2000, 0, 0, "BANK_TRANSFER"],
+    [empHousekeeping, 12000, 0, 0, 1000, "CASH"],
+  ];
+  for (const [emp, basic, incentive, deduction, advance, method] of payrollRows) {
+    await prisma.payroll.create({
+      data: {
+        employeeId: emp.id,
+        month: payMonth,
+        year: payYear,
+        basicSalary: basic,
+        incentive,
+        deduction,
+        advanceDeduction: advance,
+        netSalary: basic + incentive - deduction - advance,
+        paidMethod: method,
+      },
+    });
+  }
+
+  // Expenses
+  const expenseRows: [string, "RENT" | "UTILITIES" | "SALARY" | "EQUIPMENT" | "MAINTENANCE" | "MARKETING" | "SUPPLIES" | "INSURANCE" | "TAXES" | "OTHER", number, number][] = [
+    ["Monthly rent - Anna Nagar", "RENT", 185000, -20],
+    ["Electricity bill", "UTILITIES", 42000, -12],
+    ["Dumbbell set replacement", "EQUIPMENT", 96000, -9],
+    ["Treadmill servicing", "MAINTENANCE", 18000, -7],
+    ["Instagram ad campaign", "MARKETING", 25000, -5],
+    ["Cleaning supplies", "SUPPLIES", 6500, -3],
+    ["Fire & liability insurance", "INSURANCE", 54000, -2],
+    ["Misc. expense", "OTHER", 3200, -1],
+  ];
+  for (const [description, expenseType, amount, d] of expenseRows) {
+    await prisma.expense.create({
+      data: { description, expenseType, amount, date: dayStart(d), byUserId: manager.id },
+    });
+  }
+  await prisma.expense.create({
+    data: { description: "Undated petty cash", expenseType: "OTHER", amount: null, date: null, byUserId: staff.id },
+  });
+
+  // ---------------------------------------------------
+  // SERVICES / SUBCATEGORIES / WEBSITE CONTENT / SCHEDULES
+  // ---------------------------------------------------
+  const bothBranches = [{ id: branch1.id }, { id: branch2.id }];
+
+  const groupService = await prisma.service.create({
+    data: {
+      name: "Group Training",
+      sortOrder: 1,
+      thumbnailImage: "/service-placeholder.webp",
+      coverImage: "/service-placeholder.webp",
+      branches: { connect: bothBranches },
+    },
+  });
+  const ptService = await prisma.service.create({
+    data: {
+      name: "Personal Training",
+      sortOrder: 2,
+      thumbnailImage: "/service-placeholder.webp",
+      coverImage: "/service-placeholder.webp",
+      branches: { connect: bothBranches },
+    },
+  });
+  const strengthService = await prisma.service.create({
+    data: {
+      name: "Strength & Cardio",
+      sortOrder: 3,
+      thumbnailImage: "/service-placeholder.webp",
+      coverImage: null, // tests the thumbnail / placeholder fallback
+      branches: { connect: bothBranches },
+    },
+  });
+  const pilatesService = await prisma.service.create({
+    data: {
+      name: "Pilates",
+      sortOrder: 4,
+      isActive: false,
+      branches: { connect: [{ id: branch1.id }] },
+    },
+  });
+
+  // Website content
+  const groupContent = await prisma.serviceWebsiteContent.create({
+    data: {
+      serviceId: groupService.id,
+      title: "Group Training",
+      tagline: "Train together. Stay consistent.",
+      description: "High-energy coached classes for every fitness level.",
+      eyebrow: "Group Classes",
+      heroTitle: "Coached classes that keep you showing up",
+      intro: [
+        "Our group programs combine expert coaching with the energy of a community.",
+        "Pick a class style that suits your goals, then choose a membership that fits your schedule.",
+      ],
+      closing: "Every class is capped so coaches can give you real attention.",
+      benefits: ["Expert coaching", "Structured progression", "Community accountability", "All fitness levels welcome"],
+      idealFor: ["Beginners", "Busy professionals", "Weight loss goals", "Stress relief"],
+    },
+  });
+
+  const ptContent = await prisma.serviceWebsiteContent.create({
+    data: {
+      serviceId: ptService.id,
+      title: "Personal Training",
+      tagline: "One coach. One plan. Your results.",
+      description: "One-on-one coaching built around you.",
+      eyebrow: "1-on-1 Coaching",
+      heroTitle: "A plan built around your body and your schedule",
+      intro: ["Work one-on-one with a certified coach.", "Includes assessments, a custom workout plan and regular progress reviews."],
+      closing: "Your coach adjusts the plan as you progress.",
+      benefits: ["Custom workout plan", "Diet guidance", "Monthly body assessment", "Flexible timings"],
+      idealFor: ["Fat loss", "Muscle gain", "Rehab & mobility", "Competition prep"],
+    },
+  });
+
+  const strengthContent = await prisma.serviceWebsiteContent.create({
+    data: {
+      serviceId: strengthService.id,
+      title: "Strength & Cardio",
+      tagline: "Everything you need on the floor.",
+      description: "Full access to our strength and cardio floor.",
+      eyebrow: "Gym Floor",
+      heroTitle: "Premium equipment, open six days a week",
+      intro: ["Free weights, machines, cardio and a stretching zone.", "Floor trainers are available during peak hours."],
+      closing: "Come in, train hard, recover well.",
+      benefits: ["Full equipment access", "Floor trainer support", "Locker & shower access"],
+      idealFor: ["Self-guided lifters", "Cardio lovers", "Athletes"],
+    },
+  });
+
+  // Service-level timings (shown for services WITHOUT subcategories)
+  await prisma.serviceSchedule.createMany({
+    data: [
+      {
+        websiteContentId: strengthContent.id,
+        label: "Weekdays",
+        sortOrder: 1,
+        times: [
+          { label: "Morning", times: ["5:30 AM - 10:00 AM"] },
+          { label: "Evening", times: ["4:30 PM - 10:00 PM"] },
+        ],
+      },
+      {
+        websiteContentId: strengthContent.id,
+        label: "Weekends",
+        sortOrder: 2,
+        // OLD format (plain string array) to test backward compatibility
+        times: ["6:00 AM - 12:00 PM", "5:00 PM - 8:00 PM"],
+      },
+      {
+        websiteContentId: ptContent.id,
+        label: "Coaching Hours",
+        sortOrder: 1,
+        times: [
+          { label: "Morning", times: ["6:00 AM", "7:00 AM", "8:00 AM"] },
+          { label: "Evening", times: ["5:00 PM", "6:00 PM", "7:00 PM"] },
+        ],
+      },
+    ],
+  });
+
+  // Subcategories for Group Training
+  const zumba = await prisma.serviceSubCategory.create({
+    data: {
+      serviceId: groupService.id,
+      name: "Zumba",
+      tagline: "Dance your way fit",
+      description: "A 60-minute dance-fitness party that burns up to 600 calories.",
+      image: "/service-placeholder.webp",
+      sortOrder: 1,
+    },
+  });
+  const yoga = await prisma.serviceSubCategory.create({
+    data: {
+      serviceId: groupService.id,
+      name: "Yoga",
+      tagline: "Strength, balance, calm",
+      description: "Vinyasa and Hatha flows for flexibility and focus.",
+      image: null, // tests missing image
+      sortOrder: 2,
+    },
+  });
+  const hiit = await prisma.serviceSubCategory.create({
+    data: {
+      serviceId: groupService.id,
+      name: "HIIT",
+      tagline: "Short. Intense. Effective.",
+      description: "45-minute interval training for maximum fat burn.",
+      image: "/service-placeholder.webp",
+      sortOrder: 3,
+    },
+  });
+  // Inactive subcategory (should be hidden on the website)
+  await prisma.serviceSubCategory.create({
+    data: {
+      serviceId: groupService.id,
+      name: "Aerobics (Retired)",
+      description: "No longer offered.",
+      sortOrder: 4,
+      isActive: false,
+    },
+  });
+  // Subcategory with NO packages -> tests "Packages Coming Soon"
+  const kickboxing = await prisma.serviceSubCategory.create({
+    data: {
+      serviceId: groupService.id,
+      name: "Kickboxing",
+      tagline: "Coming this season",
+      description: "Pad work and conditioning drills.",
+      sortOrder: 5,
+    },
+  });
+
+  await prisma.serviceSchedule.createMany({
+    data: [
+      {
+        subCategoryId: zumba.id,
+        label: "Mon / Wed / Fri",
+        sortOrder: 1,
+        times: [
+          { label: "Morning", times: ["6:30 AM", "7:30 AM"] },
+          { label: "Evening", times: ["6:30 PM"] },
+        ],
+      },
+      { subCategoryId: zumba.id, label: "Saturday", sortOrder: 2, times: [{ label: "", times: ["8:00 AM"] }] },
+      {
+        subCategoryId: yoga.id,
+        label: "Daily",
+        sortOrder: 1,
+        times: [
+          { label: "Sunrise Flow", times: ["5:30 AM"] },
+          { label: "Evening Unwind", times: ["7:00 PM"] },
+        ],
+      },
+      { subCategoryId: hiit.id, label: "Tue / Thu", sortOrder: 1, times: ["7:00 AM", "7:00 PM"] },
+    ],
+  });
+
+  // ---------------------------------------------------
+  // PACKAGES
+  // ---------------------------------------------------
+  const mkPkg = (
+    service: Service,
+    name: string,
+    durationInDays: number,
+    price: number,
+    originalPrice: number | null,
+    description: string | null,
+    opts: {
+      sortOrder: number;
+      sessions?: number;
+      isActive?: boolean;
+      subs?: ServiceSubCategory[];
+    }
+  ) =>
+    prisma.servicePackage.create({
+      data: {
+        serviceId: service.id,
+        name,
+        durationInDays,
+        price,
+        originalPrice,
+        description,
+        sortOrder: opts.sortOrder,
+        isActive: opts.isActive ?? true,
+        usageType: opts.sessions ? "SESSION_BASED" : "DURATION_BASED",
+        totalSessions: opts.sessions ?? null,
+        subCategories: {
+          create: (opts.subs ?? []).map((s) => ({ subCategoryId: s.id })),
+        },
+      },
+    });
+
+  // Group Training (linked to subcategories)
+  const pkgZumbaQuarterly = await mkPkg(groupService, "Zumba Quarterly", 90, 450000, 540000, "Unlimited Zumba classes for 3 months.", { sortOrder: 1, subs: [zumba] });
+  const pkgZumbaMonthly = await mkPkg(groupService, "Zumba Monthly", 30, 180000, null, null, { sortOrder: 2, subs: [zumba] });
+  const pkgYoga12 = await mkPkg(groupService, "Yoga 12 Sessions", 60, 360000, 420000, "12 yoga sessions valid for 60 days.", { sortOrder: 3, sessions: 12, subs: [yoga] });
+  const pkgHiitMonthly = await mkPkg(groupService, "HIIT Monthly", 30, 200000, null, "Unlimited HIIT for a month.", { sortOrder: 4, subs: [hiit] });
+  const pkgGroupAll = await mkPkg(groupService, "All Classes Monthly", 30, 300000, 360000, "Access to Zumba, Yoga and HIIT.", { sortOrder: 5, subs: [zumba, yoga, hiit] });
+  await mkPkg(groupService, "Zumba Weekend Pass (Hidden)", 30, 90000, null, "Inactive package.", { sortOrder: 6, isActive: false, subs: [zumba] });
+
+  // Personal Training (service-level, no subcategories)
+  const pkgPt12 = await mkPkg(ptService, "PT - 12 Sessions", 45, 1800000, 2100000, "12 one-on-one sessions.", { sortOrder: 1, sessions: 12 });
+  const pkgPtMonthly = await mkPkg(ptService, "PT - Monthly", 30, 3000000, null, "Unlimited coached sessions for a month.", { sortOrder: 2 });
+
+  // Strength & Cardio (service-level)
+  const pkgStrMonthly = await mkPkg(strengthService, "Monthly", 30, 150000, null, null, { sortOrder: 1 });
+  const pkgStrQuarterly = await mkPkg(strengthService, "Quarterly", 90, 390000, 450000, "Save 13% vs monthly.", { sortOrder: 2 });
+  const pkgStrAnnual = await mkPkg(strengthService, "Annual", 365, 1200000, 1800000, "Best value - 12 months.", { sortOrder: 3 });
+  await mkPkg(strengthService, "Student Special (Inactive)", 30, 99900, null, "Inactive package.", { sortOrder: 4, isActive: false });
+
+  // ---------------------------------------------------
+  // COUPONS
+  // ---------------------------------------------------
+  const mkCoupon = (
+    code: string,
+    data: {
+      percent?: number;
+      flat?: number;
+      isPrivate?: boolean;
+      isActive?: boolean;
+      usageLimit?: number;
+      usedCount?: number;
+      expiresAt?: Date | null;
+      packages: ServicePackage[];
+    }
+  ) =>
+    prisma.coupon.create({
+      data: {
+        code,
+        discountPercent: data.percent ?? null,
+        discountFlatAmount: data.flat ?? null,
+        isPrivate: data.isPrivate ?? false,
+        isActive: data.isActive ?? true,
+        usageLimit: data.usageLimit ?? null,
+        usedCount: data.usedCount ?? 0,
+        expiresAt: data.expiresAt ?? null,
+        packages: { connect: data.packages.map((p) => ({ id: p.id })) },
+      },
+    });
+
+  const couponWelcome = await mkCoupon("WELCOME10", { percent: 10, usedCount: 4, packages: [pkgStrMonthly, pkgStrQuarterly, pkgZumbaQuarterly, pkgZumbaMonthly] });
+  await mkCoupon("FLAT500", { flat: 50000, usageLimit: 50, usedCount: 12, expiresAt: addDays(NOW, 60), packages: [pkgStrAnnual, pkgGroupAll] });
+  await mkCoupon("STAFF50", { percent: 50, isPrivate: true, packages: [pkgStrMonthly, pkgPtMonthly] });
+  await mkCoupon("EXPIRED20", { percent: 20, expiresAt: addDays(NOW, -10), packages: [pkgStrMonthly] });
+  await mkCoupon("USEDUP", { percent: 15, usageLimit: 5, usedCount: 5, packages: [pkgYoga12] });
+  await mkCoupon("DISABLED5", { percent: 5, isActive: false, packages: [pkgHiitMonthly] });
+
+  // ---------------------------------------------------
+  // TRIALS
+  // ---------------------------------------------------
+  await prisma.serviceTrial.createMany({
+    data: [
+      { serviceId: groupService.id, subCategoryId: zumba.id, days: 1, sellingPrice: 0, originalPrice: 50000 },
+      { serviceId: groupService.id, subCategoryId: yoga.id, days: 3, sellingPrice: 29900, originalPrice: 90000 },
+      { serviceId: groupService.id, subCategoryId: hiit.id, days: 1, sellingPrice: 0, originalPrice: null },
+      { serviceId: groupService.id, subCategoryId: null, days: 7, sellingPrice: 49900, originalPrice: 100000 },
+      { serviceId: ptService.id, subCategoryId: null, days: 1, sellingPrice: 29900, originalPrice: 49900 },
+      { serviceId: strengthService.id, subCategoryId: null, days: 1, sellingPrice: 0, originalPrice: null },
+      { serviceId: strengthService.id, subCategoryId: null, days: 3, sellingPrice: 19900, originalPrice: 45000, isActive: false },
+    ],
+  });
+
+  // ---------------------------------------------------
+  // SLOTS
+  // ---------------------------------------------------
+  const ALL: SlotWeekday[] = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"];
+  const MWF: SlotWeekday[] = ["MONDAY", "WEDNESDAY", "FRIDAY"];
+  const TT: SlotWeekday[] = ["TUESDAY", "THURSDAY"];
+
+  const mkSlot = (
+    branch: Branch,
+    service: Service,
+    sub: ServiceSubCategory | null,
+    name: string,
+    startTime: string,
+    endTime: string,
+    capacity: number,
+    daysOfWeek: SlotWeekday[] = ALL,
+    isActive = true
+  ) =>
+    prisma.slot.create({
+      data: {
+        branchId: branch.id,
+        serviceId: service.id,
+        subCategoryId: sub?.id ?? null,
+        name,
+        startTime,
+        endTime,
+        capacity,
+        daysOfWeek,
+        isActive,
+      },
+    });
+
+  const slotZumbaAM = await mkSlot(branch1, groupService, zumba, "Zumba Morning", "06:30", "07:30", 25, MWF);
+  const slotZumbaPM = await mkSlot(branch1, groupService, zumba, "Zumba Evening", "18:30", "19:30", 30, MWF);
+  const slotYoga = await mkSlot(branch1, groupService, yoga, "Yoga Sunrise", "05:30", "06:30", 15);
+  const slotHiit = await mkSlot(branch1, groupService, hiit, "HIIT Blast", "07:00", "07:45", 20, TT);
+  const slotPt = await mkSlot(branch1, ptService, null, "PT Morning", "08:00", "09:00", 4);
+  const slotStrAM = await mkSlot(branch1, strengthService, null, "Floor Morning", "05:30", "10:00", 60);
+  await mkSlot(branch1, strengthService, null, "Floor Evening", "16:30", "22:00", 80);
+  await mkSlot(branch1, strengthService, null, "Late Night (Disabled)", "22:00", "23:30", 20, ALL, false);
+  const slotStrB2 = await mkSlot(branch2, strengthService, null, "Floor Morning", "06:00", "10:00", 50);
+  await mkSlot(branch2, groupService, zumba, "Zumba Evening", "19:00", "20:00", 25, MWF);
+
+  // ---------------------------------------------------
+  // MEMBERS
+  // ---------------------------------------------------
+  const mkMember = (data: {
+    name: string;
+    phone: string;
+    email: string;
+    branch: Branch;
+    coach?: User | null;
+    gender?: string;
+    age?: number;
+    weight?: number;
+    height?: number;
+    status?: "ACTIVE" | "BLOCKED";
+    onBoardCompleted?: boolean;
+    referralCode?: string;
+    createdDaysAgo?: number;
+  }) =>
+    prisma.member.create({
+      data: {
+        name: data.name,
+        phone: data.phone,
+        email: data.email,
+        dob: data.age ? `${YEAR - data.age}-04-15` : null,
+        gender: data.gender ?? null,
+        age: data.age ?? null,
+        weight: data.weight ?? null,
+        height: data.height ?? null,
+        emergencyContact: "9000000000",
+        address: "Chennai, Tamil Nadu",
+        profileImage: null,
+        onBoardCompleted: data.onBoardCompleted ?? true,
+        onBoardingForm:
+          data.onBoardCompleted === false
+            ? undefined
+            : {
+                goal: "General fitness",
+                experience: "Beginner",
+                injuries: "None",
+                medicalConditions: [],
+                dietPreference: "Vegetarian",
+              },
+        branchId: data.branch.id,
+        coachId: data.coach?.id ?? null,
+        status: data.status ?? "ACTIVE",
+        referralCode: data.referralCode ?? null,
+        createdAt: addDays(NOW, -(data.createdDaysAgo ?? 30)),
+      },
+    });
+
+  const arjun = await mkMember({ name: "Arjun Kumar", phone: "9876500001", email: "arjun@test.fuel", branch: branch1, coach: coach1, gender: "Male", age: 28, weight: 78, height: 176, referralCode: "ARJUN28", createdDaysAgo: 120 });
+  const priya = await mkMember({ name: "Priya Sharma", phone: "9876500002", email: "priya@test.fuel", branch: branch1, coach: coach1, gender: "Female", age: 31, weight: 64, height: 162, referralCode: "PRIYA31", createdDaysAgo: 60 });
+  const karthik = await mkMember({ name: "Karthik Raja", phone: "9876500003", email: "karthik@test.fuel", branch: branch1, coach: coach1, gender: "Male", age: 35, weight: 85, height: 172, referralCode: "KARTHIK35", createdDaysAgo: 45 });
+  const divya = await mkMember({ name: "Divya Lakshmi", phone: "9876500004", email: "divya@test.fuel", branch: branch2, coach: coach2, gender: "Female", age: 26, weight: 58, height: 160, referralCode: "DIVYA26", createdDaysAgo: 40 });
+  const ismail = await mkMember({ name: "Mohammed Ismail", phone: "9876500005", email: "ismail@test.fuel", branch: branch2, gender: "Male", age: 40, weight: 90, height: 175, status: "BLOCKED", createdDaysAgo: 90 });
+  const sneha = await mkMember({ name: "Sneha Reddy", phone: "9876500006", email: "sneha@test.fuel", branch: branch1, gender: "Female", onBoardCompleted: false, createdDaysAgo: 2 });
+  const rahul = await mkMember({ name: "Rahul Menon", phone: "9876500007", email: "rahul@test.fuel", branch: branch1, coach: coach1, gender: "Male", age: 33, weight: 82, height: 180, createdDaysAgo: 200 });
+  const ananya = await mkMember({ name: "Ananya Iyer", phone: "9876500008", email: "ananya@test.fuel", branch: branch1, gender: "Female", age: 24, weight: 55, height: 158, createdDaysAgo: 10 });
+  const vikram = await mkMember({ name: "Vikram Singh", phone: "9876500009", email: "vikram@test.fuel", branch: branch2, gender: "Male", age: 45, weight: 95, height: 178, createdDaysAgo: 150 });
+
+  // ---------------------------------------------------
+  // INVOICES / PAYMENTS / SUBSCRIPTIONS
+  // ---------------------------------------------------
+
+  // 1. Arjun - Strength Quarterly, fully paid in two payments
+  const arjunInv = await makeInvoice({
+    member: arjun, branch: branch1, service: strengthService, pkg: pkgStrQuarterly,
+    intent: "NEW", salesRep: staff, createdDaysAgo: 30,
+    payments: [
+      { type: "INITIAL", ratio: 0.5, mode: "UPI" },
+      { type: "BALANCE", ratio: 0.5, mode: "CASH", daysAfter: 5 },
+    ],
+  });
+  const arjunSub = await makeSubscription({
+    member: arjun, branch: branch1, service: strengthService, pkg: pkgStrQuarterly,
+    invoiceId: arjunInv.invoice.id, startOffsetDays: -30, status: "ACTIVE",
+    finalPrice: arjunInv.totals.finalAmount,
+  });
+
+  // 1b. Arjun - EXTEND invoice linked to existing subscription (uses referral reward)
+  const arjunExtend = await makeInvoice({
+    member: arjun, branch: branch1, service: strengthService, pkg: pkgStrMonthly,
+    intent: "EXTEND", salesRep: staff, linkedSubscriptionId: arjunSub.id,
+    referralDiscount: 50000, createdDaysAgo: 3,
+    payments: [{ type: "INITIAL", ratio: 1, mode: "ONLINE" }],
+    notes: "Extension using referral reward",
+  });
+
+  // 2. Priya - Zumba Quarterly, coupon, PARTIAL payment (balance pending)
+  const priyaDiscount = Math.round(pkgZumbaQuarterly.price * 0.1);
+  const priyaInv = await makeInvoice({
+    member: priya, branch: branch1, service: groupService, pkg: pkgZumbaQuarterly, subCategory: zumba,
+    intent: "NEW", discount: priyaDiscount, salesRep: staff, createdDaysAgo: 10,
+    payments: [{ type: "INITIAL", ratio: 0.5, mode: "CARD" }],
+    notes: `Coupon ${couponWelcome.code} applied`,
+  });
+  const priyaSub = await makeSubscription({
+    member: priya, branch: branch1, service: groupService, pkg: pkgZumbaQuarterly, subCategory: zumba,
+    invoiceId: priyaInv.invoice.id, startOffsetDays: -10, status: "ACTIVE",
+    finalPrice: priyaInv.totals.finalAmount,
+  });
+
+  // 3. Karthik - Yoga 12 sessions (session based), group discount, fully paid
+  const karthikDiscount = Math.round(pkgYoga12.price * 0.05);
+  const karthikInv = await makeInvoice({
+    member: karthik, branch: branch1, service: groupService, pkg: pkgYoga12, subCategory: yoga,
+    intent: "NEW", discount: karthikDiscount, groupMemberCount: 2, groupDiscountPercentage: 5,
+    createdDaysAgo: 15,
+    payments: [{ type: "INITIAL", ratio: 1, mode: "ONLINE" }],
+  });
+  const karthikSub = await makeSubscription({
+    member: karthik, branch: branch1, service: groupService, pkg: pkgYoga12, subCategory: yoga,
+    invoiceId: karthikInv.invoice.id, startOffsetDays: -15, status: "ACTIVE",
+    finalPrice: karthikInv.totals.finalAmount, remainingSessions: 8,
+  });
+
+  // 4. Divya - PT monthly, FROZEN, branch 2
+  const divyaInv = await makeInvoice({
+    member: divya, branch: branch2, service: ptService, pkg: pkgPtMonthly,
+    intent: "NEW", createdDaysAgo: 20,
+    payments: [{ type: "INITIAL", ratio: 1, mode: "CARD" }],
+  });
+  await makeSubscription({
+    member: divya, branch: branch2, service: ptService, pkg: pkgPtMonthly,
+    invoiceId: divyaInv.invoice.id, startOffsetDays: -20, status: "FROZEN",
+    finalPrice: divyaInv.totals.finalAmount, freezeStartOffset: -3, freezeEndOffset: 11,
+  });
+
+  // 5. Ismail (blocked) - CANCELLED invoice + subscription, refunded payment
+  const ismailInv = await makeInvoice({
+    member: ismail, branch: branch2, service: strengthService, pkg: pkgStrMonthly,
+    intent: "NEW", status: "CANCELLED", createdDaysAgo: 50,
+    payments: [
+      { type: "INITIAL", ratio: 1, mode: "UPI", status: "REFUNDED" },
+      { type: "INITIAL", ratio: 1, mode: "ONLINE", status: "FAILED" },
+    ],
+    notes: "Cancelled - payment disputed",
+  });
+  await makeSubscription({
+    member: ismail, branch: branch2, service: strengthService, pkg: pkgStrMonthly,
+    invoiceId: ismailInv.invoice.id, startOffsetDays: -50, status: "CANCELLED",
+    finalPrice: ismailInv.totals.finalAmount,
+  });
+
+  // 6. Rahul - Strength Annual, then TRANSFERRED to Ananya
+  const rahulInv = await makeInvoice({
+    member: rahul, branch: branch1, service: strengthService, pkg: pkgStrAnnual,
+    intent: "NEW", salesRep: staff, createdDaysAgo: 60,
+    payments: [{ type: "INITIAL", ratio: 1, mode: "CARD" }],
+  });
+  const rahulSub = await makeSubscription({
+    member: rahul, branch: branch1, service: strengthService, pkg: pkgStrAnnual,
+    invoiceId: rahulInv.invoice.id, startOffsetDays: -60, status: "TRANSFERRED",
+    finalPrice: rahulInv.totals.finalAmount,
+  });
+
+  const remainingDays = pkgStrAnnual.durationInDays - 60;
+  const transferBase = 200000; // slab-3 fee (91+ days left)
+  const transferInv = await makeInvoice({
+    member: rahul, branch: branch1, service: strengthService, pkg: pkgStrAnnual,
+    intent: "TRANSFER_FEE", baseAmount: transferBase, linkedSubscriptionId: rahulSub.id,
+    salesRep: manager, createdDaysAgo: 1,
+    payments: [{ type: "TRANSFER", ratio: 1, mode: "UPI" }],
+    notes: "Membership transfer fee",
+  });
+  const ananyaSub = await makeSubscription({
+    member: ananya, branch: branch1, service: strengthService, pkg: pkgStrAnnual,
+    invoiceId: null, startOffsetDays: -1, status: "ACTIVE",
+    finalPrice: 0, originalPrice: null,
+    endOverride: addDays(dayStart(-60), pkgStrAnnual.durationInDays),
+  });
+  await prisma.membershipTransfer.create({
+    data: {
+      subscriptionId: rahulSub.id,
+      fromMemberId: rahul.id,
+      toMemberId: ananya.id,
+      reason: "Relocating to another city",
+      remainingDays,
+      notes: "Verified ID of new member at front desk",
+      amountCollected: transferInv.totals.finalAmount,
+      paymentMode: "UPI",
+      feeSlabId: "slab-3",
+      feeSlabLabel: "91+ days left",
+      feeSlabMinDays: 91,
+      feeSlabMaxDays: 365,
+      baseTransferFee: transferBase,
+      cgstPercentage: GST,
+      sgstPercentage: GST,
+      cgstAmount: transferInv.totals.cgstAmount,
+      sgstAmount: transferInv.totals.sgstAmount,
+      transferInvoiceId: transferInv.invoice.id,
+      transferFee: transferInv.totals.finalAmount,
+      transferredById: manager.id,
+      toSubscriptionId: ananyaSub.id,
+    },
+  });
+
+  // 7. Vikram - EXPIRED strength monthly
+  const vikramInv = await makeInvoice({
+    member: vikram, branch: branch2, service: strengthService, pkg: pkgStrMonthly,
+    intent: "NEW", createdDaysAgo: 60,
+    payments: [{ type: "INITIAL", ratio: 1, mode: "CASH" }],
+  });
+  await makeSubscription({
+    member: vikram, branch: branch2, service: strengthService, pkg: pkgStrMonthly,
+    invoiceId: vikramInv.invoice.id, startOffsetDays: -60, status: "EXPIRED",
+    finalPrice: vikramInv.totals.finalAmount,
+  });
+
+  // 8. Pending (unpaid) invoice for Sneha - no subscription yet
+  await makeInvoice({
+    member: sneha, branch: branch1, service: groupService, pkg: pkgHiitMonthly, subCategory: hiit,
+    intent: "NEW", salesRep: staff, createdDaysAgo: 1, payments: [],
+    notes: "Awaiting payment",
+  });
+
+  // ---------------------------------------------------
+  // REFERRALS
+  // ---------------------------------------------------
+  await prisma.referral.createMany({
+    data: [
+      {
+        referrerId: arjun.id, referredMemberId: ananya.id, status: "REWARDED",
+        rewardIssued: true, rewardClaimed: true, rewardIssuedAt: addDays(NOW, -5),
+        claimedSubscriptionId: arjunSub.id, claimedInvoiceId: arjunExtend.invoice.id,
+        rewardType: "FIXED_AMOUNT", rewardAmount: 500,
+      },
+      {
+        referrerId: priya.id, referredMemberId: sneha.id, status: "JOINED",
+        rewardIssued: false, rewardClaimed: false, rewardType: "PERCENTAGE_DISCOUNT", rewardPercentage: 10,
+      },
+      { referrerId: karthik.id, referredMemberId: null, status: "PENDING" },
+      {
+        referrerId: divya.id, referredMemberId: vikram.id, status: "REWARDED",
+        rewardIssued: true, rewardClaimed: false, rewardIssuedAt: addDays(NOW, -20),
+        rewardType: "MEMBERSHIP_DAYS", rewardMembershipDays: 7,
+      },
+    ],
+  });
+
+  // ---------------------------------------------------
+  // SLOT BOOKINGS + MEMBER ATTENDANCE
+  // ---------------------------------------------------
+  const mkBooking = (o: {
+    member: Member; branch: Branch; pkg: ServicePackage; subId: string; slot: Slot;
+    offset: number; status: "BOOKED" | "ATTENDED" | "CANCELLED";
+  }) =>
+    prisma.slotBooking.create({
+      data: {
+        memberId: o.member.id,
+        branchId: o.branch.id,
+        packageId: o.pkg.id,
+        subscriptionId: o.subId,
+        slotId: o.slot.id,
+        bookingDate: dayStart(o.offset),
+        bookingDay: dayKey(o.offset),
+        status: o.status,
+        checkedInAt: o.status === "ATTENDED" ? at(o.offset, 6, 40) : null,
+      },
+    });
+
+  const mkAttendance = (o: {
+    member: Member; branch: Branch; subId: string; booking: { id: string } | null;
+    slotId: string | null; offset: number; sessionDeducted?: boolean;
+  }) =>
+    prisma.memberAttendance.create({
+      data: {
+        memberId: o.member.id,
+        branchId: o.branch.id,
+        subscriptionId: o.subId,
+        slotBookingId: o.booking?.id ?? null,
+        slotId: o.slotId,
+        checkInAt: at(o.offset, 6, 40),
+        dateKey: dayKey(o.offset),
+        sessionDeducted: o.sessionDeducted ?? false,
+      },
+    });
+
+  // Arjun - strength floor
+  const bArjunY = await mkBooking({ member: arjun, branch: branch1, pkg: pkgStrQuarterly, subId: arjunSub.id, slot: slotStrAM, offset: -1, status: "ATTENDED" });
+  await mkAttendance({ member: arjun, branch: branch1, subId: arjunSub.id, booking: bArjunY, slotId: slotStrAM.id, offset: -1 });
+  await mkBooking({ member: arjun, branch: branch1, pkg: pkgStrQuarterly, subId: arjunSub.id, slot: slotStrAM, offset: 0, status: "BOOKED" });
+  // Walk-in / manual check-in with no booking
+  await mkAttendance({ member: arjun, branch: branch1, subId: arjunSub.id, booking: null, slotId: null, offset: -2 });
+
+  // Priya - Zumba
+  const bPriya = await mkBooking({ member: priya, branch: branch1, pkg: pkgZumbaQuarterly, subId: priyaSub.id, slot: slotZumbaAM, offset: -2, status: "ATTENDED" });
+  await mkAttendance({ member: priya, branch: branch1, subId: priyaSub.id, booking: bPriya, slotId: slotZumbaAM.id, offset: -2 });
+  await mkBooking({ member: priya, branch: branch1, pkg: pkgZumbaQuarterly, subId: priyaSub.id, slot: slotZumbaPM, offset: 1, status: "BOOKED" });
+
+  // Karthik - Yoga (session based: 12 total, 8 remaining => 4 used)
+  for (const offset of [-6, -4, -3, -1]) {
+    const b = await mkBooking({ member: karthik, branch: branch1, pkg: pkgYoga12, subId: karthikSub.id, slot: slotYoga, offset, status: "ATTENDED" });
+    await mkAttendance({ member: karthik, branch: branch1, subId: karthikSub.id, booking: b, slotId: slotYoga.id, offset, sessionDeducted: true });
+  }
+  await mkBooking({ member: karthik, branch: branch1, pkg: pkgYoga12, subId: karthikSub.id, slot: slotYoga, offset: -2, status: "CANCELLED" });
+  await mkBooking({ member: karthik, branch: branch1, pkg: pkgYoga12, subId: karthikSub.id, slot: slotYoga, offset: 1, status: "BOOKED" });
+
+  // Ananya (transferred membership) - booking on branch 1
+  await mkBooking({ member: ananya, branch: branch1, pkg: pkgStrAnnual, subId: ananyaSub.id, slot: slotStrAM, offset: 0, status: "BOOKED" });
+
+  // ---------------------------------------------------
+  // FITNESS ASSESSMENTS
+  // ---------------------------------------------------
+  const assess = (member: Member, daysAgo: number, weight: number, fat: number, waist: number) =>
+    prisma.fitnessAssessment.create({
+      data: {
+        memberId: member.id,
+        assessmentDate: addDays(NOW, -daysAgo),
+        weight,
+        height: member.height ?? 170,
+        bmi: member.height ? +(weight / Math.pow(member.height / 100, 2)).toFixed(1) : null,
+        bodyFatPercentage: fat,
+        bloodPressure: "120/80",
+        hba1c: 5.4,
+        t3: 1.2, t4: 8.1, tsh: 2.1,
+        chest: 98, waist, hips: 96, biceps: 33, thighs: 56, neck: 38, calf: 37,
+        memberNotes: "Feeling stronger this month.",
+        notes: "Good progress. Increase protein intake.",
+      },
+    });
+
+  await assess(arjun, 28, 80.5, 22, 88);
+  await assess(arjun, 0, 78, 20, 85);
+  await assess(priya, 8, 64, 28, 76);
+  await assess(karthik, 14, 85, 27, 94);
+
+  // ---------------------------------------------------
+  // WORKOUT PLANS (member-specific)
+  // ---------------------------------------------------
+  const planArjun = await prisma.workoutPlan.create({
+    data: {
+      memberId: arjun.id,
+      title: "Push / Pull / Legs",
+      description: "6-week hypertrophy block",
+      startDate: dayStart(-14),
+      endDate: dayStart(28),
+    },
+  });
+
+  const wDays: { name: string; ex: [string, number, number, number, number][] }[] = [
+    { name: "Push", ex: [["Bench Press", 4, 8, 60, 90], ["Overhead Press", 3, 10, 35, 75], ["Triceps Pushdown", 3, 12, 25, 60]] },
+    { name: "Pull", ex: [["Deadlift", 3, 5, 100, 120], ["Lat Pulldown", 4, 10, 55, 75], ["Barbell Row", 3, 10, 50, 75]] },
+    { name: "Legs", ex: [["Back Squat", 4, 8, 80, 120], ["Leg Press", 3, 12, 140, 90], ["Calf Raise", 4, 15, 60, 45]] },
+  ];
+  for (let i = 0; i < wDays.length; i++) {
+    const day = await prisma.workoutDay.create({
+      data: { workoutPlanId: planArjun.id, dayNumber: i + 1, name: wDays[i].name },
+    });
+    for (let j = 0; j < wDays[i].ex.length; j++) {
+      const [exerciseName, sets, reps, weight, restSeconds] = wDays[i].ex[j];
+      await prisma.workoutExercise.create({
+        data: {
+          workoutDayId: day.id, exerciseName, sets, reps, weight, restSeconds,
+          notes: j === 0 ? "Focus on controlled tempo" : null, sortOrder: j,
+        },
+      });
+    }
+  }
+
+  // Inactive older plan + plan with sparse data
+  await prisma.workoutPlan.create({
+    data: { memberId: priya.id, title: "Beginner Full Body", startDate: dayStart(-60), endDate: dayStart(-30), isActive: false },
+  });
+
+  // ---------------------------------------------------
+  // DIET PLANS + FOOD LOGS
+  // ---------------------------------------------------
+  const dietArjun = await prisma.dietPlan.create({
+    data: {
+      memberId: arjun.id,
+      title: "Lean Bulk",
+      instructions: "Drink 3.5L water daily. Eat protein with every meal.",
+      targetCalories: 2600,
+      macroDistributionType: "PERCENTAGE",
+      targetProteinPercentage: 30,
+      targetCarbsPercentage: 45,
+      targetFatPercentage: 25,
+      targetProtein: 195,
+      targetCarbs: 292,
+      targetFat: 72,
+      startDate: dayStart(-14),
+      endDate: dayStart(30),
+    },
+  });
+
+  const dietMealsDef: { name: string; items: { food: string; brand?: string; qty: number; serv: number; unit: string; cal: number; p: number; c: number; f: number }[] }[] = [
+    { name: "Breakfast", items: [
+      { food: "Rolled Oats", brand: "Quaker", qty: 1, serv: 60, unit: "g", cal: 230, p: 8, c: 40, f: 4 },
+      { food: "Whole Egg", qty: 3, serv: 1, unit: "piece", cal: 215, p: 19, c: 1, f: 15 },
+    ]},
+    { name: "Lunch", items: [
+      { food: "Chicken Breast", qty: 200, serv: 100, unit: "g", cal: 330, p: 62, c: 0, f: 7 },
+      { food: "Cooked Rice", qty: 200, serv: 100, unit: "g", cal: 260, p: 5, c: 56, f: 1 },
+    ]},
+    { name: "Dinner", items: [
+      { food: "Paneer", qty: 100, serv: 100, unit: "g", cal: 265, p: 18, c: 4, f: 20 },
+      { food: "Chapati", qty: 3, serv: 1, unit: "piece", cal: 300, p: 9, c: 54, f: 5 },
+    ]},
+  ];
+
+  const dietItemIds: string[] = [];
+  for (let i = 0; i < dietMealsDef.length; i++) {
+    const meal = await prisma.dietPlanMeal.create({
+      data: { dietPlanId: dietArjun.id, name: dietMealsDef[i].name, sortOrder: i },
+    });
+    for (const it of dietMealsDef[i].items) {
+      const item = await prisma.dietPlanMealItem.create({
+        data: {
+          mealId: meal.id,
+          externalFoodId: `ext-${it.food.toLowerCase().replace(/\s+/g, "-")}`,
+          foodName: it.food,
+          brandName: it.brand ?? null,
+          quantity: it.qty,
+          servingValue: String(it.serv),
+          servingUnit: it.unit,
+          nutritionMultiplier: it.qty / it.serv,
+          calories: it.cal, protein: it.p, carbs: it.c, fat: it.f,
+        },
+      });
+      dietItemIds.push(item.id);
+    }
+  }
+
+  // Older inactive diet plan (grams-based)
+  const dietPriya = await prisma.dietPlan.create({
+    data: {
+      memberId: priya.id, title: "Fat Loss Phase 1", targetCalories: 1600,
+      macroDistributionType: "GRAMS", targetProtein: 120, targetCarbs: 150, targetFat: 50,
+      startDate: dayStart(-60), endDate: dayStart(-30), isActive: false,
+    },
+  });
+  const priyaMeal = await prisma.dietPlanMeal.create({ data: { dietPlanId: dietPriya.id, name: "Breakfast", sortOrder: 0 } });
+  await prisma.dietPlanMealItem.create({
+    data: { mealId: priyaMeal.id, foodName: "Greek Yogurt", quantity: 150, servingValue: "100", servingUnit: "g", nutritionMultiplier: 1.5, calories: 90, protein: 15, carbs: 5, fat: 1 },
+  });
+
+  // Food logs (Arjun: today + yesterday)
+  for (const offset of [-1, 0]) {
+    const log = await prisma.foodLog.create({
+      data: { memberId: arjun.id, logDate: dayStart(offset) },
+    });
+    let idx = 0;
+    for (let i = 0; i < dietMealsDef.length; i++) {
+      const meal = await prisma.foodLogMeal.create({
+        data: { foodLogId: log.id, name: dietMealsDef[i].name, sortOrder: i },
+      });
+      for (const it of dietMealsDef[i].items) {
+        // Yesterday everything consumed; today only breakfast consumed
+        const consumed = offset === -1 || i === 0;
+        await prisma.foodLogMealItem.create({
+          data: {
+            mealId: meal.id,
+            copiedFromDietItemId: dietItemIds[idx],
+            externalFoodId: `ext-${it.food.toLowerCase().replace(/\s+/g, "-")}`,
+            foodName: it.food,
+            brandName: it.brand ?? null,
+            quantity: it.qty,
+            servingUnit: it.unit,
+            servingValue: it.serv,
+            nutritionMultiplier: it.qty / it.serv,
+            calories: it.cal, protein: it.p, carbs: it.c, fat: it.f,
+            consumed,
+            consumedAt: consumed ? at(offset, 8 + i * 5) : null,
+          },
+        });
+        idx++;
+      }
+    }
+  }
+  // Manually-logged item with no diet-plan origin
+  const priyaLog = await prisma.foodLog.create({ data: { memberId: priya.id, logDate: dayStart(0) } });
+  const priyaLogMeal = await prisma.foodLogMeal.create({ data: { foodLogId: priyaLog.id, name: "Snack", sortOrder: 0 } });
+  await prisma.foodLogMealItem.create({
+    data: { mealId: priyaLogMeal.id, foodName: "Banana", quantity: 1, servingUnit: "piece", servingValue: 1, nutritionMultiplier: 1, calories: 105, protein: 1, carbs: 27, fat: 0, consumed: true, consumedAt: at(0, 16) },
+  });
+
+  // ---------------------------------------------------
+  // NOTIFICATIONS
+  // ---------------------------------------------------
+  await prisma.notification.createMany({
+    data: [
+      { memberId: arjun.id, title: "Membership extended", message: "Your Strength & Cardio membership was extended by 30 days.", type: "MEMBERSHIP", isRead: true },
+      { memberId: arjun.id, title: "New workout plan", message: "Coach Aravind assigned you 'Push / Pull / Legs'.", type: "WORKOUT" },
+      { memberId: arjun.id, title: "Diet plan updated", message: "Your Lean Bulk diet plan has been updated.", type: "DIET" },
+      { memberId: priya.id, title: "Balance payment due", message: "You have a pending balance on your Zumba Quarterly invoice.", type: "PAYMENT" },
+      { memberId: karthik.id, title: "8 sessions left", message: "You have 8 yoga sessions remaining.", type: "MEMBERSHIP" },
+      { memberId: divya.id, title: "Membership frozen", message: "Your membership is frozen until the date shown in the app.", type: "MEMBERSHIP", isRead: true },
+      { memberId: ananya.id, title: "Welcome to Fuel!", message: "Your transferred membership is now active.", type: "GENERAL" },
+      { memberId: sneha.id, title: "Festive offer", message: "Use WELCOME10 for 10% off your first membership.", type: "PROMOTION" },
+    ],
+  });
+
+  // ---------------------------------------------------
+  // CAMPAIGNS
+  // ---------------------------------------------------
+  await prisma.campaign.createMany({
+    data: [
+      { title: "Diwali Fitness Fest", description: "Flat 20% off on all quarterly and annual plans.", image: "/service-placeholder.webp", startDate: addDays(NOW, -3), endDate: addDays(NOW, 12), isActive: true },
+      { title: "Refer & Earn", description: "Refer a friend and earn rewards on your next renewal.", image: null, startDate: addDays(NOW, -30), endDate: addDays(NOW, 90), isActive: true },
+      { title: "Summer Shred (Ended)", description: "Past campaign.", image: null, startDate: addDays(NOW, -120), endDate: addDays(NOW, -60), isActive: false },
+      { title: "New Year Kickstart (Upcoming)", description: "Starts soon.", image: null, startDate: addDays(NOW, 45), endDate: addDays(NOW, 75), isActive: true },
+    ],
+  });
+
+  // ---------------------------------------------------
+  // CONTACT INQUIRIES + TRIAL BOOKINGS
+  // ---------------------------------------------------
+  await prisma.contactInquiry.createMany({
+    data: [
+      { name: "Lokesh P", phone: "9000000101", email: "lokesh@test.fuel", message: "What are your Zumba timings?", preferredTimeToContact: "Morning", status: "PENDING", source: "WEB" },
+      { name: "Meera K", phone: "9000000102", email: null, message: null, preferredTimeToContact: "Evening", status: "CONTACTED", source: "INSTAGRAM" },
+      { name: "Hari S", phone: "9000000103", email: "hari@test.fuel", message: "Corporate membership enquiry.", status: "RESOLVED", source: "REFERRAL" },
+      { name: "Deepa V", phone: "9000000104", message: "Walked in, wants PT details.", status: "PENDING", source: "WALKIN" },
+      { name: "Naveen R", phone: "9000000105", email: "naveen@test.fuel", message: "Do you have a ladies-only batch?", status: "CONTACTED", source: "WEB" },
+    ],
+  });
+
+  await prisma.trialBooking.createMany({
+    data: [
+      { name: "Tarun M", phone: "9000000201", goal: "FAT_LOSS", preferredTime: "MORNING", scheduledDate: null, status: "PENDING", whatsappStatus: "NOT_SENT" },
+      { name: "Shalini B", phone: "9000000202", goal: "MUSCLE_GAIN", preferredTime: "EVENING", scheduledDate: addDays(NOW, 1), status: "SCHEDULED", whatsappStatus: "SENT" },
+      { name: "Ganesh T", phone: "9000000203", goal: "STRENGTH", preferredTime: "AFTERNOON", scheduledDate: addDays(NOW, 2), status: "CONFIRMED_BY_ADMIN", whatsappStatus: "DELIVERED" },
+      { name: "Revathi N", phone: "9000000204", goal: "GENERAL_FITNESS", preferredTime: "MORNING", scheduledDate: addDays(NOW, 1), status: "CONFIRMED_BY_USER", whatsappStatus: "REPLIED" },
+      { name: "Jayesh D", phone: "9000000205", goal: null, preferredTime: null, scheduledDate: addDays(NOW, -2), status: "CANCELLED_BY_USER", whatsappStatus: "REPLIED" },
+    ],
+  });
+
+  // ---------------------------------------------------
+  // BLOGS
+  // ---------------------------------------------------
+  // NOTE: Blog.content JSON shape is an assumption (block array).
+  const catTraining = await prisma.blogCategory.create({ data: { name: "Training" } });
+  const catNutrition = await prisma.blogCategory.create({ data: { name: "Nutrition" } });
+  await prisma.blogCategory.create({ data: { name: "Unused Category" } }); // category with no blogs
+
+  const blogOne = await prisma.blog.create({
+    data: {
+      title: "5 Mistakes Beginners Make in the Gym",
+      description: "Avoid these common errors and progress faster.",
+      coverImage: "/service-placeholder.webp",
+      status: "PUBLISHED",
+      publishedAt: addDays(NOW, -10),
+      categoryId: catTraining.id,
+      content: [
+        { type: "heading", level: 2, text: "1. Skipping the warm-up" },
+        { type: "paragraph", text: "A short warm-up reduces injury risk and improves performance." },
+        { type: "heading", level: 2, text: "2. Ignoring recovery" },
+        { type: "paragraph", text: "Muscles grow while you rest, not while you train." },
+      ],
+    },
+  });
+  await prisma.blogFaq.createMany({
+    data: [
+      { blogId: blogOne.id, question: "How long should a warm-up be?", answer: "Five to ten minutes of light cardio and mobility work is enough for most sessions." },
+      { blogId: blogOne.id, question: "How many rest days do I need?", answer: "Most beginners do well with two to three rest days a week." },
+    ],
+  });
+
+  await prisma.blog.create({
+    data: {
+      title: "How Much Protein Do You Actually Need?",
+      description: "A practical guide to daily protein targets.",
+      coverImage: null,
+      status: "PUBLISHED",
+      publishedAt: addDays(NOW, -3),
+      categoryId: catNutrition.id,
+      content: [{ type: "paragraph", text: "Most active adults do well with 1.4 to 2.0 g of protein per kg of body weight." }],
+    },
+  });
+  await prisma.blog.create({
+    data: {
+      title: "Draft: Monsoon Workout Ideas",
+      description: "Work in progress.",
+      status: "DRAFT",
+      publishedAt: null,
+      categoryId: null,
+      content: [],
+    },
+  });
+
+  // =====================================================
+  // FUEL TV
+  // =====================================================
+
+  // Videos
+  const videoDefs: [string, number, boolean][] = [
+    ["Burpees", 45, true],
+    ["Mountain Climbers", 40, true],
+    ["Jump Squats", 40, true],
+    ["High Knees", 30, true],
+    ["Push-ups", 40, true],
+    ["Plank Hold", 60, true],
+    ["Kettlebell Swings", 45, true],
+    ["Battle Ropes", 40, true],
+    ["Old Retired Drill", 30, false],
+  ];
+  const videos: WorkoutVideo[] = [];
+  for (const [name, dur, active] of videoDefs) {
+    videos.push(
+      await prisma.workoutVideo.create({
+        data: {
+          name,
+          videoUrl: `https://example.com/videos/${name.toLowerCase().replace(/\s+/g, "-")}.mp4`,
+          thumbnailUrl: active ? `https://example.com/thumbs/${name.toLowerCase().replace(/\s+/g, "-")}.jpg` : null,
+          durationSeconds: dur,
+          isActive: active,
+        },
+      })
+    );
+  }
+  const v = (name: string) => videos.find((x) => x.name === name)!;
+
+  // Programs
+  const progHiit = await prisma.workoutProgram.create({
+    data: { name: "Full Body HIIT", subtitle: "Torch calories in 30 minutes", description: "Six explosive moves, repeated in cycles.", intensity: "HIGH" },
+  });
+  const progCore = await prisma.workoutProgram.create({
+    data: { name: "Core & Mobility", subtitle: "Stability and control", description: "Low-impact core strengthening.", intensity: "MEDIUM" },
+  });
+  await prisma.workoutProgram.create({
+    data: { name: "Retired Program", isActive: false, intensity: null },
+  });
+
+  const hiitMoves = ["Burpees", "Mountain Climbers", "Jump Squats", "High Knees", "Kettlebell Swings", "Battle Ropes"];
+  const coreMoves = ["Plank Hold", "Push-ups", "Mountain Climbers", "High Knees"];
+  await prisma.workoutProgramItem.createMany({
+    data: [
+      ...hiitMoves.map((n, i) => ({ programId: progHiit.id, videoId: v(n).id, sortOrder: i + 1 })),
+      ...coreMoves.map((n, i) => ({ programId: progCore.id, videoId: v(n).id, sortOrder: i + 1 })),
+    ],
+  });
+
+  // Schedules (centralised)
+  const timers = {
+    demonstrationSeconds: 60,
+    warmupSeconds: 180,
+    prepareSeconds: 10,
+    workSeconds: 40,
+    restSeconds: 20,
+    sets: 3,
+    cycles: 2,
+    restBetweenCycleSeconds: 60,
+    coolDownSeconds: 120,
+  };
+
+  const mkSchedule = async (offset: number, program: typeof progHiit, extraManual: boolean, moves: string[]) => {
+    const schedule = await prisma.workoutSchedule.create({
+      data: {
+        dateKey: dayKey(offset),
+        programId: program.id,
+        ...timers,
+        nextSessionStartsAt: at(offset + 1, 6, 30),
+      },
+    });
+    let order = 1;
+    for (const m of moves) {
+      await prisma.workoutScheduleExercise.create({
+        data: { scheduleId: schedule.id, sortOrder: order++, videoId: v(m).id, exerciseName: null },
+      });
+    }
+    if (extraManual) {
+      // Manual (name-only) exercise: no video
+      await prisma.workoutScheduleExercise.create({
+        data: { scheduleId: schedule.id, sortOrder: order++, videoId: null, exerciseName: "Static Stretch Out" },
+      });
+    }
+    return { schedule, moves, extraManual };
+  };
+
+  const schedYesterday = await mkSchedule(-1, progHiit, false, hiitMoves);
+  const schedToday = await mkSchedule(0, progHiit, true, hiitMoves);
+  const schedTomorrow = await mkSchedule(1, progCore, false, coreMoves);
+
+  // TV devices
+  const mkTv = (name: string, branch: Branch, rawToken: string, extra: { isOnline?: boolean; lastSeenAt?: Date | null; revokedAt?: Date | null }) =>
+    prisma.tvDevice.create({
+      data: {
+        name,
+        branchId: branch.id,
+        tokenHash: sha256(rawToken),
+        isOnline: extra.isOnline ?? false,
+        lastSeenAt: extra.lastSeenAt ?? null,
+        revokedAt: extra.revokedAt ?? null,
+        pairedAt: addDays(NOW, -30),
+      },
+    });
+
+  const tvMain = await mkTv("Main Floor TV", branch1, "test-tv-token-main", { isOnline: true, lastSeenAt: new Date() });
+  const tvStudio = await mkTv("Studio TV", branch1, "test-tv-token-studio", { isOnline: false, lastSeenAt: addDays(NOW, -1) });
+  const tvVel = await mkTv("Velachery Floor TV", branch2, "test-tv-token-velachery", { isOnline: true, lastSeenAt: new Date() });
+  await mkTv("Stolen TV (revoked)", branch2, "test-tv-token-revoked", { isOnline: false, lastSeenAt: addDays(NOW, -15), revokedAt: addDays(NOW, -14) });
+
+  // Pairing sessions
+  await prisma.tvPairingSession.createMany({
+    data: [
+      { pairingCode: "FUEL-1111", status: "WAITING", socketId: "socket-test-1", expiresAt: new Date(Date.now() + 10 * 60_000) },
+      { pairingCode: "FUEL-2222", status: "PAIRED", socketId: "socket-test-2", expiresAt: new Date(Date.now() + 5 * 60_000), deviceId: tvMain.id },
+      { pairingCode: "FUEL-3333", status: "EXPIRED", expiresAt: new Date(Date.now() - 60 * 60_000) },
+      { pairingCode: "FUEL-4444", status: "CANCELLED", expiresAt: new Date(Date.now() + 2 * 60_000) },
+    ],
+  });
+
+  // Broadcasts (branch-wise snapshots)
+  type BroadcastOpts = {
+    branch: Branch;
+    offset: number;
+    mode: WorkoutBroadcastMode;
+    status: WorkoutBroadcastStatus;
+    schedule?: WorkoutSchedule | null;
+    title?: string | null;
+    subtitle?: string | null;
+    description?: string | null;
+    intensity?: WorkoutIntensity | null;
+    withTimers?: boolean;
+    exercises: { name: string; video?: WorkoutVideo | null }[];
+    /** which exercise indexes each TV plays, in order */
+    tvs: { tv: TvDevice; plays: number[] }[];
+    startedAt?: Date | null;
+    pausedAt?: Date | null;
+    pausedTotalMs?: number;
+    endedAt?: Date | null;
+    version?: number;
+  };
+
+  const mkBroadcast = async (o: BroadcastOpts) => {
+    const broadcast = await prisma.workoutBroadcast.create({
+      data: {
+        branchId: o.branch.id,
+        dateKey: dayKey(o.offset),
+        mode: o.mode,
+        status: o.status,
+        scheduleId: o.schedule?.id ?? null,
+        title: o.title ?? null,
+        subtitle: o.subtitle ?? null,
+        description: o.description ?? null,
+        intensity: o.intensity ?? null,
+        ...(o.withTimers === false ? {} : { ...timers, nextSessionStartsAt: at(o.offset + 1, 6, 30) }),
+        startedAt: o.startedAt ?? null,
+        pausedAt: o.pausedAt ?? null,
+        pausedTotalMs: o.pausedTotalMs ?? 0,
+        endedAt: o.endedAt ?? null,
+        version: o.version ?? 1,
+      },
+    });
+
+    const created = [];
+    for (let i = 0; i < o.exercises.length; i++) {
+      const ex = o.exercises[i];
+      created.push(
+        await prisma.workoutBroadcastExercise.create({
+          data: {
+            broadcastId: broadcast.id,
+            sortOrder: i + 1,
+            exerciseName: ex.name,
+            // Snapshot: copied from the library video, null for manual exercises
+            videoUrl: ex.video?.videoUrl ?? null,
+            thumbnailUrl: ex.video?.thumbnailUrl ?? null,
+            durationSeconds: ex.video?.durationSeconds ?? null,
+            videoId: ex.video?.id ?? null,
+          },
+        })
+      );
+    }
+
+    for (const t of o.tvs) {
+      const bTv = await prisma.workoutBroadcastTV.create({
+        data: { broadcastId: broadcast.id, tvDeviceId: t.tv.id },
+      });
+      for (let k = 0; k < t.plays.length; k++) {
+        await prisma.workoutBroadcastTVExercise.create({
+          data: { broadcastTVId: bTv.id, exerciseId: created[t.plays[k]].id, sortOrder: k + 1 },
+        });
+      }
+    }
+    return broadcast;
+  };
+
+  const exFromSchedule = (s: { moves: string[]; extraManual: boolean }) => [
+    ...s.moves.map((m) => ({ name: m, video: v(m) })),
+    ...(s.extraManual ? [{ name: "Static Stretch Out", video: null }] : []),
+  ];
+
+  // LIVE: branch 1 today, started 8 minutes ago, two TVs with different playlists
+  const liveEx = exFromSchedule(schedToday);
+  await mkBroadcast({
+    branch: branch1, offset: 0, mode: "SCHEDULE", status: "LIVE", schedule: schedToday.schedule,
+    title: "Full Body HIIT", subtitle: "Torch calories in 30 minutes", description: "Six explosive moves, repeated in cycles.", intensity: "HIGH",
+    exercises: liveEx,
+    tvs: [
+      { tv: tvMain, plays: liveEx.map((_, i) => i) },
+      { tv: tvStudio, plays: [2, 0, 1] }, // reordered subset
+    ],
+    startedAt: new Date(Date.now() - 8 * 60_000),
+    version: 3,
+  });
+
+  // SCHEDULED: branch 1 tomorrow
+  const tmrwEx = exFromSchedule(schedTomorrow);
+  await mkBroadcast({
+    branch: branch1, offset: 1, mode: "SCHEDULE", status: "SCHEDULED", schedule: schedTomorrow.schedule,
+    title: "Core & Mobility", subtitle: "Stability and control", intensity: "MEDIUM",
+    exercises: tmrwEx,
+    tvs: [{ tv: tvMain, plays: tmrwEx.map((_, i) => i) }],
+  });
+
+  // COMPLETED: branch 1 yesterday
+  const ystEx = exFromSchedule(schedYesterday);
+  await mkBroadcast({
+    branch: branch1, offset: -1, mode: "SCHEDULE", status: "COMPLETED", schedule: schedYesterday.schedule,
+    title: "Full Body HIIT", intensity: "HIGH",
+    exercises: ystEx,
+    tvs: [{ tv: tvMain, plays: ystEx.map((_, i) => i) }],
+    startedAt: at(-1, 6, 30), endedAt: at(-1, 7, 15), pausedTotalMs: 90_000, version: 7,
+  });
+
+  // CANCELLED: schedule deleted/never linked (scheduleId null)
+  await mkBroadcast({
+    branch: branch1, offset: -1, mode: "SCHEDULE", status: "CANCELLED", schedule: null,
+    title: "Evening Session (cancelled)",
+    exercises: [{ name: "Burpees", video: v("Burpees") }, { name: "High Knees", video: v("High Knees") }],
+    tvs: [{ tv: tvStudio, plays: [0, 1] }],
+    version: 2,
+  });
+
+  // DRAFT timer-only: branch 2, no exercises, no schedule
+  await mkBroadcast({
+    branch: branch2, offset: 0, mode: "TIMER_ONLY", status: "DRAFT", schedule: null,
+    title: "Open Floor Timer", exercises: [], tvs: [{ tv: tvVel, plays: [] }],
+  });
+
+  // PAUSED: branch 2 today
+  await mkBroadcast({
+    branch: branch2, offset: 0, mode: "SCHEDULE", status: "PAUSED", schedule: schedToday.schedule,
+    title: "Full Body HIIT (Velachery)", intensity: "HIGH",
+    exercises: [{ name: "Burpees", video: v("Burpees") }, { name: "Jump Squats", video: v("Jump Squats") }, { name: "Static Stretch Out", video: null }],
+    tvs: [{ tv: tvVel, plays: [0, 1, 2] }],
+    startedAt: new Date(Date.now() - 15 * 60_000),
+    pausedAt: new Date(Date.now() - 2 * 60_000),
+    pausedTotalMs: 30_000,
+    version: 5,
+  });
+
+  // =====================================================
+  // SUMMARY
+  // =====================================================
+  const counts = {
+    branches: await prisma.branch.count(),
+    users: await prisma.user.count(),
+    employees: await prisma.employee.count(),
+    services: await prisma.service.count(),
+    subCategories: await prisma.serviceSubCategory.count(),
+    packages: await prisma.servicePackage.count(),
+    coupons: await prisma.coupon.count(),
+    trials: await prisma.serviceTrial.count(),
+    slots: await prisma.slot.count(),
+    members: await prisma.member.count(),
+    invoices: await prisma.invoice.count(),
+    payments: await prisma.payment.count(),
+    subscriptions: await prisma.subscription.count(),
+    slotBookings: await prisma.slotBooking.count(),
+    memberAttendance: await prisma.memberAttendance.count(),
+    transfers: await prisma.membershipTransfer.count(),
+    referrals: await prisma.referral.count(),
+    dietPlans: await prisma.dietPlan.count(),
+    foodLogs: await prisma.foodLog.count(),
+    workoutPlans: await prisma.workoutPlan.count(),
+    blogs: await prisma.blog.count(),
+    tvDevices: await prisma.tvDevice.count(),
+    broadcasts: await prisma.workoutBroadcast.count(),
+  };
+
+  console.log("\nSeed complete:");
+  console.table(counts);
+  console.log("\nStaff login password for all users: Test@1234");
+  console.log("TV raw device tokens: test-tv-token-main | test-tv-token-studio | test-tv-token-velachery | test-tv-token-revoked");
+  console.log(`Service IDs -> Group: ${groupService.id} | PT: ${ptService.id} | Strength: ${strengthService.id} | Pilates (inactive): ${pilatesService.id}`);
+  console.log(`Branch IDs  -> Anna Nagar: ${branch1.id} | Velachery: ${branch2.id}`);
+  console.log(`Kickboxing subcategory (no packages): ${kickboxing.id}; pkgGroupAll: ${pkgGroupAll.id}; pkgZumbaMonthly: ${pkgZumbaMonthly.id}; pkgPt12: ${pkgPt12.id}`);
+}
+
+main()
+  .catch((e) => {
+    console.error(e);
+    process.exit(1);
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
+  });

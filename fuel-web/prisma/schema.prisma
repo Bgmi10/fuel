@@ -26,7 +26,6 @@ model ContactInquiry {
   updatedAt DateTime @updatedAt
 }
 
-
 model TrialBooking {
   id String @id @default(cuid())
 

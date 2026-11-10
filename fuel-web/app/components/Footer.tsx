@@ -2,6 +2,8 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { useState } from "react";
+import { ContactForm } from "./Contactus";
 
 import {
   Mail,
@@ -10,6 +12,9 @@ import {
 } from "lucide-react";
 
 export default function Footer() {
+
+  const [contactOpen, setContactOpen] = useState(false);
+
   const quickLinks = [
     {
       label: "Home",
@@ -179,18 +184,19 @@ export default function Footer() {
 
               {/* ENQUIRE */}
 
-              <a
-                href="mailto:fuelgym.co@gmail.com"
-                className="
-                  text-sm
-                  text-neutral-400
-                  hover:text-lime-400
-                  transition-colors
-                  duration-300
-                "
-              >
-                Contact Us
-              </a>
+             <button
+  type="button"
+  onClick={() => setContactOpen(true)}
+  className="
+    text-sm
+    text-neutral-400
+    hover:text-lime-400
+    transition-colors
+    duration-300
+  "
+>
+  Contact Us
+</button>
             </div>
           </div>
 
@@ -735,6 +741,11 @@ export default function Footer() {
           </p>
         </div>
       </div>
+
+      <ContactForm
+  open={contactOpen}
+  setOpen={setContactOpen}
+/>
     </footer>
   );
 }

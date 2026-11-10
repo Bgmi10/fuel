@@ -10,11 +10,13 @@ import {
   Edit3,
   Eye,
   Film,
+  LayoutGrid,
   Loader2,
   Monitor,
   Pause,
   Play,
   Plus,
+  Radio,
   RefreshCw,
   Square,
   TimerReset,
@@ -22,16 +24,14 @@ import {
   Tv,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { useAdminRealtime } from "@/src/components/tv/admin-realtime";
+import { api, errorMessage } from "@/src/components/tv/api";
+import { LiveGridModal } from "@/src/components/tv/live-grid-modal";
+import { TvScreen, clock } from "@/src/components/tv/tv-screen";
 import { toDateKey } from "@/src/lib/tv/date-key";
-import {
-  PlanError,
-  buildPlan,
-  phaseAt,
-  type PhaseType,
-  type PlanExercise,
-} from "@/src/lib/tv/plan";
+import { PlanError, buildPlan, type PlanExercise } from "@/src/lib/tv/plan";
 
 // ------------------------------------------------------------------
 // Types
@@ -60,6 +60,9 @@ type TimerKey =
 
 type Timers = { [K in TimerKey]: number | null };
 type TimerForm = Record<TimerKey, string>;
+
+/** A TV grid shows 1 to 8 videos. */
+const MAX_TV_VIDEOS = 8;
 
 const TIMER_FIELDS: { key: TimerKey; label: string; unit: string }[] = [
   { key: "demonstrationSeconds", label: "Demonstration", unit: "sec" },
@@ -167,15 +170,17 @@ interface Draft {
   description: string;
   intensity: Intensity | "";
   timers: TimerForm;
+  /** Auto-start time (IST, datetime-local value). Empty = manual start only. */
   nextSession: string;
   exercises: DraftExercise[];
-  /** tvDeviceId -> keys of the exercises that TV plays */
+  /** tvDeviceId -> keys of the exercises that TV plays, in grid order */
   tvSelections: Record<string, string[]>;
 }
 
 interface PreviewData {
   title: string;
   subtitle: string | null;
+  intensity: Intensity | null;
   mode: Mode;
   timers: Timers;
   exercises: PlanExercise[];
@@ -211,32 +216,17 @@ function formatDay(dateKey: string) {
   }).format(new Date(`${dateKey}T12:00:00`));
 }
 
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "Something went wrong.";
-}
-
-async function api<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, {
-    cache: "no-store",
-    ...init,
-    headers: init?.body
-      ? { "Content-Type": "application/json", ...(init.headers ?? {}) }
-      : init?.headers,
-  });
-
-  let json: { data?: T; error?: string } | null = null;
-
-  try {
-    json = await response.json();
-  } catch {
-    /* empty body */
+function formatStart(iso: string | null) {
+  if (!iso) {
+    return null;
   }
 
-  if (!response.ok) {
-    throw new Error(json?.error ?? `Request failed (${response.status}).`);
-  }
-
-  return json?.data as T;
+  return new Intl.DateTimeFormat("en-IN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+    timeZone: "Asia/Kolkata",
+  }).format(new Date(iso));
 }
 
 const emptyTimers = (): TimerForm =>
@@ -281,6 +271,11 @@ function parseTimers(form: TimerForm): { values: Timers } | { error: string } {
   return { values };
 }
 
+// The gym runs on IST. The auto-start field is always read and written as
+// IST so it fires at the right moment even if the admin's browser is in
+// another time zone.
+const IST_OFFSET_MS = 330 * 60_000;
+
 function toLocalInput(iso: string | null) {
   if (!iso) {
     return "";
@@ -292,9 +287,7 @@ function toLocalInput(iso: string | null) {
     return "";
   }
 
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
-    date.getDate()
-  )}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return new Date(date.getTime() + IST_OFFSET_MS).toISOString().slice(0, 16);
 }
 
 function fromLocalInput(value: string) {
@@ -302,7 +295,7 @@ function fromLocalInput(value: string) {
     return null;
   }
 
-  const date = new Date(value);
+  const date = new Date(`${value}:00+05:30`);
 
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
@@ -377,7 +370,7 @@ function draftFromBroadcast(broadcast: Broadcast): Draft {
             .slice()
             .sort((a, b) => a.sortOrder - b.sortOrder)
             .map((item) => item.exerciseId)
-        : allKeys;
+        : allKeys.slice(0, MAX_TV_VIDEOS);
   }
 
   return {
@@ -404,16 +397,20 @@ function previewFromDraft(draft: Draft, tvId?: string, tvName?: string): Preview
   }
 
   const selected = tvId ? draft.tvSelections[tvId] : undefined;
+  const byKey = new Map(draft.exercises.map((exercise) => [exercise.key, exercise]));
+
+  // Grid order = the TV's own selection order.
   const list =
     draft.mode === "TIMER_ONLY"
       ? []
       : selected && selected.length > 0
-      ? draft.exercises.filter((exercise) => selected.includes(exercise.key))
-      : draft.exercises;
+      ? selected.flatMap((key) => (byKey.has(key) ? [byKey.get(key)!] : []))
+      : draft.exercises.slice(0, MAX_TV_VIDEOS);
 
   return {
     title: draft.title || "Workout Broadcast",
     subtitle: draft.subtitle || null,
+    intensity: draft.intensity || null,
     mode: draft.mode,
     timers: parsed.values,
     exercises: list.map((exercise) => ({
@@ -436,20 +433,15 @@ const STATUS_STYLE: Record<Status, string> = {
   CANCELLED: "bg-zinc-700/30 text-zinc-500 border-zinc-700",
 };
 
-const PHASE_LABEL: Record<PhaseType, string> = {
-  PREPARE: "GET READY",
-  WARMUP: "WARM-UP",
-  DEMONSTRATION: "DEMONSTRATION",
-  WORK: "WORK",
-  REST: "REST",
-  REST_BETWEEN_CYCLE: "CYCLE REST",
-  COOLDOWN: "COOL DOWN",
-};
-
 const inputClass =
   "w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-sm text-white outline-none placeholder:text-zinc-700 focus:border-lime-400";
 
 const isRunning = (status: Status) => status === "LIVE" || status === "PAUSED";
+
+interface LiveGridState {
+  mode: "preview" | "edit";
+  broadcastId?: string;
+}
 
 // ------------------------------------------------------------------
 // Page
@@ -475,11 +467,14 @@ export default function WorkoutBroadcastsPage() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [saving, setSaving] = useState(false);
   const [preview, setPreview] = useState<PreviewData | null>(null);
+  const [liveGrid, setLiveGrid] = useState<LiveGridState | null>(null);
 
   const [librarySearch, setLibrarySearch] = useState("");
   const [manualName, setManualName] = useState("");
   const [replacingKey, setReplacingKey] = useState<string | null>(null);
   const [showAllSchedules, setShowAllSchedules] = useState(false);
+
+  const { connected, tick } = useAdminRealtime(branchId);
 
   const cells = useMemo(() => monthCells(month), [month]);
   const rangeFrom = ymd(cells[0]);
@@ -557,17 +552,37 @@ export default function WorkoutBroadcastsPage() {
     void loadMonth();
   }, [loadMonth]);
 
-  // While anything is running, keep statuses fresh (auto-completion included).
+  // Realtime: the socket says something changed (auto-start, stop, a layout
+  // edit from another admin, a TV going offline), so refresh silently.
+  const seenTick = useRef(0);
+
+  useEffect(() => {
+    if (tick === seenTick.current) {
+      return;
+    }
+
+    seenTick.current = tick;
+    void loadMonth(true);
+
+    // TV online dots on the form
+    if (branchId) {
+      api<Tv[]>(`/api/tvs?branchId=${encodeURIComponent(branchId)}`)
+        .then(setTvs)
+        .catch(() => undefined);
+    }
+  }, [tick, loadMonth, branchId]);
+
+  // Fallback polling only while the socket is down.
   const hasRunning = broadcasts.some((broadcast) => isRunning(broadcast.status));
 
   useEffect(() => {
-    if (!hasRunning) {
+    if (connected || !hasRunning) {
       return;
     }
 
     const timer = setInterval(() => void loadMonth(true), 5000);
     return () => clearInterval(timer);
-  }, [hasRunning, loadMonth]);
+  }, [connected, hasRunning, loadMonth]);
 
   // ---------------- Derived ----------------
 
@@ -587,7 +602,13 @@ export default function WorkoutBroadcastsPage() {
     return map;
   }, [schedules]);
 
-  const dayBroadcasts = broadcastsByDate.get(selectedDate) ?? [];
+  const dayBroadcasts = (broadcastsByDate.get(selectedDate) ?? [])
+    .slice()
+    .sort(
+      (a, b) =>
+        (a.nextSessionStartsAt ? Date.parse(a.nextSessionStartsAt) : Infinity) -
+        (b.nextSessionStartsAt ? Date.parse(b.nextSessionStartsAt) : Infinity)
+    );
   const activeBranch = branches.find((branch) => branch.id === branchId) ?? null;
 
   // ---------------- Actions ----------------
@@ -722,7 +743,7 @@ export default function WorkoutBroadcastsPage() {
         .sort((a, b) => a.sortOrder - b.sortOrder)
         .map(exerciseFromSchedule);
 
-      const keys = exercises.map((exercise) => exercise.key);
+      const keys = exercises.map((exercise) => exercise.key).slice(0, MAX_TV_VIDEOS);
 
       return {
         ...current,
@@ -765,10 +786,11 @@ export default function WorkoutBroadcastsPage() {
       return {
         ...current,
         exercises: [...current.exercises, exercise],
+        // A TV that already shows 8 videos keeps its grid; pick it manually below.
         tvSelections: Object.fromEntries(
           Object.entries(current.tvSelections).map(([id, keys]) => [
             id,
-            [...keys, exercise.key],
+            keys.length < MAX_TV_VIDEOS ? [...keys, exercise.key] : keys,
           ])
         ),
       };
@@ -847,7 +869,9 @@ export default function WorkoutBroadcastsPage() {
         delete next[tvId];
       } else {
         next[tvId] =
-          current.mode === "SCHEDULE" ? current.exercises.map((item) => item.key) : [];
+          current.mode === "SCHEDULE"
+            ? current.exercises.map((item) => item.key).slice(0, MAX_TV_VIDEOS)
+            : [];
       }
 
       return { ...current, tvSelections: next };
@@ -861,6 +885,10 @@ export default function WorkoutBroadcastsPage() {
       }
 
       const selected = current.tvSelections[tvId] ?? [];
+
+      if (!selected.includes(key) && selected.length >= MAX_TV_VIDEOS) {
+        return current; // grid is full
+      }
 
       return {
         ...current,
@@ -881,7 +909,9 @@ export default function WorkoutBroadcastsPage() {
             ...current,
             tvSelections: {
               ...current.tvSelections,
-              [tvId]: all ? current.exercises.map((item) => item.key) : [],
+              [tvId]: all
+                ? current.exercises.map((item) => item.key).slice(0, MAX_TV_VIDEOS)
+                : [],
             },
           }
         : current
@@ -920,13 +950,23 @@ export default function WorkoutBroadcastsPage() {
 
     if (draft.mode === "SCHEDULE") {
       for (const tvId of selectedTvIds) {
-        if (draft.tvSelections[tvId].length === 0) {
-          const name = tvs.find((tv) => tv.id === tvId)?.name ?? "A selected TV";
-          setError(`${name} needs at least one exercise.`);
+        const name = tvs.find((tv) => tv.id === tvId)?.name ?? "A selected TV";
+        const count = draft.tvSelections[tvId].length;
+
+        if (count === 0) {
+          setError(`${name} needs at least one video.`);
+          return;
+        }
+
+        if (count > MAX_TV_VIDEOS) {
+          setError(`${name} can show at most ${MAX_TV_VIDEOS} videos.`);
           return;
         }
       }
     }
+
+    // Order of exerciseSortOrders = grid order on that TV.
+    const indexByKey = new Map(draft.exercises.map((exercise, index) => [exercise.key, index]));
 
     const body = {
       branchId,
@@ -951,8 +991,8 @@ export default function WorkoutBroadcastsPage() {
         tvDeviceId,
         ...(draft.mode === "SCHEDULE"
           ? {
-              exerciseSortOrders: draft.exercises.flatMap((exercise, index) =>
-                draft.tvSelections[tvDeviceId].includes(exercise.key) ? [index] : []
+              exerciseSortOrders: draft.tvSelections[tvDeviceId].flatMap((key) =>
+                indexByKey.has(key) ? [indexByKey.get(key)!] : []
               ),
             }
           : {}),
@@ -1034,6 +1074,15 @@ export default function WorkoutBroadcastsPage() {
               <span className="text-xs font-semibold uppercase tracking-[0.2em]">
                 TV Broadcasting
               </span>
+              <span
+                title={connected ? "Live updates connected" : "Live updates offline"}
+                className={`ml-2 inline-flex items-center gap-1 text-[10px] font-medium normal-case tracking-normal ${
+                  connected ? "text-lime-400" : "text-zinc-600"
+                }`}
+              >
+                <Radio size={11} />
+                {connected ? "Live" : "Offline"}
+              </span>
             </div>
             <h1 className="text-2xl font-semibold tracking-tight">Workout Broadcasts</h1>
             <p className="mt-1 text-sm text-zinc-500">
@@ -1070,6 +1119,26 @@ export default function WorkoutBroadcastsPage() {
 
             <button
               type="button"
+              onClick={() => setLiveGrid({ mode: "preview" })}
+              disabled={!branchId}
+              className="inline-flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2.5 text-sm font-medium text-zinc-300 hover:border-lime-400/40 hover:text-lime-300 disabled:opacity-40"
+            >
+              <Eye size={16} />
+              Live Preview
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setLiveGrid({ mode: "edit" })}
+              disabled={!branchId}
+              className="inline-flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2.5 text-sm font-medium text-zinc-300 hover:border-lime-400/40 hover:text-lime-300 disabled:opacity-40"
+            >
+              <LayoutGrid size={16} />
+              Edit Layout
+            </button>
+
+            <button
+              type="button"
               onClick={() => openCreate(selectedDate)}
               disabled={!branchId}
               className="inline-flex items-center gap-2 rounded-lg bg-lime-400 px-4 py-2.5 text-sm font-semibold text-black hover:bg-lime-300 disabled:cursor-not-allowed disabled:opacity-40"
@@ -1080,7 +1149,7 @@ export default function WorkoutBroadcastsPage() {
           </div>
         </div>
 
-        {error && !draft && (
+        {error && !draft && !liveGrid && (
           <Banner tone="error" onClose={() => setError("")}>
             {error}
           </Banner>
@@ -1260,6 +1329,9 @@ export default function WorkoutBroadcastsPage() {
                     broadcast={broadcast}
                     busy={busyId === broadcast.id}
                     onEdit={() => openEdit(broadcast)}
+                    onEditLayout={() =>
+                      setLiveGrid({ mode: "edit", broadcastId: broadcast.id })
+                    }
                     onPreview={(tvId) => openPreview(broadcast, tvId)}
                     onControl={(action) => void control(broadcast, action)}
                     onDelete={() => void remove(broadcast)}
@@ -1429,7 +1501,7 @@ export default function WorkoutBroadcastsPage() {
                 <div className="space-y-7">
                   <Section title="Broadcast Details">
                     <div className="grid gap-4 sm:grid-cols-2">
-                      <Field label="Title">
+                      <Field label="Title (admin only, not shown on TV)">
                         <input
                           value={draft.title}
                           onChange={(event) => patch({ title: event.target.value })}
@@ -1445,7 +1517,7 @@ export default function WorkoutBroadcastsPage() {
                           className={inputClass}
                         />
                       </Field>
-                      <Field label="Intensity">
+                      <Field label="Intensity (shown on every video)">
                         <select
                           value={draft.intensity}
                           onChange={(event) =>
@@ -1494,7 +1566,7 @@ export default function WorkoutBroadcastsPage() {
                       ))}
 
                       <div className="sm:col-span-2 lg:col-span-3">
-                        <Field label="Next Session Starts At">
+                        <Field label="Auto-start at (IST)">
                           <input
                             type="datetime-local"
                             style={{ colorScheme: "dark" }}
@@ -1502,6 +1574,12 @@ export default function WorkoutBroadcastsPage() {
                             onChange={(event) => patch({ nextSession: event.target.value })}
                             className={inputClass}
                           />
+                          <p className="mt-1.5 text-[11px] text-zinc-600">
+                            The broadcast starts on its own at this exact time. Leave it empty
+                            to start it manually with "Start now". After the cool down it
+                            loops from the beginning unless another timed broadcast is
+                            scheduled later that day.
+                          </p>
                         </Field>
                       </div>
                     </div>
@@ -1510,7 +1588,7 @@ export default function WorkoutBroadcastsPage() {
                   {draft.mode === "SCHEDULE" && (
                     <Section
                       title="Broadcast Exercises"
-                      aside={`${draft.exercises.length} selected`}
+                      aside={`${draft.exercises.length} in pool`}
                     >
                       {/* Library picker */}
                       <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-3">
@@ -1665,11 +1743,18 @@ export default function WorkoutBroadcastsPage() {
                   {draft.mode === "SCHEDULE" &&
                     Object.keys(draft.tvSelections).length > 0 &&
                     draft.exercises.length > 0 && (
-                      <Section title="TV Exercise Selection">
+                      <Section title="TV Video Grid" aside={`Max ${MAX_TV_VIDEOS} per TV`}>
+                        <p className="mb-3 text-[11px] text-zinc-600">
+                          Selected videos play together, split equally on the TV and in the
+                          order you pick them. Use Edit Layout on the broadcast page to
+                          drag and drop the order, even while it is live.
+                        </p>
+
                         <div className="space-y-3">
                           {Object.keys(draft.tvSelections).map((tvId) => {
                             const tv = tvs.find((item) => item.id === tvId);
                             const selected = draft.tvSelections[tvId];
+                            const full = selected.length >= MAX_TV_VIDEOS;
 
                             return (
                               <div
@@ -1682,8 +1767,12 @@ export default function WorkoutBroadcastsPage() {
                                     <span className="text-xs font-semibold text-zinc-300">
                                       {tv?.name ?? "TV"}
                                     </span>
-                                    <span className="text-[10px] text-zinc-600">
-                                      {selected.length} of {draft.exercises.length}
+                                    <span
+                                      className={`text-[10px] ${
+                                        selected.length === 0 ? "text-red-400" : "text-zinc-600"
+                                      }`}
+                                    >
+                                      {selected.length} of {MAX_TV_VIDEOS} videos
                                     </span>
                                   </div>
                                   <div className="flex gap-3">
@@ -1692,7 +1781,9 @@ export default function WorkoutBroadcastsPage() {
                                       onClick={() => setTvAll(tvId, true)}
                                       className="text-[10px] text-lime-400 hover:text-lime-300"
                                     >
-                                      Select all
+                                      {draft.exercises.length > MAX_TV_VIDEOS
+                                        ? `Select first ${MAX_TV_VIDEOS}`
+                                        : "Select all"}
                                     </button>
                                     <button
                                       type="button"
@@ -1705,15 +1796,17 @@ export default function WorkoutBroadcastsPage() {
                                 </div>
 
                                 <div className="grid gap-2 sm:grid-cols-2">
-                                  {draft.exercises.map((exercise, index) => {
-                                    const checked = selected.includes(exercise.key);
+                                  {draft.exercises.map((exercise) => {
+                                    const position = selected.indexOf(exercise.key);
+                                    const checked = position !== -1;
 
                                     return (
                                       <button
                                         key={exercise.key}
                                         type="button"
+                                        disabled={!checked && full}
                                         onClick={() => toggleTvExercise(tvId, exercise.key)}
-                                        className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-left ${
+                                        className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-left disabled:opacity-40 ${
                                           checked
                                             ? "border-lime-400/20 bg-lime-400/[0.06]"
                                             : "border-zinc-800 bg-zinc-900"
@@ -1721,7 +1814,8 @@ export default function WorkoutBroadcastsPage() {
                                       >
                                         <Checkbox checked={checked} small />
                                         <span className="truncate text-[11px] text-zinc-400">
-                                          {index + 1}. {exercise.name}
+                                          {checked ? `${position + 1}. ` : ""}
+                                          {exercise.name}
                                         </span>
                                       </button>
                                     );
@@ -1780,7 +1874,23 @@ export default function WorkoutBroadcastsPage() {
         </div>
       )}
 
-      {preview && <BroadcastPreview data={preview} onClose={() => setPreview(null)} />}
+      {preview && <SimulationModal data={preview} onClose={() => setPreview(null)} />}
+
+      {liveGrid && branchId && (
+        <LiveGridModal
+          // Re-mount when the scope changes so state never leaks between modes.
+          key={`${liveGrid.mode}-${liveGrid.broadcastId ?? "all"}`}
+          branchId={branchId}
+          initialMode={liveGrid.mode}
+          broadcastId={liveGrid.broadcastId}
+          refreshKey={tick}
+          connected={connected}
+          onClose={() => {
+            setLiveGrid(null);
+            void loadMonth(true);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -1793,6 +1903,7 @@ function BroadcastCard({
   broadcast,
   busy,
   onEdit,
+  onEditLayout,
   onPreview,
   onControl,
   onDelete,
@@ -1800,12 +1911,18 @@ function BroadcastCard({
   broadcast: Broadcast;
   busy: boolean;
   onEdit: () => void;
+  onEditLayout: () => void;
   onPreview: (tvId?: string) => void;
   onControl: (action: "start" | "pause" | "resume" | "stop") => void;
   onDelete: () => void;
 }) {
   const running = isRunning(broadcast.status);
   const editable = broadcast.status === "SCHEDULED" || broadcast.status === "DRAFT";
+  const canEditLayout =
+    broadcast.mode === "SCHEDULE" &&
+    broadcast.tvs.length > 0 &&
+    (running || broadcast.status === "SCHEDULED");
+  const startTime = formatStart(broadcast.nextSessionStartsAt);
 
   return (
     <div className="rounded-lg border border-zinc-800 bg-zinc-950/60 p-4">
@@ -1827,6 +1944,8 @@ function BroadcastCard({
                   broadcast.exercises.length !== 1 ? "s" : ""
                 }`
               : "Timer only"}
+            {broadcast.status === "SCHEDULED" &&
+              (startTime ? ` · Auto-starts ${startTime}` : " · Manual start")}
           </p>
         </div>
 
@@ -1876,15 +1995,27 @@ function BroadcastCard({
           </CardButton>
         )}
 
+        {canEditLayout && (
+          <CardButton onClick={onEditLayout} disabled={busy}>
+            <LayoutGrid size={13} />
+            Edit layout
+          </CardButton>
+        )}
+
         <CardButton onClick={() => onPreview()}>
           <Eye size={13} />
           Preview
         </CardButton>
 
         {editable && (
-          <CardButton primary onClick={() => onControl("start")} disabled={busy}>
+          <CardButton
+            primary
+            onClick={() => onControl("start")}
+            disabled={busy}
+            title="Starts immediately instead of waiting for the scheduled time"
+          >
             {busy ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
-            Start
+            Start now
           </CardButton>
         )}
 
@@ -1912,7 +2043,8 @@ function BroadcastCard({
 
       {running && (
         <p className="mt-2 text-[10px] text-zinc-600">
-          Running broadcasts can't be edited. Stop it first.
+          Use Edit layout to reorder, add or remove videos live. Timers can't be changed
+          while running.
         </p>
       )}
 
@@ -1932,15 +2064,13 @@ function BroadcastCard({
 }
 
 // ------------------------------------------------------------------
-// Preview: runs the real plan engine, the same one the TV follows
+// Simulation: plays the draft/saved broadcast through the real plan
+// engine on the same TvScreen the TV mirrors. Not live; see Live Preview.
 // ------------------------------------------------------------------
 
-function clock(ms: number) {
-  const total = Math.max(0, Math.ceil(ms / 1000));
-  return `${pad(Math.floor(total / 60))}:${pad(total % 60)}`;
-}
+const SIM_RUN = { startedAt: 0, pausedAt: null, pausedTotalMs: 0 } as const;
 
-function BroadcastPreview({ data, onClose }: { data: PreviewData; onClose: () => void }) {
+function SimulationModal({ data, onClose }: { data: PreviewData; onClose: () => void }) {
   const built = useMemo(() => {
     try {
       return {
@@ -1953,9 +2083,11 @@ function BroadcastPreview({ data, onClose }: { data: PreviewData; onClose: () =>
             title: data.title,
             subtitle: data.subtitle,
             nextSessionStartsAt: null,
+            intensity: data.intensity,
+            loop: false,
             timers: data.timers,
             exercises: data.exercises,
-            run: { startedAt: 0, pausedAt: null, pausedTotalMs: 0 },
+            run: { ...SIM_RUN },
           },
           0
         ),
@@ -1990,27 +2122,15 @@ function BroadcastPreview({ data, onClose }: { data: PreviewData; onClose: () =>
     return () => clearInterval(timer);
   }, [plan, playing, speed]);
 
-  const position = plan
-    ? phaseAt(plan, { startedAt: 0, pausedAt: null, pausedTotalMs: 0 }, elapsed)
-    : null;
-
-  const running = position && (position.state === "RUNNING" || position.state === "PAUSED");
-  const phase = running ? position.phase : null;
-  const exercise =
-    plan && phase && phase.exerciseIndex !== null
-      ? plan.exercises[phase.exerciseIndex]
-      : null;
-  const showVideo =
-    !!exercise?.videoUrl && (phase?.type === "WORK" || phase?.type === "DEMONSTRATION");
-
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-3xl overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900 shadow-2xl">
+      <div className="w-full max-w-4xl overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900 shadow-2xl">
         <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-4">
           <div>
             <h2 className="font-semibold">Broadcast Preview</h2>
             <p className="mt-1 text-xs text-zinc-500">
-              {data.heading}. This runs the same timeline the TV follows.
+              {data.heading}. A simulation of the timeline and grid. For what the TVs are
+              playing right now use Live Preview.
             </p>
           </div>
           <button
@@ -2026,83 +2146,8 @@ function BroadcastPreview({ data, onClose }: { data: PreviewData; onClose: () =>
           <div className="p-8 text-center text-sm text-red-400">{built.problem}</div>
         ) : (
           <div className="space-y-4 p-5">
-            {/* Simulated TV screen */}
-            <div className="relative aspect-video overflow-hidden rounded-xl border border-zinc-800 bg-black">
-              {showVideo && exercise?.videoUrl && (
-                <video
-                  key={`${exercise.id}-${phase?.index}`}
-                  src={exercise.videoUrl}
-                  autoPlay
-                  loop
-                  muted
-                  playsInline
-                  className="absolute inset-0 h-full w-full object-contain"
-                />
-              )}
+            <TvScreen plan={plan} nowMs={elapsed} run={{ ...SIM_RUN }} />
 
-              <div className="absolute inset-x-0 top-0 flex items-start justify-between bg-gradient-to-b from-black/80 to-transparent p-4">
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-[0.3em] text-lime-400">
-                    Fuel TV
-                  </p>
-                  <p className="mt-1 text-sm font-bold">{data.title}</p>
-                  {data.subtitle && (
-                    <p className="text-xs text-zinc-400">{data.subtitle}</p>
-                  )}
-                </div>
-                {phase && (
-                  <div className="text-right text-[11px] text-zinc-300">
-                    {phase.set !== null && (
-                      <p>
-                        Set {phase.set}/{plan.sets} · Cycle {phase.cycle}/{plan.cycles}
-                      </p>
-                    )}
-                    {plan.exercises.length > 0 && phase.exerciseIndex !== null && (
-                      <p className="text-zinc-500">
-                        Exercise {phase.exerciseIndex + 1}/{plan.exercises.length}
-                      </p>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-                {position?.state === "DONE" ? (
-                  <>
-                    <div className="flex h-16 w-16 items-center justify-center rounded-full border border-lime-700 bg-lime-950 text-3xl text-lime-400">
-                      ✓
-                    </div>
-                    <p className="mt-4 text-xs font-black tracking-[0.25em] text-lime-400">
-                      WORKOUT COMPLETED
-                    </p>
-                  </>
-                ) : phase && running ? (
-                  <div className={showVideo ? "rounded-2xl bg-black/55 px-8 py-4" : ""}>
-                    <p className="text-xs font-black tracking-[0.3em] text-lime-400">
-                      {PHASE_LABEL[phase.type]}
-                    </p>
-                    <p className="mt-2 text-6xl font-black tabular-nums">
-                      {clock(position.remainingMs)}
-                    </p>
-                    {exercise && (
-                      <p className="mt-2 text-lg font-bold text-zinc-100">{exercise.name}</p>
-                    )}
-                  </div>
-                ) : null}
-              </div>
-
-              {running && position.nextPhase && (
-                <div className="absolute bottom-3 left-4 rounded-md bg-black/60 px-2.5 py-1 text-[10px] text-zinc-400">
-                  Next: {PHASE_LABEL[position.nextPhase.type]}
-                  {position.nextPhase.exerciseIndex !== null &&
-                  position.nextPhase.exerciseIndex !== phase?.exerciseIndex
-                    ? ` · ${plan.exercises[position.nextPhase.exerciseIndex]?.name ?? ""}`
-                    : ""}
-                </div>
-              )}
-            </div>
-
-            {/* Transport */}
             <div className="flex flex-wrap items-center gap-3">
               <button
                 type="button"
@@ -2160,24 +2205,6 @@ function BroadcastPreview({ data, onClose }: { data: PreviewData; onClose: () =>
               onChange={(event) => setElapsed(Number(event.target.value))}
               className="w-full accent-lime-400"
             />
-
-            {/* Phase strip */}
-            <div className="flex h-2 gap-px overflow-hidden rounded-full">
-              {plan.phases.map((item) => (
-                <div
-                  key={item.index}
-                  title={`${PHASE_LABEL[item.type]} · ${item.durationMs / 1000}s`}
-                  style={{ flexGrow: item.durationMs }}
-                  className={
-                    item.index === phase?.index
-                      ? "bg-lime-400"
-                      : item.type === "WORK"
-                      ? "bg-zinc-500"
-                      : "bg-zinc-800"
-                  }
-                />
-              ))}
-            </div>
           </div>
         )}
       </div>
@@ -2323,17 +2350,20 @@ function CardButton({
   disabled,
   primary,
   danger,
+  title,
   children,
 }: {
   onClick: () => void;
   disabled?: boolean;
   primary?: boolean;
   danger?: boolean;
+  title?: string;
   children: React.ReactNode;
 }) {
   return (
     <button
       type="button"
+      title={title}
       onClick={onClick}
       disabled={disabled}
       className={`inline-flex items-center justify-center gap-1.5 rounded-md px-2.5 py-2 text-xs font-medium disabled:opacity-50 ${

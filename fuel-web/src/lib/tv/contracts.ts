@@ -51,7 +51,13 @@ const repeatCount = z
   .optional()
   .transform((value) => value ?? null);
 
-/** Shared by schedules and broadcasts. */
+/**
+ * Shared by schedules and broadcasts.
+ *
+ * nextSessionStartsAt doubles as the broadcast's AUTO-START time.
+ * Send a full ISO string with the IST offset, e.g. "2026-10-29T08:50:00+05:30".
+ * null => no auto-start; an admin starts it with the Start button.
+ */
 export const timerShape = {
   demonstrationSeconds: phaseSeconds,
   warmupSeconds: phaseSeconds,
@@ -85,6 +91,9 @@ export type ExerciseInput = z.infer<typeof exerciseInputSchema>;
 
 const MAX_EXERCISES = 100;
 
+/** Max videos one TV can show in its grid (min is 1). */
+export const MAX_TV_VIDEOS = 8;
+
 // ------------------------------------------------------------------
 // Schedule (centralised)
 // ------------------------------------------------------------------
@@ -114,9 +123,13 @@ export const broadcastTvInputSchema = z.object({
   tvDeviceId: idSchema,
   /**
    * Positions in the broadcast's exercises array this TV should play,
-   * in play order. Omit to play every exercise (SCHEDULE mode only).
+   * in grid order (first = top-left tile). Omit to play every exercise
+   * (SCHEDULE mode only, and only when there are 8 or fewer).
    */
-  exerciseSortOrders: z.array(z.number().int().min(0)).max(MAX_EXERCISES).optional(),
+  exerciseSortOrders: z
+    .array(z.number().int().min(0))
+    .max(MAX_TV_VIDEOS, `A TV can show at most ${MAX_TV_VIDEOS} videos.`)
+    .optional(),
 });
 
 export const broadcastInputSchema = z
@@ -156,7 +169,14 @@ export const broadcastInputSchema = z
 
       value.tvs.forEach((tv, tvIndex) => {
         if (tv.exerciseSortOrders === undefined) {
-          return; // defaults to every exercise
+          // Defaults to every exercise, which must still fit one TV's grid.
+          if (value.exercises.length > MAX_TV_VIDEOS) {
+            issue(
+              ["tvs", tvIndex, "exerciseSortOrders"],
+              `A TV can show at most ${MAX_TV_VIDEOS} videos. Select which ones this TV plays.`
+            );
+          }
+          return;
         }
 
         if (tv.exerciseSortOrders.length === 0) {
@@ -215,6 +235,72 @@ export const broadcastQuerySchema = z.object({
   branchId: idSchema,
   from: dateKeySchema,
   to: dateKeySchema,
+});
+
+// ------------------------------------------------------------------
+// Live layout editing (SCHEDULED, LIVE or PAUSED broadcasts)
+// ------------------------------------------------------------------
+
+/**
+ * PATCH /api/workout-broadcasts/[id]/layout
+ * exerciseIds = WorkoutBroadcastExercise ids in the new grid order
+ * (index 0 = first tile). tvDeviceId omitted => applies to every TV.
+ */
+export const layoutInputSchema = z
+  .object({
+    tvDeviceId: idSchema.optional(),
+    exerciseIds: z
+      .array(idSchema)
+      .min(1, "A TV needs at least one video.")
+      .max(MAX_TV_VIDEOS, `A TV can show at most ${MAX_TV_VIDEOS} videos.`),
+  })
+  .superRefine((value, ctx) => {
+    if (new Set(value.exerciseIds).size !== value.exerciseIds.length) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["exerciseIds"],
+        message: "A video can only appear once per layout.",
+      });
+    }
+  });
+
+export type LayoutInput = z.infer<typeof layoutInputSchema>;
+
+/**
+ * POST /api/workout-broadcasts/[id]/exercises
+ * Adds a library video. replaceExerciseId puts it in that tile's exact
+ * position (delete + add as one live change). position is ignored when
+ * replacing.
+ */
+export const addExerciseInputSchema = z.object({
+  videoId: idSchema,
+  tvDeviceId: idSchema.optional(),
+  position: z
+    .number()
+    .int()
+    .min(0)
+    .max(MAX_TV_VIDEOS - 1)
+    .optional(),
+  replaceExerciseId: idSchema.optional(),
+});
+
+export type AddExerciseInput = z.infer<typeof addExerciseInputSchema>;
+
+/** DELETE /api/workout-broadcasts/[id]/exercises?exerciseId=&tvDeviceId= */
+export const removeExerciseQuerySchema = z.object({
+  exerciseId: idSchema,
+  tvDeviceId: idSchema.optional(),
+});
+
+/** GET /api/workout-videos/search?q=&limit= */
+export const videoSearchQuerySchema = z.object({
+  q: z.string().trim().max(80).optional().default(""),
+  limit: z.coerce.number().int().min(1).max(50).optional().default(20),
+});
+
+/** GET /api/workout-broadcasts/live?branchId= */
+export const liveQuerySchema = z.object({
+  branchId: idSchema,
 });
 
 // ------------------------------------------------------------------

@@ -5,9 +5,14 @@
  * the admin Preview runs the same code, and the Kotlin app mirrors
  * phaseAt() against the same JSON fixtures.
  *
+ * Grid playback: every video on a TV plays AT THE SAME TIME, so there is
+ * ONE shared timeline per broadcast. The exercise list only decides which
+ * tiles exist and in what order. Adding, removing or reordering videos
+ * never changes the phases, so a live edit can never restart the timers.
+ *
  * Time model:
  *   elapsedMs = (pausedAt ?? now) - startedAt - pausedTotalMs
- * The phase is whichever one contains elapsedMs.
+ * If plan.loop is true the position wraps: elapsedMs % totalMs.
  */
 
 // ------------------------------------------------------------------
@@ -23,6 +28,8 @@ export type PhaseType =
   | "REST_BETWEEN_CYCLE"
   | "COOLDOWN";
 
+export type PlanIntensity = "LOW" | "MEDIUM" | "HIGH";
+
 export interface TimerSettings {
   demonstrationSeconds?: number | null;
   warmupSeconds?: number | null;
@@ -35,8 +42,24 @@ export interface TimerSettings {
   coolDownSeconds?: number | null;
 }
 
+/** Normalised timers for the static bottom overlay on the TV. 0 = not used. */
+export interface PlanTimers {
+  demonstrationSeconds: number;
+  warmupSeconds: number;
+  prepareSeconds: number;
+  /** Effective work time (falls back to the longest video when unset). */
+  workSeconds: number;
+  restSeconds: number;
+  sets: number;
+  cycles: number;
+  restBetweenCycleSeconds: number;
+  coolDownSeconds: number;
+}
+
 export interface PlanExercise {
+  /** WorkoutBroadcastExercise.id. The TV keys its tiles by this. */
   id: string;
+  /** Admin-side only. The TV does not render titles. */
   name: string;
   /** null => manual (name only) exercise */
   videoUrl: string | null;
@@ -49,7 +72,7 @@ export interface PlanPhase {
   type: PhaseType;
   startMs: number;
   durationMs: number;
-  /** Index into plan.exercises, or null (timer-only, or phases like PREPARE) */
+  /** Always null now: all exercises share the timeline. Kept for JSON compatibility. */
   exerciseIndex: number | null;
   /** 1-based, null for phases outside the set/cycle loop */
   set: number | null;
@@ -78,11 +101,14 @@ export interface BuildPlanInput {
   mode: "SCHEDULE" | "TIMER_ONLY";
   title: string | null;
   subtitle: string | null;
+  intensity: PlanIntensity | null;
   nextSessionStartsAt: string | null;
   timers: TimerSettings;
-  /** Already filtered and ordered for ONE tv. Empty for TIMER_ONLY. */
+  /** Already filtered and ordered for ONE tv (grid order). Empty for TIMER_ONLY. */
   exercises: PlanExercise[];
   run: RunState;
+  /** Restart from scratch after COOLDOWN instead of finishing. */
+  loop: boolean;
 }
 
 export interface BroadcastPlan {
@@ -92,12 +118,18 @@ export interface BroadcastPlan {
   mode: "SCHEDULE" | "TIMER_ONLY";
   title: string | null;
   subtitle: string | null;
+  /** Read-only label on every video tile. */
+  intensity: PlanIntensity | null;
   nextSessionStartsAt: string | null;
   sets: number;
   cycles: number;
+  timers: PlanTimers;
+  /** Grid order: index 0 is the first tile. */
   exercises: PlanExercise[];
   phases: PlanPhase[];
   totalMs: number;
+  /** true => the TV wraps elapsed % totalMs and restarts the videos each lap. */
+  loop: boolean;
   run: RunState;
   /** Epoch ms when the server created this payload. TVs use it for clock offset. */
   serverNow: number;
@@ -128,34 +160,55 @@ function atLeastOne(value: number | null | undefined): number {
   return Math.max(1, seconds(value));
 }
 
+/** Timers without exercise info (idle screen cards). */
+export function normalizeTimers(
+  timers: TimerSettings,
+  longestVideoSeconds = 0
+): PlanTimers {
+  return {
+    demonstrationSeconds: seconds(timers.demonstrationSeconds),
+    warmupSeconds: seconds(timers.warmupSeconds),
+    prepareSeconds: seconds(timers.prepareSeconds),
+    workSeconds: seconds(timers.workSeconds) || longestVideoSeconds,
+    restSeconds: seconds(timers.restSeconds),
+    sets: atLeastOne(timers.sets),
+    cycles: atLeastOne(timers.cycles),
+    restBetweenCycleSeconds: seconds(timers.restBetweenCycleSeconds),
+    coolDownSeconds: seconds(timers.coolDownSeconds),
+  };
+}
+
 /**
- * Timeline rules
+ * Timeline rules (ONE shared timeline, all videos play together)
  *
  *   PREPARE -> WARMUP ->
  *   for cycle in 1..cycles
  *     for set in 1..sets
- *       for each exercise
- *         DEMONSTRATION   (only cycle 1, set 1, once per exercise)
- *         WORK
- *         REST            (after every WORK except the last one of a cycle,
- *                          which is followed by REST_BETWEEN_CYCLE / COOLDOWN)
+ *       DEMONSTRATION   (cycle 1, set 1 only)
+ *       WORK
+ *       REST            (after every WORK except the last set of a cycle)
  *     REST_BETWEEN_CYCLE  (not after the last cycle)
  *   -> COOLDOWN
  *
  * - Phases with 0 / null seconds are omitted.
- * - If workSeconds is unset, a video exercise falls back to its own
- *   video duration. A manual exercise then has no WORK phase.
- * - Timer-only (no exercises) behaves as one anonymous exercise.
+ * - If workSeconds is unset, WORK falls back to the LONGEST video duration.
  */
 export function buildPhases(
   timers: TimerSettings,
   exercises: PlanExercise[]
-): { phases: PlanPhase[]; totalMs: number; sets: number; cycles: number } {
-  const sets = atLeastOne(timers.sets);
-  const cycles = atLeastOne(timers.cycles);
-
-  const slots: (number | null)[] =
-    exercises.length > 0 ? exercises.map((_, index) => index) : [null];
+): {
+  phases: PlanPhase[];
+  totalMs: number;
+  sets: number;
+  cycles: number;
+  timers: PlanTimers;
+} {
+  const longestVideo = exercises.reduce(
+    (max, exercise) => Math.max(max, seconds(exercise.durationSeconds)),
+    0
+  );
+  const normalized = normalizeTimers(timers, longestVideo);
+  const { sets, cycles } = normalized;
 
   const phases: PlanPhase[] = [];
   let cursor = 0;
@@ -163,7 +216,6 @@ export function buildPhases(
   const push = (
     type: PhaseType,
     durationSec: number,
-    exerciseIndex: number | null,
     set: number | null,
     cycle: number | null
   ) => {
@@ -176,58 +228,33 @@ export function buildPhases(
       type,
       startMs: cursor,
       durationMs,
-      exerciseIndex,
+      exerciseIndex: null,
       set,
       cycle,
     });
     cursor += durationMs;
   };
 
-  push("PREPARE", seconds(timers.prepareSeconds), null, null, null);
-  push("WARMUP", seconds(timers.warmupSeconds), null, null, null);
+    // After
+    push("DEMONSTRATION", normalized.demonstrationSeconds, null, null);
+    push("WARMUP", normalized.warmupSeconds, null, null);
+    push("PREPARE", normalized.prepareSeconds, null, null);
+  
+    for (let cycle = 1; cycle <= cycles; cycle++) {
+      for (let set = 1; set <= sets; set++) {
+        push("WORK", normalized.workSeconds, set, cycle);
 
-  for (let cycle = 1; cycle <= cycles; cycle++) {
-    for (let set = 1; set <= sets; set++) {
-      slots.forEach((exerciseIndex, position) => {
-        if (cycle === 1 && set === 1) {
-          push(
-            "DEMONSTRATION",
-            seconds(timers.demonstrationSeconds),
-            exerciseIndex,
-            set,
-            cycle
-          );
-        }
-
-        const work =
-          seconds(timers.workSeconds) ||
-          (exerciseIndex !== null
-            ? seconds(exercises[exerciseIndex].durationSeconds)
-            : 0);
-
-        push("WORK", work, exerciseIndex, set, cycle);
-
-        const isLastOfCycle =
-          set === sets && position === slots.length - 1;
-
-        if (!isLastOfCycle) {
-          push("REST", seconds(timers.restSeconds), exerciseIndex, set, cycle);
-        }
-      });
+      if (set < sets) {
+        push("REST", normalized.restSeconds, set, cycle);
+      }
     }
 
     if (cycle < cycles) {
-      push(
-        "REST_BETWEEN_CYCLE",
-        seconds(timers.restBetweenCycleSeconds),
-        null,
-        null,
-        cycle
-      );
+      push("REST_BETWEEN_CYCLE", normalized.restBetweenCycleSeconds, null, cycle);
     }
   }
 
-  push("COOLDOWN", seconds(timers.coolDownSeconds), null, null, null);
+  push("COOLDOWN", normalized.coolDownSeconds, null, null);
 
   if (phases.length === 0) {
     throw new PlanError(
@@ -236,14 +263,14 @@ export function buildPhases(
     );
   }
 
-  return { phases, totalMs: cursor, sets, cycles };
+  return { phases, totalMs: cursor, sets, cycles, timers: normalized };
 }
 
 export function buildPlan(
   input: BuildPlanInput,
   serverNow: number
 ): BroadcastPlan {
-  const { phases, totalMs, sets, cycles } = buildPhases(
+  const { phases, totalMs, sets, cycles, timers } = buildPhases(
     input.timers,
     input.exercises
   );
@@ -255,12 +282,15 @@ export function buildPlan(
     mode: input.mode,
     title: input.title,
     subtitle: input.subtitle,
+    intensity: input.intensity,
     nextSessionStartsAt: input.nextSessionStartsAt,
     sets,
     cycles,
+    timers,
     exercises: input.exercises,
     phases,
     totalMs,
+    loop: input.loop,
     run: input.run,
     serverNow,
   };
@@ -274,7 +304,10 @@ export type PlanPosition =
   | { state: "WAITING" }
   | {
       state: "RUNNING" | "PAUSED";
+      /** ms inside the current lap */
       elapsedMs: number;
+      /** 0 for the first pass, 1 after the first loop restart, ... */
+      lap: number;
       phaseIndex: number;
       phase: PlanPhase;
       nextPhase: PlanPhase | null;
@@ -292,18 +325,25 @@ export function elapsedMs(run: RunState, nowMs: number): number | null {
 }
 
 export function phaseAt(
-  plan: Pick<BroadcastPlan, "phases" | "totalMs">,
+  plan: Pick<BroadcastPlan, "phases" | "totalMs"> & { loop?: boolean },
   run: RunState,
   nowMs: number
 ): PlanPosition {
-  const elapsed = elapsedMs(run, nowMs);
+  const raw = elapsedMs(run, nowMs);
 
-  if (elapsed === null) {
+  if (raw === null) {
     return { state: "WAITING" };
   }
 
-  if (elapsed >= plan.totalMs) {
-    return { state: "DONE", elapsedMs: elapsed };
+  let elapsed = raw;
+  let lap = 0;
+
+  if (raw >= plan.totalMs) {
+    if (!plan.loop) {
+      return { state: "DONE", elapsedMs: raw };
+    }
+    lap = Math.floor(raw / plan.totalMs);
+    elapsed = raw % plan.totalMs;
   }
 
   // Binary search: last phase whose startMs <= elapsed.
@@ -324,6 +364,7 @@ export function phaseAt(
   return {
     state: run.pausedAt !== null ? "PAUSED" : "RUNNING",
     elapsedMs: elapsed,
+    lap,
     phaseIndex: low,
     phase,
     nextPhase: plan.phases[low + 1] ?? null,

@@ -4,8 +4,15 @@ import { Server } from "socket.io";
 
 import { setSocketServer } from "./src/lib/socket-runtime";
 import { prisma } from "./prisma";
-import { completeFinishedBroadcasts } from "./src/lib/tv/broadcast-service";
-import { publishBroadcastState } from "./src/lib/tv/realtime";
+import {
+  completeFinishedBroadcasts,
+  startDueBroadcasts,
+  syncLoopFlags,
+} from "./src/lib/tv/broadcast-service";
+import {
+  publishBroadcastClear,
+  publishBroadcastState,
+} from "./src/lib/tv/realtime";
 import { adminBranchRoom, pairingRoom, tvRoom } from "./src/lib/tv/rooms";
 import { verifyAdminSocketToken } from "./src/lib/tv/security";
 import {
@@ -24,8 +31,12 @@ import {
  *
  * server -> TV   (room tv:{deviceId})
  *   tv:paired         { deviceId, deviceToken, ... }     (pairing room only)
- *   broadcast:state   BroadcastPlan   start / pause / resume / finish
- *   broadcast:clear   { broadcastId, reason }            admin stop
+ *   broadcast:state   BroadcastPlan   start / pause / resume / finish / layout edit /
+ *                                     loop flag change. TVs apply it only if its
+ *                                     version is newer, and key tiles by exercise id
+ *                                     so unchanged videos keep playing.
+ *   broadcast:clear   { broadcastId, reason }            admin stop, or replaced by
+ *                                                        the next schedule
  *   tv:revoked        { deviceId }
  *
  * Admin browser -> server
@@ -36,13 +47,23 @@ import {
  *   tv:device-status  { deviceId, isOnline, lastSeenAt }
  *   tv:status         { deviceId, broadcastId, phaseIndex, state, message?, at }
  *   broadcast:status  { broadcastId, status, version }
+ *
+ * Sweeper (every second)
+ *   1. start SCHEDULED broadcasts whose nextSessionStartsAt has arrived
+ *      (replacing whatever is looping on the same TVs)
+ *   2. complete plans that ran out and do not loop
+ *   3. every 5s: re-publish running broadcasts whose loop flag changed
+ *   4. every 5 min: tidy expired pairing codes
  */
 
 const dev = process.env.NODE_ENV !== "production";
 const hostname = process.env.HOSTNAME || "0.0.0.0";
 const port = Number(process.env.PORT || 3000);
 
-const SWEEP_INTERVAL_MS = 5_000;
+/** A schedule must start within about a second of its time. */
+const SWEEP_INTERVAL_MS = 1_000;
+const LOOP_SYNC_EVERY_SWEEPS = 5;
+const PAIRING_CLEANUP_EVERY_SWEEPS = 300;
 const OFFLINE_GRACE_MS = 1_500;
 
 type TvStatusPayload = {
@@ -307,8 +328,8 @@ async function startServer() {
     });
 
     // ------------------------------------------------------------
-    // Sweeper: finish broadcasts whose plans have run out, and tidy
-    // expired pairing codes.
+    // Sweeper. Runs every second so a schedule starts on time.
+    // `sweeping` stops a slow tick from overlapping the next one.
     // ------------------------------------------------------------
     let sweeping = false;
     let sweeps = 0;
@@ -321,13 +342,35 @@ async function startServer() {
       sweeping = true;
 
       try {
+        // 1. Auto-start schedules whose time has arrived. Anything that was
+        //    running on the same TVs (typically the looping broadcast) is
+        //    completed first, so TVs get "clear" and then the new plan.
+        const { started, replaced } = await startDueBroadcasts();
+
+        for (const old of replaced) {
+          publishBroadcastClear(io, old, "STOPPED");
+        }
+
+        for (const broadcast of started) {
+          publishBroadcastState(io, broadcast);
+        }
+
+        // 2. Finish plans that ran out and do NOT loop.
         for (const broadcast of await completeFinishedBroadcasts()) {
           publishBroadcastState(io, broadcast);
         }
 
         sweeps += 1;
 
-        if (sweeps % 60 === 0) {
+        // 3. A later schedule was added or removed: loop vs finish changed.
+        if (sweeps % LOOP_SYNC_EVERY_SWEEPS === 0) {
+          for (const broadcast of await syncLoopFlags()) {
+            publishBroadcastState(io, broadcast);
+          }
+        }
+
+        // 4. Tidy expired pairing codes.
+        if (sweeps % PAIRING_CLEANUP_EVERY_SWEEPS === 0) {
           await cleanupPairingSessions();
         }
       } catch (error) {

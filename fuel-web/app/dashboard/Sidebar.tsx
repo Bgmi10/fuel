@@ -125,11 +125,6 @@ const navSections: NavSection[] = [
         icon: Video,
       },
       {
-        label: "Workout Schedules Centralized",
-        href: "/dashboard/workout-schedules-centralized",
-        icon: Video,
-      },
-      {
         label: "Workout Programs",
         href: "/dashboard/workout-programs",
         icon: ListChecks,
