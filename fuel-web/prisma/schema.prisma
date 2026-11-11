@@ -651,7 +651,8 @@ enum MembershipUsageType {
 
 model Member {
   id String @id @default(cuid())
-
+  legacyId    String? @unique   // NEW: old software member ID
+  legacyPhone String?    
   name  String
   phone String @unique
   email String @unique
