@@ -16,7 +16,7 @@ import { buildPlan, ImportPlan, Row } from './legacy-transform';
 // ------------------------------------------------------------------ CONFIG
 const BRANCH_ID = 'cmsue7qvi0000onjeo7iwxyaa';
 const BRANCH_NAME = 'Purasawalkam';
-const MASTER_FILE = 'Members_till_04Nov2026_11_50AM.xlsx';
+const MASTER_FILE = 'Members_till_04Nov2026_AM.xlsx';
 const YEARS = [2022, 2023, 2024, 2025, 2026];
 /** Payments on CANCELLED memberships: 'VOIDED' = not counted as revenue, 'PAID' = counted */
 const CANCELLED_PAYMENT_STATUS: 'VOIDED' | 'PAID' = 'VOIDED';
