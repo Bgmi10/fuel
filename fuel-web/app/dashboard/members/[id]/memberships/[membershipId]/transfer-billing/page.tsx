@@ -63,6 +63,29 @@ function formatCurrency(value: number | string | undefined | null) {
   })}`;
 }
 
+/**
+ * Loads Razorpay checkout.js once.
+ */
+const loadRazorpay = () =>
+  new Promise<boolean>((resolve) => {
+    if (typeof window === "undefined") {
+      return resolve(false);
+    }
+
+    if ((window as any).Razorpay) {
+      return resolve(true);
+    }
+
+    const script = document.createElement("script");
+    script.src = "https://checkout.razorpay.com/v1/checkout.js";
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.body.appendChild(script);
+  });
+
+const sleep = (ms: number) =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
 export default function TransferBillingPage() {
   const params = useParams();
   const router = useRouter();
@@ -96,6 +119,8 @@ export default function TransferBillingPage() {
   const [note, setNote] = useState("");
   const [amountCollected, setAmountCollected] = useState("");
 
+  const isRazorpay = paymentMode === "RAZORPAY";
+
   /**
    * Load source member, subscription and transfer quote.
    */
@@ -127,9 +152,7 @@ export default function TransferBillingPage() {
         // Find subscription
         const currentSubscription = (
           memberData.activeSubscriptions || []
-        ).find(
-          (sub: Subscription) => sub.id === subscriptionId
-        );
+        ).find((sub: Subscription) => sub.id === subscriptionId);
 
         if (!currentSubscription) {
           throw new Error("Membership not found.");
@@ -149,20 +172,16 @@ export default function TransferBillingPage() {
 
         if (!quoteRes.ok) {
           throw new Error(
-            quoteData?.error ||
-              "Unable to calculate transfer fee."
+            quoteData?.error || "Unable to calculate transfer fee."
           );
         }
 
-        const transferQuote: TransferQuote =
-          quoteData.quote || quoteData;
+        const transferQuote: TransferQuote = quoteData.quote || quoteData;
 
         setQuote(transferQuote);
 
         // Prefill complete amount
-        setAmountCollected(
-          String(transferQuote.transferFee)
-        );
+        setAmountCollected(String(transferQuote.transferFee));
       } catch (err: any) {
         console.error(err);
 
@@ -198,13 +217,13 @@ export default function TransferBillingPage() {
         setSearchingMembers(true);
         setSearchError("");
 
-        const params = new URLSearchParams({
+        const searchParams = new URLSearchParams({
           q: normalizedQuery,
           excludeMemberId: memberId,
         });
 
         const response = await fetch(
-          `/api/members/search?${params.toString()}`,
+          `/api/members/search?${searchParams.toString()}`,
           {
             signal: controller.signal,
             cache: "no-store",
@@ -214,17 +233,12 @@ export default function TransferBillingPage() {
         const data = await response.json();
 
         if (!response.ok) {
-          throw new Error(
-            data?.message || "Unable to search members."
-          );
+          throw new Error(data?.message || "Unable to search members.");
         }
 
         setTargetMembers(data.members || []);
       } catch (err) {
-        if (
-          err instanceof DOMException &&
-          err.name === "AbortError"
-        ) {
+        if (err instanceof DOMException && err.name === "AbortError") {
           return;
         }
 
@@ -233,9 +247,7 @@ export default function TransferBillingPage() {
         setTargetMembers([]);
 
         setSearchError(
-          err instanceof Error
-            ? err.message
-            : "Unable to search members."
+          err instanceof Error ? err.message : "Unable to search members."
         );
       } finally {
         if (!controller.signal.aborted) {
@@ -257,15 +269,11 @@ export default function TransferBillingPage() {
       return 0;
     }
 
-    return Math.max(
-      Number(quote.transferFee) - collectedAmount,
-      0
-    );
+    return Math.max(Number(quote.transferFee) - collectedAmount, 0);
   }, [quote, collectedAmount]);
 
   const isFullyPaid =
-    !!quote &&
-    collectedAmount >= Number(quote.transferFee);
+    !!quote && collectedAmount >= Number(quote.transferFee);
 
   const canSubmit =
     !!quote &&
@@ -291,31 +299,163 @@ export default function TransferBillingPage() {
     setError("");
   };
 
-  const handlePayAndTransfer = async () => {
-    if (!quote) {
-      setError("Transfer fee could not be calculated.");
+  const selectPaymentMode = (mode: PaymentMode) => {
+    setPaymentMode(mode);
+
+    // Razorpay always collects the exact quoted fee.
+    if (mode === "RAZORPAY" && quote) {
+      setAmountCollected(String(quote.transferFee));
+    }
+  };
+
+  /**
+   * RAZORPAY FLOW
+   *
+   * 1. Create order on the server (server recalculates the fee).
+   * 2. Open Razorpay checkout.
+   * 3. The webhook (payment.captured) verifies the payment and
+   *    performs the transfer.
+   * 4. The client only polls until the webhook has finished.
+   */
+  const handleRazorpayTransfer = async () => {
+    if (!toMember || !quote) {
       return;
     }
 
-    if (!toMember) {
-      setError("Please select the member to transfer to.");
-      return;
-    }
+    try {
+      setSubmitting(true);
+      setError("");
 
-    if (!reason.trim()) {
-      setError("Transfer reason is required.");
-      return;
-    }
+      const loaded = await loadRazorpay();
 
-    if (!paymentMode) {
-      setError("Please select a payment method.");
-      return;
-    }
+      if (!loaded) {
+        throw new Error(
+          "Unable to load Razorpay. Check your connection and try again."
+        );
+      }
 
-    if (collectedAmount < Number(quote.transferFee)) {
-      setError(
-        "The complete transfer fee must be paid before transfer."
+      const res = await fetch(
+        `/api/subscriptions/${subscriptionId}/transfer-order`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            toMemberId: toMember.id,
+            reason: reason.trim(),
+            notes: note.trim() || null,
+          }),
+        }
       );
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        throw new Error(data?.message || data?.error || "Unable to start payment.");
+      }
+
+      const orderId: string = data.orderId;
+
+      const waitForWebhook = async () => {
+        setSuccess("Payment received. Finalizing transfer...");
+
+        for (let attempt = 0; attempt < 20; attempt += 1) {
+          await sleep(1500);
+
+          const statusRes = await fetch(
+            `/api/subscriptions/${subscriptionId}/transfer-order?orderId=${orderId}`,
+            { cache: "no-store" }
+          ).catch(() => null);
+
+          const statusData = statusRes
+            ? await statusRes.json().catch(() => null)
+            : null;
+
+          // Money captured but the transfer could not be completed
+          if (statusData?.error) {
+            setSuccess("");
+            setSubmitting(false);
+            setError(
+              `Payment was received but the transfer could not be completed: ${statusData.error} Do not pay again. Please contact an admin for a refund or review.`
+            );
+
+            return;
+          }
+
+          if (statusData?.transferred) {
+            setSuccess(
+              "Payment successful. Membership transferred successfully."
+            );
+
+            setTimeout(() => {
+              router.push(`/dashboard/members/${memberId}/memberships`);
+            }, 1200);
+
+            return;
+          }
+        }
+
+        // Webhook has not completed yet. Money is captured, so do not
+        // let the user pay again.
+        setSuccess("");
+        setSubmitting(false);
+        setError(
+          "Payment received but the transfer is still processing. Please refresh the memberships page in a minute before trying again."
+        );
+      };
+
+      const razorpay = new (window as any).Razorpay({
+        key: data.key,
+        amount: data.amount,
+        currency: data.currency,
+        order_id: orderId,
+        name: "Fuel Gym",
+        description: "Membership transfer fee",
+
+        prefill: {
+          name: member?.name,
+          email: member?.email || undefined,
+          contact: member?.phone,
+        },
+
+        theme: {
+          color: "#a3e635",
+        },
+
+        // Not trusted for verification. Only used to start polling.
+        handler: function () {
+          void waitForWebhook();
+        },
+
+        modal: {
+          ondismiss: function () {
+            setSubmitting(false);
+          },
+        },
+      });
+
+      razorpay.on("payment.failed", (response: any) => {
+        setSubmitting(false);
+        setError(
+          response?.error?.description || "Payment failed. Please try again."
+        );
+      });
+
+      razorpay.open();
+    } catch (err: any) {
+      console.error(err);
+
+      setError(err?.message || "Unable to start Razorpay payment.");
+      setSubmitting(false);
+    }
+  };
+
+  /**
+   * MANUAL FLOW (CASH / UPI / CARD)
+   */
+  const handleManualTransfer = async () => {
+    if (!toMember || !paymentMode) {
       return;
     }
 
@@ -343,19 +483,13 @@ export default function TransferBillingPage() {
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(
-          data?.error || "Payment failed."
-        );
+        throw new Error(data?.message || data?.error || "Payment failed.");
       }
 
-      setSuccess(
-        "Payment successful. Membership transferred successfully."
-      );
+      setSuccess("Payment successful. Membership transferred successfully.");
 
       setTimeout(() => {
-        router.push(
-          `/dashboard/members/${memberId}/memberships`
-        );
+        router.push(`/dashboard/members/${memberId}/memberships`);
       }, 1200);
     } catch (err: any) {
       console.error(err);
@@ -369,14 +503,45 @@ export default function TransferBillingPage() {
     }
   };
 
+  const handlePayAndTransfer = async () => {
+    if (!quote) {
+      setError("Transfer fee could not be calculated.");
+      return;
+    }
+
+    if (!toMember) {
+      setError("Please select the member to transfer to.");
+      return;
+    }
+
+    if (!reason.trim()) {
+      setError("Transfer reason is required.");
+      return;
+    }
+
+    if (!paymentMode) {
+      setError("Please select a payment method.");
+      return;
+    }
+
+    if (collectedAmount < Number(quote.transferFee)) {
+      setError("The complete transfer fee must be paid before transfer.");
+      return;
+    }
+
+    if (paymentMode === "RAZORPAY") {
+      await handleRazorpayTransfer();
+      return;
+    }
+
+    await handleManualTransfer();
+  };
+
   if (loading) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
         <div className="flex items-center gap-3 text-neutral-500">
-          <Loader2
-            size={20}
-            className="animate-spin"
-          />
+          <Loader2 size={20} className="animate-spin" />
           Loading transfer billing...
         </div>
       </div>
@@ -389,9 +554,7 @@ export default function TransferBillingPage() {
         <button
           type="button"
           onClick={() =>
-            router.push(
-              `/dashboard/members/${memberId}/memberships`
-            )
+            router.push(`/dashboard/members/${memberId}/memberships`)
           }
           className="mb-6 flex items-center gap-2 text-sm text-neutral-400 transition hover:text-white"
         >
@@ -420,15 +583,12 @@ export default function TransferBillingPage() {
   return (
     <div className="min-h-screen bg-black px-4 py-6 text-white md:px-8 md:py-8">
       <div className="mx-auto max-w-7xl">
-
         {/* Header */}
         <button
           type="button"
           disabled={submitting}
           onClick={() =>
-            router.push(
-              `/dashboard/members/${memberId}/memberships`
-            )
+            router.push(`/dashboard/members/${memberId}/memberships`)
           }
           className="mb-6 flex items-center gap-2 text-sm text-neutral-400 transition hover:text-white disabled:opacity-50"
         >
@@ -443,13 +603,11 @@ export default function TransferBillingPage() {
             </div>
 
             <div>
-              <h1 className="text-2xl font-semibold">
-                Transfer Membership
-              </h1>
+              <h1 className="text-2xl font-semibold">Transfer Membership</h1>
 
               <p className="mt-1 text-sm text-neutral-500">
-                Select the new member and collect the
-                transfer fee to complete the transfer.
+                Select the new member and collect the transfer fee to
+                complete the transfer.
               </p>
             </div>
           </div>
@@ -472,25 +630,17 @@ export default function TransferBillingPage() {
         )}
 
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_380px]">
-
           {/* LEFT */}
           <div className="space-y-6">
-
             {/* Transfer Details */}
             <section className="rounded-2xl border border-neutral-800 bg-neutral-950 p-5">
               <div className="mb-5 flex items-center gap-2">
-                <ArrowLeft
-                  size={17}
-                  className="text-neutral-500"
-                />
+                <ArrowLeft size={17} className="text-neutral-500" />
 
-                <h2 className="font-semibold">
-                  Transfer Details
-                </h2>
+                <h2 className="font-semibold">Transfer Details</h2>
               </div>
 
               <div className="grid gap-4 md:grid-cols-2">
-
                 {/* From */}
                 <div className="rounded-xl border border-neutral-800 bg-neutral-900/60 p-4">
                   <p className="mb-2 text-xs uppercase tracking-wide text-neutral-500">
@@ -499,16 +649,11 @@ export default function TransferBillingPage() {
 
                   <div className="flex items-center gap-3">
                     <div className="flex h-10 w-10 items-center justify-center rounded-full bg-neutral-800">
-                      <UserRound
-                        size={18}
-                        className="text-neutral-400"
-                      />
+                      <UserRound size={18} className="text-neutral-400" />
                     </div>
 
                     <div>
-                      <p className="font-medium">
-                        {member.name}
-                      </p>
+                      <p className="font-medium">{member.name}</p>
 
                       {member.phone && (
                         <p className="text-xs text-neutral-500">
@@ -529,16 +674,11 @@ export default function TransferBillingPage() {
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-3">
                         <div className="flex h-10 w-10 items-center justify-center rounded-full bg-rose-500/10">
-                          <UserRound
-                            size={18}
-                            className="text-rose-400"
-                          />
+                          <UserRound size={18} className="text-rose-400" />
                         </div>
 
                         <div>
-                          <p className="font-medium">
-                            {toMember.name}
-                          </p>
+                          <p className="font-medium">{toMember.name}</p>
 
                           {toMember.phone && (
                             <p className="text-xs text-neutral-500">
@@ -569,9 +709,7 @@ export default function TransferBillingPage() {
                           type="text"
                           value={targetQuery}
                           disabled={submitting}
-                          onChange={(e) =>
-                            setTargetQuery(e.target.value)
-                          }
+                          onChange={(e) => setTargetQuery(e.target.value)}
                           placeholder="Search name, phone, or email"
                           className="h-11 w-full rounded-xl border border-neutral-800 bg-neutral-900 pl-9 pr-4 text-sm text-white outline-none transition placeholder:text-neutral-600 focus:border-rose-400"
                         />
@@ -590,9 +728,7 @@ export default function TransferBillingPage() {
                             <button
                               key={target.id}
                               type="button"
-                              onClick={() =>
-                                selectTargetMember(target)
-                              }
+                              onClick={() => selectTargetMember(target)}
                               className="flex w-full items-center gap-3 border-b border-neutral-800 px-4 py-3 text-left transition last:border-b-0 hover:bg-neutral-800"
                             >
                               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-neutral-800">
@@ -608,9 +744,7 @@ export default function TransferBillingPage() {
                                 </p>
 
                                 <p className="truncate text-xs text-neutral-500">
-                                  {target.phone ||
-                                    target.email ||
-                                    target.id}
+                                  {target.phone || target.email || target.id}
                                 </p>
                               </div>
                             </button>
@@ -640,9 +774,7 @@ export default function TransferBillingPage() {
               {/* Membership information */}
               <div className="mt-4 grid gap-4 md:grid-cols-3">
                 <div>
-                  <p className="text-xs text-neutral-500">
-                    Membership
-                  </p>
+                  <p className="text-xs text-neutral-500">Membership</p>
 
                   <p className="mt-1 text-sm font-medium">
                     {subscription.package?.name ||
@@ -652,9 +784,7 @@ export default function TransferBillingPage() {
                 </div>
 
                 <div>
-                  <p className="text-xs text-neutral-500">
-                    Remaining Days
-                  </p>
+                  <p className="text-xs text-neutral-500">Remaining Days</p>
 
                   <p className="mt-1 text-sm font-medium">
                     {quote.remainingDays} days
@@ -662,9 +792,7 @@ export default function TransferBillingPage() {
                 </div>
 
                 <div>
-                  <p className="text-xs text-neutral-500">
-                    Fee Slab
-                  </p>
+                  <p className="text-xs text-neutral-500">Fee Slab</p>
 
                   <p className="mt-1 text-sm font-medium">
                     {quote.slab.label}
@@ -676,17 +804,13 @@ export default function TransferBillingPage() {
               <div className="mt-4">
                 <label className="mb-2 block text-sm font-medium text-neutral-300">
                   Transfer Reason
-                  <span className="ml-1 text-red-400">
-                    *
-                  </span>
+                  <span className="ml-1 text-red-400">*</span>
                 </label>
 
                 <textarea
                   value={reason}
                   disabled={submitting}
-                  onChange={(e) =>
-                    setReason(e.target.value)
-                  }
+                  onChange={(e) => setReason(e.target.value)}
                   rows={3}
                   placeholder="Enter the reason for transferring this membership..."
                   className="w-full resize-none rounded-xl border border-neutral-800 bg-neutral-900 px-4 py-3 text-sm text-white outline-none transition placeholder:text-neutral-600 focus:border-lime-400"
@@ -697,23 +821,16 @@ export default function TransferBillingPage() {
             {/* Billing */}
             <section className="rounded-2xl border border-neutral-800 bg-neutral-950 p-5">
               <div className="mb-6 flex items-center gap-2">
-                <ReceiptText
-                  size={18}
-                  className="text-neutral-500"
-                />
+                <ReceiptText size={18} className="text-neutral-500" />
 
-                <h2 className="font-semibold">
-                  Billing
-                </h2>
+                <h2 className="font-semibold">Billing</h2>
               </div>
 
               {/* Transfer Fee */}
               <div className="mb-5">
                 <label className="mb-2 block text-sm font-medium text-neutral-300">
                   Transfer Fee
-                  <span className="ml-1 text-red-400">
-                    *
-                  </span>
+                  <span className="ml-1 text-red-400">*</span>
                 </label>
 
                 <div className="flex h-11 items-center justify-between rounded-xl border border-neutral-800 bg-neutral-900 px-4">
@@ -727,9 +844,8 @@ export default function TransferBillingPage() {
                 </div>
 
                 <p className="mt-2 text-xs text-neutral-500">
-                  This amount is calculated from the
-                  membership transfer slab and cannot be
-                  edited.
+                  This amount is calculated from the membership transfer
+                  slab and cannot be edited.
                 </p>
               </div>
 
@@ -737,9 +853,7 @@ export default function TransferBillingPage() {
               <div className="mb-5">
                 <label className="mb-2 block text-sm font-medium text-neutral-300">
                   Payment Method
-                  <span className="ml-1 text-red-400">
-                    *
-                  </span>
+                  <span className="ml-1 text-red-400">*</span>
                 </label>
 
                 <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -766,17 +880,14 @@ export default function TransferBillingPage() {
                     },
                   ].map((method) => {
                     const Icon = method.icon;
-                    const selected =
-                      paymentMode === method.value;
+                    const selected = paymentMode === method.value;
 
                     return (
                       <button
                         key={method.value}
                         type="button"
                         disabled={submitting}
-                        onClick={() =>
-                          setPaymentMode(method.value)
-                        }
+                        onClick={() => selectPaymentMode(method.value)}
                         className={[
                           "flex h-20 flex-col items-center justify-center gap-2 rounded-xl border text-sm transition",
                           selected
@@ -790,15 +901,21 @@ export default function TransferBillingPage() {
                     );
                   })}
                 </div>
+
+                {isRazorpay && (
+                  <p className="mt-2 text-xs text-neutral-500">
+                    You will be taken to Razorpay to pay the full transfer
+                    fee. The membership is transferred automatically once
+                    the payment is verified.
+                  </p>
+                )}
               </div>
 
               {/* Amount Collected */}
               <div className="mb-5">
                 <label className="mb-2 block text-sm font-medium text-neutral-300">
                   Amount Collected
-                  <span className="ml-1 text-red-400">
-                    *
-                  </span>
+                  <span className="ml-1 text-red-400">*</span>
                 </label>
 
                 <div className="relative">
@@ -810,21 +927,16 @@ export default function TransferBillingPage() {
                     type="number"
                     min="0"
                     step="0.01"
-                    disabled={submitting}
+                    disabled={submitting || isRazorpay}
                     value={amountCollected}
-                    onChange={(e) =>
-                      setAmountCollected(
-                        e.target.value
-                      )
-                    }
-                    className="h-11 w-full rounded-xl border border-neutral-800 bg-neutral-900 pl-9 pr-4 text-sm text-white outline-none transition focus:border-lime-400"
+                    onChange={(e) => setAmountCollected(e.target.value)}
+                    className="h-11 w-full rounded-xl border border-neutral-800 bg-neutral-900 pl-9 pr-4 text-sm text-white outline-none transition focus:border-lime-400 disabled:opacity-60"
                   />
                 </div>
 
                 {balanceAmount > 0 && (
                   <p className="mt-2 text-xs text-red-400">
-                    Balance:{" "}
-                    {formatCurrency(balanceAmount)}
+                    Balance: {formatCurrency(balanceAmount)}
                   </p>
                 )}
               </div>
@@ -838,9 +950,7 @@ export default function TransferBillingPage() {
                 <textarea
                   value={note}
                   disabled={submitting}
-                  onChange={(e) =>
-                    setNote(e.target.value)
-                  }
+                  onChange={(e) => setNote(e.target.value)}
                   rows={4}
                   placeholder="Add a note about this transfer payment..."
                   className="w-full resize-none rounded-xl border border-neutral-800 bg-neutral-900 px-4 py-3 text-sm text-white outline-none transition placeholder:text-neutral-600 focus:border-lime-400"
@@ -857,15 +967,13 @@ export default function TransferBillingPage() {
 
                 <div>
                   <p className="text-sm font-medium text-amber-300">
-                    Transfer will be completed after
-                    payment
+                    Transfer will be completed after payment
                   </p>
 
                   <p className="mt-1 text-xs leading-5 text-amber-400/70">
-                    The membership will not be transferred
-                    until the complete transfer fee has
-                    been successfully paid. Payment and
-                    transfer are processed together.
+                    The membership will not be transferred until the
+                    complete transfer fee has been successfully paid.
+                    Payment and transfer are processed together.
                   </p>
                 </div>
               </div>
@@ -875,28 +983,19 @@ export default function TransferBillingPage() {
           {/* RIGHT */}
           <aside className="lg:sticky lg:top-6 lg:self-start">
             <div className="overflow-hidden rounded-2xl border border-neutral-800 bg-neutral-950">
-
               <div className="border-b border-neutral-800 px-5 py-4">
                 <div className="flex items-center gap-2">
-                  <ReceiptText
-                    size={18}
-                    className="text-neutral-400"
-                  />
+                  <ReceiptText size={18} className="text-neutral-400" />
 
-                  <h2 className="font-semibold">
-                    Billing Summary
-                  </h2>
+                  <h2 className="font-semibold">Billing Summary</h2>
                 </div>
               </div>
 
               <div className="space-y-4 p-5">
-
                 {/* Base Fee */}
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <p className="text-sm text-neutral-400">
-                      Transfer Fee
-                    </p>
+                    <p className="text-sm text-neutral-400">Transfer Fee</p>
 
                     <p className="mt-1 text-xs text-neutral-600">
                       {quote.slab.label}
@@ -904,9 +1003,7 @@ export default function TransferBillingPage() {
                   </div>
 
                   <p className="text-sm font-medium">
-                    {formatCurrency(
-                      quote.baseTransferFee
-                    )}
+                    {formatCurrency(quote.baseTransferFee)}
                   </p>
                 </div>
 
@@ -916,11 +1013,7 @@ export default function TransferBillingPage() {
                     CGST ({quote.cgstPercentage}%)
                   </span>
 
-                  <span>
-                    {formatCurrency(
-                      quote.cgstAmount
-                    )}
-                  </span>
+                  <span>{formatCurrency(quote.cgstAmount)}</span>
                 </div>
 
                 {/* SGST */}
@@ -929,11 +1022,7 @@ export default function TransferBillingPage() {
                     SGST ({quote.sgstPercentage}%)
                   </span>
 
-                  <span>
-                    {formatCurrency(
-                      quote.sgstAmount
-                    )}
-                  </span>
+                  <span>{formatCurrency(quote.sgstAmount)}</span>
                 </div>
 
                 {/* Total */}
@@ -944,9 +1033,7 @@ export default function TransferBillingPage() {
                     </span>
 
                     <span className="text-xl font-semibold text-white">
-                      {formatCurrency(
-                        quote.transferFee
-                      )}
+                      {formatCurrency(quote.transferFee)}
                     </span>
                   </div>
                 </div>
@@ -954,21 +1041,15 @@ export default function TransferBillingPage() {
                 {/* Collected / Balance */}
                 <div className="rounded-xl bg-neutral-900 p-4">
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-neutral-500">
-                      Amount Collected
-                    </span>
+                    <span className="text-neutral-500">Amount Collected</span>
 
                     <span className="font-medium text-green-400">
-                      {formatCurrency(
-                        collectedAmount
-                      )}
+                      {formatCurrency(collectedAmount)}
                     </span>
                   </div>
 
                   <div className="mt-2 flex items-center justify-between text-sm">
-                    <span className="text-neutral-500">
-                      Balance
-                    </span>
+                    <span className="text-neutral-500">Balance</span>
 
                     <span
                       className={
@@ -977,9 +1058,7 @@ export default function TransferBillingPage() {
                           : "font-medium text-green-400"
                       }
                     >
-                      {formatCurrency(
-                        balanceAmount
-                      )}
+                      {formatCurrency(balanceAmount)}
                     </span>
                   </div>
                 </div>
@@ -993,16 +1072,13 @@ export default function TransferBillingPage() {
                 >
                   {submitting ? (
                     <>
-                      <Loader2
-                        size={18}
-                        className="animate-spin"
-                      />
+                      <Loader2 size={18} className="animate-spin" />
                       Processing...
                     </>
                   ) : (
                     <>
                       <CheckCircle2 size={18} />
-                      Pay & Transfer
+                      {isRazorpay ? "Pay with Razorpay" : "Pay & Transfer"}
                     </>
                   )}
                 </button>
@@ -1012,9 +1088,7 @@ export default function TransferBillingPage() {
                   type="button"
                   disabled={submitting}
                   onClick={() =>
-                    router.push(
-                      `/dashboard/members/${memberId}/memberships`
-                    )
+                    router.push(`/dashboard/members/${memberId}/memberships`)
                   }
                   className="h-11 w-full rounded-xl border border-neutral-800 text-sm font-medium text-neutral-400 transition hover:bg-neutral-900 hover:text-white disabled:opacity-50"
                 >

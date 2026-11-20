@@ -1,19 +1,12 @@
-import {
-  NextRequest,
-  NextResponse,
-} from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 import crypto from "node:crypto";
 
 import { prisma } from "@/prisma";
 
-import {
-  whatsapp,
-} from "@/src/lib/services/whatsapp";
+import { whatsapp } from "@/src/lib/services/whatsapp";
 
-import {
-  sendEmail,
-} from "@/src/lib/services/email";
+import { sendEmail } from "@/src/lib/services/email";
 
 import {
   calculateGSTBreakdownFormatted,
@@ -22,57 +15,68 @@ import {
   paiseToRupees,
 } from "@/app/utils/helper";
 
+import { addDaysUTC, nowUTC } from "@/app/utils/date";
+
 import {
-  addDaysUTC,
-  nowUTC,
-} from "@/app/utils/date";
+  TransferError,
+  executeMembershipTransfer,
+  type MembershipTransferQuote,
+} from "@/app/utils/membership-transfer";
 
 /**
  * ============================================================
  * PAYMENT METADATA
  * ============================================================
  *
- * The group-order route can store subCategoryId here.
+ * Stored as JSON in Payment.notes by the order-creation routes.
  *
  * The invoice remains the primary source of truth once the
  * invoice has already been created.
  */
 type PaymentMetadata = {
-  purchaseType?:
-    | "INDIVIDUAL"
-    | "GROUP";
+  purchaseType?: "INDIVIDUAL" | "GROUP" | "TRANSFER";
 
-  intent?:
-    | "NEW"
-    | "EXTEND";
+  intent?: "NEW" | "EXTEND";
 
-  extensionSubscriptionId?:
-    | string
-    | null;
+  extensionSubscriptionId?: string | null;
 
-  subscriptionStartDate?:
-    | string
-    | null;
+  subscriptionStartDate?: string | null;
 
-  subscriptionEndDate?:
-    | string
-    | null;
+  subscriptionEndDate?: string | null;
 
   /**
    * Selected service sub-category.
    *
-   * This is especially useful as a fallback for older/order
-   * creation flows where the invoice did not receive the value.
+   * Fallback for older/order creation flows where the invoice
+   * did not receive the value.
    */
-  subCategoryId?:
-    | string
-    | null;
+  subCategoryId?: string | null;
 
   memberIndex?: number;
 
   memberCount?: number;
 
   groupDiscountPercentage?: number;
+
+  /**
+   * TRANSFER FEE SNAPSHOT
+   * (written by /api/subscriptions/[id]/transfer-order)
+   */
+  subscriptionId?: string;
+
+  toMemberId?: string;
+
+  reason?: string;
+
+  transferNotes?: string | null;
+
+  transferredById?: string;
+
+  /** Quote (RUPEES) that was charged when the order was created. */
+  quote?: MembershipTransferQuote;
+
+  /** Set by the webhook when the payment was captured but the transfer failed. */
+  transferError?: string;
 };
 
 type ProcessedPayment = {
@@ -82,9 +86,7 @@ type ProcessedPayment = {
 
   paymentType: string;
 
-  finalSubscriptionEndDate:
-    | Date
-    | null;
+  finalSubscriptionEndDate: Date | null;
 };
 
 /**
@@ -93,24 +95,15 @@ type ProcessedPayment = {
  * ============================================================
  */
 
-const parsePaymentMetadata = (
-  notes: unknown
-): PaymentMetadata => {
-  if (
-    typeof notes !== "string" ||
-    !notes.trim()
-  ) {
+const parsePaymentMetadata = (notes: unknown): PaymentMetadata => {
+  if (typeof notes !== "string" || !notes.trim()) {
     return {};
   }
 
   try {
-    const parsed =
-      JSON.parse(notes);
+    const parsed = JSON.parse(notes);
 
-    if (
-      typeof parsed !== "object" ||
-      parsed === null
-    ) {
+    if (typeof parsed !== "object" || parsed === null) {
       return {};
     }
 
@@ -120,24 +113,14 @@ const parsePaymentMetadata = (
   }
 };
 
-const parseDate = (
-  value: unknown
-): Date | null => {
-  if (
-    typeof value !== "string" ||
-    !value.trim()
-  ) {
+const parseDate = (value: unknown): Date | null => {
+  if (typeof value !== "string" || !value.trim()) {
     return null;
   }
 
-  const parsed =
-    new Date(value);
+  const parsed = new Date(value);
 
-  return Number.isNaN(
-    parsed.getTime()
-  )
-    ? null
-    : parsed;
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
 
 /**
@@ -146,160 +129,114 @@ const parseDate = (
  * ============================================================
  */
 
-const processReferralReward =
-  async (
-    invoiceId: string
-  ) => {
-    try {
-      const invoice =
-        await prisma.invoice.findUnique({
-          where: {
-            id: invoiceId,
-          },
-          select: {
-            id: true,
-            memberId: true,
-            referralDiscountAmount:
-              true,
-          },
-        });
+const processReferralReward = async (invoiceId: string) => {
+  try {
+    const invoice = await prisma.invoice.findUnique({
+      where: {
+        id: invoiceId,
+      },
+      select: {
+        id: true,
+        memberId: true,
+        referralDiscountAmount: true,
+      },
+    });
 
-      if (!invoice) {
-        return;
-      }
+    if (!invoice) {
+      return;
+    }
 
-      const setting =
-        await prisma.setting.findFirst();
+    const setting = await prisma.setting.findFirst();
 
-      if (!setting) {
-        return;
-      }
+    if (!setting) {
+      return;
+    }
 
-      const rewardAlreadyUsed =
-        Number(
-          invoice
-            .referralDiscountAmount ||
-            0
-        ) > 0;
+    const rewardAlreadyUsed =
+      Number(invoice.referralDiscountAmount || 0) > 0;
 
-      const referral =
-        await prisma.referral.findFirst({
-          where: {
-            ...(rewardAlreadyUsed
-              ? {
-                  referrerId:
-                    invoice.memberId,
-                }
-              : {
-                  referredMemberId:
-                    invoice.memberId,
-                }),
+    const referral = await prisma.referral.findFirst({
+      where: {
+        ...(rewardAlreadyUsed
+          ? {
+              referrerId: invoice.memberId,
+            }
+          : {
+              referredMemberId: invoice.memberId,
+            }),
 
-            rewardIssued:
-              rewardAlreadyUsed,
-          },
+        rewardIssued: rewardAlreadyUsed,
+      },
 
-          include: {
-            referrer: true,
-          },
-        });
+      include: {
+        referrer: true,
+      },
+    });
 
-      if (!referral) {
-        return;
-      }
+    if (!referral) {
+      return;
+    }
 
-      const updateData: {
-        rewardIssued: boolean;
-        rewardIssuedAt: Date;
+    const updateData: {
+      rewardIssued: boolean;
+      rewardIssuedAt: Date;
 
-        rewardType:
-          typeof setting.referralRewardType;
+      rewardType: typeof setting.referralRewardType;
 
-        rewardClaimed: boolean;
+      rewardClaimed: boolean;
 
-        status:
-          | "JOINED"
-          | "REWARDED";
+      status: "JOINED" | "REWARDED";
 
-        rewardAmount?: number;
+      rewardAmount?: number;
 
-        rewardPercentage?: number;
+      rewardPercentage?: number;
 
-        rewardMembershipDays?: number;
-      } = {
-        rewardIssued: true,
+      rewardMembershipDays?: number;
+    } = {
+      rewardIssued: true,
 
-        rewardIssuedAt:
-          new Date(),
+      rewardIssuedAt: new Date(),
 
-        rewardType:
-          setting.referralRewardType,
+      rewardType: setting.referralRewardType,
 
-        rewardClaimed:
-          rewardAlreadyUsed,
+      rewardClaimed: rewardAlreadyUsed,
 
-        status:
-          rewardAlreadyUsed
-            ? "REWARDED"
-            : "JOINED",
-      };
+      status: rewardAlreadyUsed ? "REWARDED" : "JOINED",
+    };
 
-      if (
-        setting.referralRewardType ===
-        "FIXED_AMOUNT"
-      ) {
-        updateData.rewardAmount =
-          Number(
-            setting.referralRewardAmount ||
-              0
-          );
-      }
+    if (setting.referralRewardType === "FIXED_AMOUNT") {
+      updateData.rewardAmount = Number(setting.referralRewardAmount || 0);
+    }
 
-      if (
-        setting.referralRewardType ===
-        "PERCENTAGE_DISCOUNT"
-      ) {
-        updateData.rewardPercentage =
-          Number(
-            setting.referralRewardPercentage ||
-              0
-          );
-      }
-
-      if (
-        setting.referralRewardType ===
-        "MEMBERSHIP_DAYS"
-      ) {
-        updateData.rewardMembershipDays =
-          Number(
-            setting.referralMembershipDays ||
-              0
-          );
-      }
-
-      await prisma.referral.update({
-        where: {
-          id: referral.id,
-        },
-
-        data: updateData,
-      });
-
-      console.log(
-        `Referral reward processed for invoice ${invoice.id}`
-      );
-    } catch (error) {
-      /**
-       * A referral failure must not make Razorpay
-       * retry an already completed membership transaction.
-       */
-      console.error(
-        "Referral processing failed:",
-        invoiceId,
-        error
+    if (setting.referralRewardType === "PERCENTAGE_DISCOUNT") {
+      updateData.rewardPercentage = Number(
+        setting.referralRewardPercentage || 0
       );
     }
-  };
+
+    if (setting.referralRewardType === "MEMBERSHIP_DAYS") {
+      updateData.rewardMembershipDays = Number(
+        setting.referralMembershipDays || 0
+      );
+    }
+
+    await prisma.referral.update({
+      where: {
+        id: referral.id,
+      },
+
+      data: updateData,
+    });
+
+    console.log(`Referral reward processed for invoice ${invoice.id}`);
+  } catch (error) {
+    /**
+     * A referral failure must not make Razorpay
+     * retry an already completed membership transaction.
+     */
+    console.error("Referral processing failed:", invoiceId, error);
+  }
+};
 
 /**
  * ============================================================
@@ -307,182 +244,134 @@ const processReferralReward =
  * ============================================================
  */
 
-const sendMembershipNotification =
-  async ({
-    invoiceId,
-    paymentId,
-    finalSubscriptionEndDate,
-  }: {
-    invoiceId: string;
+const sendMembershipNotification = async ({
+  invoiceId,
+  paymentId,
+  finalSubscriptionEndDate,
+}: {
+  invoiceId: string;
 
-    paymentId: string;
+  paymentId: string;
 
-    finalSubscriptionEndDate:
-      Date;
-  }) => {
-    const freshInvoice =
-      await prisma.invoice.findUnique({
-        where: {
-          id: invoiceId,
-        },
+  finalSubscriptionEndDate: Date;
+}) => {
+  const freshInvoice = await prisma.invoice.findUnique({
+    where: {
+      id: invoiceId,
+    },
 
+    include: {
+      member: true,
+
+      branch: true,
+
+      package: {
         include: {
-          member: true,
-
-          branch: true,
-
-          package: {
-            include: {
-              service: true,
-            },
-          },
-
-          /**
-           * IMPORTANT:
-           * Load the selected sub-category as well.
-           */
-          subCategory: true,
-
-          payments: {
-            orderBy: {
-              createdAt:
-                "asc",
-            },
-          },
-
-          subscription: {
-            include: {
-              subCategory: true,
-            },
-          },
+          service: true,
         },
-      });
+      },
 
-    if (!freshInvoice) {
-      throw new Error(
-        "Invoice not found"
-      );
-    }
+      /**
+       * IMPORTANT:
+       * Load the selected sub-category as well.
+       */
+      subCategory: true,
 
-    const currentPayment =
-      freshInvoice.payments.find(
-        (payment) =>
-          payment.id ===
-          paymentId
-      ) ||
-      freshInvoice.payments
-        .filter(
-          (payment) =>
-            payment.status ===
-            "PAID"
-        )
-        .at(-1);
+      payments: {
+        orderBy: {
+          createdAt: "asc",
+        },
+      },
 
-    const setting =
-      await prisma.setting.findFirst();
+      subscription: {
+        include: {
+          subCategory: true,
+        },
+      },
+    },
+  });
 
-    const memberPortal =
-      `${process.env.NEXT_PUBLIC_SITE_URL}/member/login`;
+  if (!freshInvoice) {
+    throw new Error("Invoice not found");
+  }
 
-    const formattedEndDate =
-      formatDate(
-        finalSubscriptionEndDate
-      );
+  const currentPayment =
+    freshInvoice.payments.find((payment) => payment.id === paymentId) ||
+    freshInvoice.payments
+      .filter((payment) => payment.status === "PAID")
+      .at(-1);
 
-    /**
-     * =======================================================
-     * WHATSAPP
-     * =======================================================
-     */
+  const setting = await prisma.setting.findFirst();
 
-    try {
-      await whatsapp(
-        freshInvoice.member.phone,
+  const memberPortal = `${process.env.NEXT_PUBLIC_SITE_URL}/member/login`;
 
-        "subscription_success",
+  const formattedEndDate = formatDate(finalSubscriptionEndDate);
 
-        [
-          {
-            type: "text",
+  /**
+   * =======================================================
+   * WHATSAPP
+   * =======================================================
+   */
 
-            text:
-              freshInvoice.member
-                .name,
-          },
+  try {
+    await whatsapp(freshInvoice.member.phone, "subscription_success", [
+      {
+        type: "text",
 
-          {
-            type: "text",
+        text: freshInvoice.member.name,
+      },
 
-            text:
-              freshInvoice
-                .packageName,
-          },
+      {
+        type: "text",
 
-          {
-            type: "text",
+        text: freshInvoice.packageName,
+      },
 
-            text:
-              formattedEndDate,
-          },
+      {
+        type: "text",
 
-          {
-            type: "text",
+        text: formattedEndDate,
+      },
 
-            text:
-              freshInvoice
-                .branchName,
-          },
+      {
+        type: "text",
 
-          {
-            type: "text",
+        text: freshInvoice.branchName,
+      },
 
-            text:
-              memberPortal,
-          },
-        ]
-      );
-    } catch (error) {
-      console.error(
-        "WhatsApp notification failed:",
-        freshInvoice.id,
-        error
-      );
-    }
+      {
+        type: "text",
 
-    /**
-     * =======================================================
-     * EMAIL
-     * =======================================================
-     */
+        text: memberPortal,
+      },
+    ]);
+  } catch (error) {
+    console.error("WhatsApp notification failed:", freshInvoice.id, error);
+  }
 
-    try {
-      const invoiceUrl =
-        `${process.env.NEXT_PUBLIC_APP_URL}/invoice/${freshInvoice.id}`;
+  /**
+   * =======================================================
+   * EMAIL
+   * =======================================================
+   */
 
-      const branch =
-        freshInvoice.branch;
+  try {
+    const invoiceUrl = `${process.env.NEXT_PUBLIC_APP_URL}/invoice/${freshInvoice.id}`;
 
-      const gstBreakdown =
-        await calculateGSTBreakdownFormatted(
-          freshInvoice.finalAmount
-        );
+    const branch = freshInvoice.branch;
 
-      const emailInvoiceTotal =
-        Math.round(
-          freshInvoice.finalAmount +
-            (
-              freshInvoice.totalTax ||
-              Number(
-                gstBreakdown.totalTax
-              ) ||
-              0
-            )
-        );
+    const gstBreakdown = await calculateGSTBreakdownFormatted(
+      freshInvoice.finalAmount
+    );
 
-      const paymentHistory =
-        freshInvoice.payments
-          .length === 0
-          ? `
+    const emailInvoiceTotal = Math.round(
+      freshInvoice.finalAmount +
+        (freshInvoice.totalTax || Number(gstBreakdown.totalTax) || 0)
+    );
+
+    const paymentHistory =
+      freshInvoice.payments.length === 0
+        ? `
 <tr>
   <td
     colspan="3"
@@ -498,12 +387,9 @@ const sendMembershipNotification =
   </td>
 </tr>
 `
-          : freshInvoice
-              .payments
-              .map(
-                (
-                  payment
-                ) => `
+        : freshInvoice.payments
+            .map(
+              (payment) => `
 <tr>
   <td
     style="
@@ -524,9 +410,7 @@ const sendMembershipNotification =
       color:#111827;
     "
   >
-    ₹ ${paiseToRupees(
-      payment.amount
-    )}
+    ₹ ${paiseToRupees(payment.amount)}
   </td>
 
   <td
@@ -538,276 +422,126 @@ const sendMembershipNotification =
       color:#111827;
     "
   >
-    ${formatDate(
-      payment.paidAt ||
-        payment.createdAt
-    )}
+    ${formatDate(payment.paidAt || payment.createdAt)}
   </td>
 </tr>
 `
-              )
-              .join("");
+            )
+            .join("");
 
-      await sendEmail({
-        to:
-          freshInvoice.memberEmail ||
-          freshInvoice.member.email,
+    await sendEmail({
+      to: freshInvoice.memberEmail || freshInvoice.member.email,
 
-        name:
-          freshInvoice.memberName ||
-          freshInvoice.member.name,
+      name: freshInvoice.memberName || freshInvoice.member.name,
 
-        templateId: 1,
+      templateId: 1,
 
-        params: {
-          invoiceNo:
-            freshInvoice
-              .invoiceNumber,
+      params: {
+        invoiceNo: freshInvoice.invoiceNumber,
 
-          amount:
-            paiseToRupees(
-              freshInvoice
-                .packageAmount
-            ),
+        amount: paiseToRupees(freshInvoice.packageAmount),
 
-          invoiceTotal:
-            paiseToRupees(
-              emailInvoiceTotal
-            ),
+        invoiceTotal: paiseToRupees(emailInvoiceTotal),
 
-          memberName:
-            freshInvoice.memberName ||
-            freshInvoice.member.name ||
-            "-",
+        memberName:
+          freshInvoice.memberName || freshInvoice.member.name || "-",
 
-          memberPhone:
-            freshInvoice.memberPhone ||
-            freshInvoice.member.phone ||
-            "-",
+        memberPhone:
+          freshInvoice.memberPhone || freshInvoice.member.phone || "-",
 
-          memberEmail:
-            freshInvoice.memberEmail ||
-            freshInvoice.member.email ||
-            "-",
+        memberEmail:
+          freshInvoice.memberEmail || freshInvoice.member.email || "-",
 
-          memberAddress:
-            freshInvoice.member
-              .address ||
-            "-",
+        memberAddress: freshInvoice.member.address || "-",
 
-          referralDiscountAmount:
-            paiseToRupees(
-              freshInvoice
-                .referralDiscountAmount ||
-                0
-            ),
+        referralDiscountAmount: paiseToRupees(
+          freshInvoice.referralDiscountAmount || 0
+        ),
 
-          groupMemberCount:
-            freshInvoice
-              .groupMemberCount ||
-            null,
+        groupMemberCount: freshInvoice.groupMemberCount || null,
 
-          groupDiscountPercentage:
-            freshInvoice
-              .groupDiscountPercentage ??
-            null,
+        groupDiscountPercentage:
+          freshInvoice.groupDiscountPercentage ?? null,
 
-          invoiceNumber:
-            freshInvoice
-              .invoiceNumber,
+        invoiceNumber: freshInvoice.invoiceNumber,
 
-          invoiceDate:
-            formatDate(
-              freshInvoice
-                .createdAt
-            ),
+        invoiceDate: formatDate(freshInvoice.createdAt),
 
-          salesRepName:
-            freshInvoice
-              .salesRepName ||
-            "System",
+        salesRepName: freshInvoice.salesRepName || "System",
 
-          branchName:
-            freshInvoice
-              .branchName ||
-            "-",
+        branchName: freshInvoice.branchName || "-",
 
-          branch: {
-            gstNumber:
-              branch?.gstNumber ||
-              "-",
+        branch: {
+          gstNumber: branch?.gstNumber || "-",
 
-            address:
-              branch?.address ||
-              "-",
+          address: branch?.address || "-",
 
-            supportEmail:
-              branch?.supportEmail ||
-              "-",
+          supportEmail: branch?.supportEmail || "-",
 
-            supportPhone:
-              branch?.supportPhone ||
-              "-",
+          supportPhone: branch?.supportPhone || "-",
 
-            terms:
-              (
-                branch?.terms ||
-                "Standard terms apply."
-              ).slice(
-                0,
-                300
-              ),
-          },
-
-          serviceName:
-            freshInvoice
-              .serviceName,
-
-          packageName:
-            freshInvoice
-              .packageName,
-
-          /**
-           * NEW:
-           * Make sub-category available to the email
-           * template if required later.
-           */
-          subCategoryId:
-            freshInvoice
-              .subCategoryId ||
-            null,
-
-          subCategoryName:
-            freshInvoice
-              .subCategory
-              ?.name ||
-            "-",
-
-          startDate:
-            freshInvoice
-              .subscription
-              ?.startDate
-              ? formatDate(
-                  freshInvoice
-                    .subscription
-                    .startDate
-                )
-              : "-",
-
-          endDate:
-            freshInvoice
-              .subscription
-              ?.endDate
-              ? formatDate(
-                  freshInvoice
-                    .subscription
-                    .endDate
-                )
-              : formattedEndDate,
-
-          baseFee:
-            paiseToRupees(
-              Number(
-                gstBreakdown
-                  .baseFee
-              )
-            ),
-
-          cgst:
-            paiseToRupees(
-              Number(
-                gstBreakdown.cgst
-              )
-            ),
-
-          sgst:
-            paiseToRupees(
-              Number(
-                gstBreakdown.sgst
-              )
-            ),
-
-          totalTax:
-            paiseToRupees(
-              Number(
-                gstBreakdown
-                  .totalTax
-              )
-            ),
-
-          cgstPercentage:
-            setting
-              ?.cgstPercentage
-              ?.toFixed(2) ||
-            "0.00",
-
-          sgstPercentage:
-            setting
-              ?.sgstPercentage
-              ?.toFixed(2) ||
-            "0.00",
-
-          finalAmount:
-            paiseToRupees(
-              freshInvoice
-                .finalAmount
-            ),
-
-          packageAmount:
-            paiseToRupees(
-              freshInvoice
-                .packageAmount
-            ),
-
-          discountAmount:
-            paiseToRupees(
-              freshInvoice
-                .discountAmount
-            ),
-
-          paidAmount:
-            paiseToRupees(
-              freshInvoice
-                .paidAmount
-            ),
-
-          balanceAmount:
-            paiseToRupees(
-              freshInvoice
-                .balanceAmount
-            ),
-
-          paymentMode:
-            currentPayment
-              ?.paymentMode ||
-            "-",
-
-          paymentDate:
-            currentPayment
-              ? formatDate(
-                  currentPayment
-                    .paidAt ||
-                    currentPayment
-                      .createdAt
-                )
-              : "-",
-
-          paymentHistory,
-
-          invoiceUrl,
-
-          portalUrl:
-            memberPortal,
+          terms: (branch?.terms || "Standard terms apply.").slice(0, 300),
         },
-      });
-    } catch (error) {
-      console.error(
-        "Email notification failed:",
-        freshInvoice.id,
-        error
-      );
-    }
-  };
+
+        serviceName: freshInvoice.serviceName,
+
+        packageName: freshInvoice.packageName,
+
+        /**
+         * Make sub-category available to the email
+         * template if required later.
+         */
+        subCategoryId: freshInvoice.subCategoryId || null,
+
+        subCategoryName: freshInvoice.subCategory?.name || "-",
+
+        startDate: freshInvoice.subscription?.startDate
+          ? formatDate(freshInvoice.subscription.startDate)
+          : "-",
+
+        endDate: freshInvoice.subscription?.endDate
+          ? formatDate(freshInvoice.subscription.endDate)
+          : formattedEndDate,
+
+        baseFee: paiseToRupees(Number(gstBreakdown.baseFee)),
+
+        cgst: paiseToRupees(Number(gstBreakdown.cgst)),
+
+        sgst: paiseToRupees(Number(gstBreakdown.sgst)),
+
+        totalTax: paiseToRupees(Number(gstBreakdown.totalTax)),
+
+        cgstPercentage: setting?.cgstPercentage?.toFixed(2) || "0.00",
+
+        sgstPercentage: setting?.sgstPercentage?.toFixed(2) || "0.00",
+
+        finalAmount: paiseToRupees(freshInvoice.finalAmount),
+
+        packageAmount: paiseToRupees(freshInvoice.packageAmount),
+
+        discountAmount: paiseToRupees(freshInvoice.discountAmount),
+
+        paidAmount: paiseToRupees(freshInvoice.paidAmount),
+
+        balanceAmount: paiseToRupees(freshInvoice.balanceAmount),
+
+        paymentMode: currentPayment?.paymentMode || "-",
+
+        paymentDate: currentPayment
+          ? formatDate(currentPayment.paidAt || currentPayment.createdAt)
+          : "-",
+
+        paymentHistory,
+
+        invoiceUrl,
+
+        portalUrl: memberPortal,
+      },
+    });
+  } catch (error) {
+    console.error("Email notification failed:", freshInvoice.id, error);
+  }
+};
 
 /**
  * ============================================================
@@ -815,9 +549,7 @@ const sendMembershipNotification =
  * ============================================================
  */
 
-export async function POST(
-  req: NextRequest
-) {
+export async function POST(req: NextRequest) {
   try {
     /**
      * =======================================================
@@ -825,53 +557,34 @@ export async function POST(
      * =======================================================
      */
 
-    const rawBody =
-      await req.text();
+    const rawBody = await req.text();
 
-    const razorpaySignature =
-      req.headers.get(
-        "x-razorpay-signature"
-      ) || "";
+    const razorpaySignature = req.headers.get("x-razorpay-signature") || "";
 
-    const expectedSignature =
-      crypto
-        .createHmac(
-          "sha256",
-          process.env
-            .RAZORPAY_WEBHOOK_SECRET!
-        )
-        .update(rawBody)
-        .digest("hex");
+    const expectedSignature = crypto
+      .createHmac("sha256", process.env.RAZORPAY_WEBHOOK_SECRET!)
+      .update(rawBody)
+      .digest("hex");
 
-    const receivedSignatureBuffer =
-      Buffer.from(
-        razorpaySignature
-      );
+    const receivedSignatureBuffer = Buffer.from(razorpaySignature);
 
-    const expectedSignatureBuffer =
-      Buffer.from(
-        expectedSignature
-      );
+    const expectedSignatureBuffer = Buffer.from(expectedSignature);
 
     const validSignature =
-      receivedSignatureBuffer.length ===
-        expectedSignatureBuffer.length &&
+      receivedSignatureBuffer.length === expectedSignatureBuffer.length &&
       crypto.timingSafeEqual(
         receivedSignatureBuffer,
         expectedSignatureBuffer
       );
 
     if (!validSignature) {
-      console.log(
-        "❌ Invalid Razorpay signature"
-      );
+      console.log("❌ Invalid Razorpay signature");
 
       return NextResponse.json(
         {
           success: false,
 
-          message:
-            "Invalid webhook signature",
+          message: "Invalid webhook signature",
         },
         {
           status: 400,
@@ -885,60 +598,30 @@ export async function POST(
      * =======================================================
      */
 
-    const event =
-      JSON.parse(rawBody);
+    const event = JSON.parse(rawBody);
 
-    if (
-      event.event !==
-      "payment.captured"
-    ) {
+    if (event.event !== "payment.captured") {
       return NextResponse.json({
         received: true,
       });
     }
 
-    const razorpayPayment =
-      event.payload
-        .payment.entity;
+    const razorpayPayment = event.payload.payment.entity;
 
-    const razorpayOrderId =
-      String(
-        razorpayPayment
-          .order_id ||
-          ""
-      );
+    const razorpayOrderId = String(razorpayPayment.order_id || "");
 
-    const razorpayPaymentId =
-      String(
-        razorpayPayment.id ||
-        ""
-      );
+    const razorpayPaymentId = String(razorpayPayment.id || "");
 
-    const paymentMethod =
-      String(
-        razorpayPayment
-          .method ||
-          "Online"
-      );
+    const paymentMethod = String(razorpayPayment.method || "Online");
 
-    const paidAtDate =
-      new Date(
-        Number(
-          razorpayPayment
-            .created_at
-        ) * 1000
-      );
+    const paidAtDate = new Date(Number(razorpayPayment.created_at) * 1000);
 
-    if (
-      !razorpayOrderId ||
-      !razorpayPaymentId
-    ) {
+    if (!razorpayOrderId || !razorpayPaymentId) {
       return NextResponse.json(
         {
           success: false,
 
-          message:
-            "Razorpay payment identifiers are missing.",
+          message: "Razorpay payment identifiers are missing.",
         },
         {
           status: 400,
@@ -957,66 +640,61 @@ export async function POST(
      * Group checkout:
      *   paymentRecords.length === N
      *
+     * Transfer fee checkout:
+     *   paymentRecords.length === 1 (paymentType = TRANSFER)
+     *
      * Every group payment row intentionally shares
      * the same Razorpay order ID.
      */
 
-    const paymentRecords =
-      await prisma.payment.findMany({
-        where: {
-          razorpayOrderId,
-        },
+    const paymentRecords = await prisma.payment.findMany({
+      where: {
+        razorpayOrderId,
+      },
 
-        include: {
-          member: true,
+      include: {
+        member: true,
 
-          invoice: {
-            include: {
-              member: true,
+        invoice: {
+          include: {
+            member: true,
 
-              branch: true,
+            branch: true,
 
-              package: {
-                include: {
-                  service: true,
-                },
+            package: {
+              include: {
+                service: true,
               },
+            },
 
-              /**
-               * IMPORTANT:
-               * Invoice now owns the selected sub-category.
-               */
-              subCategory: true,
+            /**
+             * IMPORTANT:
+             * Invoice now owns the selected sub-category.
+             */
+            subCategory: true,
 
-              subscription: {
-                include: {
-                  subCategory: true,
-                },
+            subscription: {
+              include: {
+                subCategory: true,
               },
             },
           },
         },
+      },
 
-        orderBy: {
-          createdAt:
-            "asc",
-        },
-      });
+      orderBy: {
+        createdAt: "asc",
+      },
+    });
 
-    if (
-      paymentRecords.length === 0
-    ) {
-      console.log(
-        "❌ Payment records not found:",
-        razorpayOrderId
-      );
+    if (paymentRecords.length === 0) {
+      console.log("❌ Payment records not found:", razorpayOrderId);
 
       return NextResponse.json(
         {
           success: false,
 
-          message:
-            "Payment records not found",
+          message: "Payment records not found",
         },
         {
           status: 404,
@@ -1030,39 +708,22 @@ export async function POST(
      * =======================================================
      */
 
-    const expectedAmount =
-      paymentRecords.reduce(
-        (
-          total,
-          payment
-        ) =>
-          total +
-          Number(
-            payment.amount
-          ),
-        0
-      );
+    const expectedAmount = paymentRecords.reduce(
+      (total, payment) => total + Number(payment.amount),
+      0
+    );
 
-    const capturedAmount =
-      Number(
-        razorpayPayment.amount
-      );
+    const capturedAmount = Number(razorpayPayment.amount);
 
     if (
-      Number.isFinite(
-        capturedAmount
-      ) &&
-      capturedAmount !==
-        expectedAmount
+      Number.isFinite(capturedAmount) &&
+      capturedAmount !== expectedAmount
     ) {
-      console.error(
-        "❌ Razorpay amount mismatch",
-        {
-          razorpayOrderId,
-          capturedAmount,
-          expectedAmount,
-        }
-      );
+      console.error("❌ Razorpay amount mismatch", {
+        razorpayOrderId,
+        capturedAmount,
+        expectedAmount,
+      });
 
       return NextResponse.json(
         {
@@ -1083,18 +744,12 @@ export async function POST(
      * =======================================================
      */
 
-    const allAlreadyPaid =
-      paymentRecords.every(
-        (payment) =>
-          payment.status ===
-          "PAID"
-      );
+    const allAlreadyPaid = paymentRecords.every(
+      (payment) => payment.status === "PAID"
+    );
 
     if (allAlreadyPaid) {
-      console.log(
-        "⚠️ Razorpay order already processed:",
-        razorpayOrderId
-      );
+      console.log("⚠️ Razorpay order already processed:", razorpayOrderId);
 
       return NextResponse.json({
         received: true,
@@ -1112,16 +767,8 @@ export async function POST(
      */
 
     const orderNotes =
-      (
-        razorpayPayment.notes &&
-        typeof razorpayPayment
-          .notes === "object"
-      )
-        ? razorpayPayment
-            .notes as Record<
-              string,
-              unknown
-            >
+      razorpayPayment.notes && typeof razorpayPayment.notes === "object"
+        ? (razorpayPayment.notes as Record<string, unknown>)
         : {};
 
     /**
@@ -1130,570 +777,483 @@ export async function POST(
      * =======================================================
      */
 
-    const processedPayments =
-      await prisma.$transaction(
-        async (
-          tx
-        ): Promise<
-          ProcessedPayment[]
-        > => {
-          const processed:
-            ProcessedPayment[] = [];
+    const processedPayments = await prisma.$transaction(
+      async (tx): Promise<ProcessedPayment[]> => {
+        const processed: ProcessedPayment[] = [];
 
-          for (
-            const paymentRecord of
-            paymentRecords
-          ) {
-            /**
-             * =================================================
-             * ATOMICALLY CLAIM PAYMENT
-             * =================================================
-             */
+        for (const paymentRecord of paymentRecords) {
+          /**
+           * =================================================
+           * ATOMICALLY CLAIM PAYMENT
+           * =================================================
+           */
 
-            const claimed =
-              await tx.payment.updateMany({
-                where: {
-                  id:
-                    paymentRecord.id,
+          const claimed = await tx.payment.updateMany({
+            where: {
+              id: paymentRecord.id,
 
-                  status: {
-                    not:
-                      "PAID",
-                  },
-                },
+              status: {
+                not: "PAID",
+              },
+            },
 
-                data: {
-                  status:
-                    "PAID",
+            data: {
+              status: "PAID",
 
-                  razorpayPaymentId,
+              razorpayPaymentId,
 
-                  razorpaySignature,
+              razorpaySignature,
 
-                  paidAt:
-                    paidAtDate,
+              paidAt: paidAtDate,
 
-                  paymentMode:
-                    formatPaymentMethod(
-                      paymentMethod
-                    ),
-                },
-              });
+              paymentMode: formatPaymentMethod(paymentMethod),
+            },
+          });
 
-            if (
-              claimed.count === 0
-            ) {
-              continue;
-            }
+          if (claimed.count === 0) {
+            continue;
+          }
 
-            /**
-             * =================================================
-             * INVOICE
-             * =================================================
-             */
+          /**
+           * =================================================
+           * INVOICE
+           * =================================================
+           */
 
-            const invoice =
-              paymentRecord.invoice;
+          const invoice = paymentRecord.invoice;
 
-            /**
-             * =================================================
-             * PAYMENT METADATA
-             * =================================================
-             */
+          /**
+           * =================================================
+           * PAYMENT METADATA
+           * =================================================
+           */
 
-            const metadata =
-              parsePaymentMetadata(
-                paymentRecord.notes
-              );
+          const metadata = parsePaymentMetadata(paymentRecord.notes);
 
-            /**
-             * =================================================
-             * SUB-CATEGORY RESOLUTION
-             * =================================================
-             *
-             * Priority:
-             *
-             * 1. Invoice.subCategoryId
-             * 2. Payment metadata.subCategoryId
-             * 3. Razorpay order notes.subCategoryId
-             *
-             * This lets the new flow work while remaining
-             * compatible with invoices created before the
-             * schema change.
-             */
+          /**
+           * =================================================
+           * SUB-CATEGORY RESOLUTION
+           * =================================================
+           *
+           * Priority:
+           *
+           * 1. Invoice.subCategoryId
+           * 2. Payment metadata.subCategoryId
+           * 3. Razorpay order notes.subCategoryId
+           */
 
-            const resolvedSubCategoryId =
-              invoice.subCategoryId ||
-              (
-                typeof metadata
-                  .subCategoryId ===
-                  "string"
-                  ? metadata.subCategoryId
-                  : null
-              ) ||
-              (
-                typeof orderNotes
-                  .subCategoryId ===
-                  "string"
-                  ? String(
-                      orderNotes
-                        .subCategoryId
-                    )
-                  : null
-              ) ||
-              null;
+          const resolvedSubCategoryId =
+            invoice.subCategoryId ||
+            (typeof metadata.subCategoryId === "string"
+              ? metadata.subCategoryId
+              : null) ||
+            (typeof orderNotes.subCategoryId === "string"
+              ? String(orderNotes.subCategoryId)
+              : null) ||
+            null;
 
-            /**
-             * If the invoice did not already have the
-             * sub-category but it is available in metadata,
-             * persist it on the invoice.
-             */
-            if (
-              !invoice.subCategoryId &&
-              resolvedSubCategoryId
-            ) {
-              await tx.invoice.update({
-                where: {
-                  id: invoice.id,
-                },
-
-                data: {
-                  subCategoryId:
-                    resolvedSubCategoryId,
-                },
-              });
-
-              /**
-               * Keep local object consistent for the rest
-               * of this transaction.
-               */
-              invoice.subCategoryId =
-                resolvedSubCategoryId;
-            }
-
-            /**
-             * =================================================
-             * INVOICE PAYMENT TOTAL
-             * =================================================
-             */
-
-            const invoiceTotal =
-              Math.round(
-                Number(
-                  invoice
-                    .finalAmount
-                ) +
-                  Number(
-                    invoice
-                      .totalTax ||
-                      0
-                  )
-              );
-
-            const updatedPaidAmount =
-              Math.min(
-                Number(
-                  invoice
-                    .paidAmount
-                ) +
-                  Number(
-                    paymentRecord
-                      .amount
-                  ),
-                invoiceTotal
-              );
-
-            const updatedBalanceAmount =
-              Math.max(
-                invoiceTotal -
-                  updatedPaidAmount,
-                0
-              );
-
-            const invoiceStatus =
-              updatedBalanceAmount <=
-              0
-                ? "FULLY_PAID"
-                : updatedPaidAmount >
-                  0
-                ? "PARTIAL_PAID"
-                : "PENDING";
-
+          /**
+           * If the invoice did not already have the
+           * sub-category but it is available in metadata,
+           * persist it on the invoice.
+           */
+          if (!invoice.subCategoryId && resolvedSubCategoryId) {
             await tx.invoice.update({
               where: {
                 id: invoice.id,
               },
 
               data: {
-                paidAmount:
-                  updatedPaidAmount,
-
-                balanceAmount:
-                  updatedBalanceAmount,
-
-                status:
-                  invoiceStatus,
+                subCategoryId: resolvedSubCategoryId,
               },
             });
 
             /**
-             * =================================================
-             * BALANCE PAYMENT
-             * =================================================
-             *
-             * A balance payment must NOT create a new
-             * subscription.
+             * Keep local object consistent for the rest
+             * of this transaction.
              */
+            invoice.subCategoryId = resolvedSubCategoryId;
+          }
 
-            if (
-              paymentRecord
-                .paymentType ===
-              "BALANCE"
-            ) {
-              processed.push({
-                paymentId:
-                  paymentRecord.id,
+          /**
+           * =================================================
+           * INVOICE PAYMENT TOTAL
+           * =================================================
+           */
 
-                invoiceId:
-                  invoice.id,
+          const invoiceTotal = Math.round(
+            Number(invoice.finalAmount) + Number(invoice.totalTax || 0)
+          );
 
-                paymentType:
-                  paymentRecord
-                    .paymentType,
+          const updatedPaidAmount = Math.min(
+            Number(invoice.paidAmount) + Number(paymentRecord.amount),
+            invoiceTotal
+          );
 
-                finalSubscriptionEndDate:
-                  invoice
-                    .subscription
-                    ?.endDate ||
-                  null,
+          const updatedBalanceAmount = Math.max(
+            invoiceTotal - updatedPaidAmount,
+            0
+          );
+
+          const invoiceStatus =
+            updatedBalanceAmount <= 0
+              ? "FULLY_PAID"
+              : updatedPaidAmount > 0
+              ? "PARTIAL_PAID"
+              : "PENDING";
+
+          await tx.invoice.update({
+            where: {
+              id: invoice.id,
+            },
+
+            data: {
+              paidAmount: updatedPaidAmount,
+
+              balanceAmount: updatedBalanceAmount,
+
+              status: invoiceStatus,
+            },
+          });
+
+          /**
+           * =================================================
+           * TRANSFER FEE PAYMENT
+           * =================================================
+           *
+           * Created by /api/subscriptions/[id]/transfer-order.
+           *
+           * Uses the SAME logic as the manual transfer route
+           * (executeMembershipTransfer), inside this transaction.
+           *
+           * It must NEVER fall through to the NEW / EXTEND
+           * subscription logic below.
+           *
+           * If the transfer cannot be completed for a business
+           * reason (membership changed, receiving member blocked,
+           * ...) the money is already captured. We keep the payment
+           * as PAID, record the reason on the payment and return 200
+           * so Razorpay does not retry forever. This needs a manual
+           * refund / review. Any other (unexpected) error is rethrown
+           * so the whole transaction rolls back and Razorpay retries.
+           */
+
+          if (paymentRecord.paymentType === "TRANSFER") {
+            try {
+              if (
+                !metadata.subscriptionId ||
+                !metadata.toMemberId ||
+                !metadata.reason ||
+                !metadata.transferredById ||
+                !metadata.quote
+              ) {
+                throw new TransferError(
+                  "Transfer details are missing from the payment."
+                );
+              }
+
+              await executeMembershipTransfer(tx, {
+                subscriptionId: metadata.subscriptionId,
+
+                toMemberId: metadata.toMemberId,
+
+                reason: metadata.reason,
+
+                notes: metadata.transferNotes,
+
+                paymentMode: formatPaymentMethod(paymentMethod),
+
+                // PAISE (Payment.amount is stored in paise)
+                amountCollectedPaise: Number(paymentRecord.amount),
+
+                transferredById: metadata.transferredById,
+
+                // charge-time quote, so the record matches what was paid
+                quote: metadata.quote,
+
+                transferInvoiceId: invoice.id,
               });
 
-              continue;
-            }
+              console.log("🔁 Membership transferred:", {
+                invoiceId: invoice.id,
 
-            /**
-             * =================================================
-             * INITIAL PAYMENT
-             * =================================================
-             */
+                subscriptionId: metadata.subscriptionId,
 
-            const requestedStartDate =
-              parseDate(
-                metadata
-                  .subscriptionStartDate
-              ) ||
-              parseDate(
-                orderNotes
-                  .subscriptionStartDate
-              );
+                toMemberId: metadata.toMemberId,
+              });
+            } catch (error) {
+              if (!(error instanceof TransferError)) {
+                throw error;
+              }
 
-            const requestedEndDate =
-              parseDate(
-                metadata
-                  .subscriptionEndDate
-              ) ||
-              parseDate(
-                orderNotes
-                  .subscriptionEndDate
-              );
-
-            let finalSubscriptionEndDate:
-              | Date
-              | null = null;
-
-            /**
-             * =================================================
-             * EXTENSION SUBSCRIPTION
-             * =================================================
-             *
-             * Prefer explicit subscription ID from the
-             * group-order endpoint.
-             */
-
-            let extensionSubscription =
-              metadata
-                .extensionSubscriptionId
-                ? await tx
-                    .subscription
-                    .findUnique({
-                      where: {
-                        id:
-                          metadata
-                            .extensionSubscriptionId,
-                      },
-                    })
-                : null;
-
-            /**
-             * Backward compatibility for invoices that are
-             * already linked to a subscription.
-             */
-
-            if (
-              !extensionSubscription &&
-              invoice.subscription
-            ) {
-              extensionSubscription =
-                await tx
-                  .subscription
-                  .findUnique({
-                    where: {
-                      id:
-                        invoice
-                          .subscription
-                          .id,
-                    },
-                  });
-            }
-
-            /**
-             * Final fallback for individual EXTEND invoices.
-             */
-
-            if (
-              !extensionSubscription &&
-              invoice.intent ===
-                "EXTEND"
-            ) {
-              extensionSubscription =
-                await tx
-                  .subscription
-                  .findFirst({
-                    where: {
-                      memberId:
-                        invoice.memberId,
-
-                      status: {
-                        in: [
-                          "ACTIVE",
-                          "FROZEN",
-                        ],
-                      },
-
-                      endDate: {
-                        gte:
-                          new Date(),
-                      },
-                    },
-
-                    orderBy: {
-                      endDate:
-                        "desc",
-                    },
-                  });
-            }
-
-            /**
-             * =================================================
-             * EXTEND
-             * =================================================
-             */
-
-            if (
-              invoice.intent ===
-                "EXTEND" &&
-              extensionSubscription
-            ) {
-              const newEndDate =
-                requestedEndDate ||
-                addDaysUTC(
-                  extensionSubscription
-                    .endDate,
-
-                  invoice
-                    .packageDurationInDays
-                );
-
-              await tx
-                .subscription
-                .update({
-                  where: {
-                    id:
-                      extensionSubscription
-                        .id,
-                  },
-
-                  data: {
-                    endDate:
-                      newEndDate,
-
-                    /**
-                     * If the extension invoice has a
-                     * sub-category and the existing
-                     * subscription does not, preserve it.
-                     *
-                     * If the existing subscription already
-                     * has one, do not overwrite it.
-                     */
-                    ...(resolvedSubCategoryId &&
-                    !extensionSubscription
-                      .subCategoryId
-                      ? {
-                          subCategoryId:
-                            resolvedSubCategoryId,
-                        }
-                      : {}),
-                  },
-                });
-
-              finalSubscriptionEndDate =
-                newEndDate;
-
-              console.log(
-                "✅ Subscription extended:",
+              console.error(
+                "🚨 TRANSFER FEE PAID BUT TRANSFER NOT COMPLETED. REFUND / REVIEW REQUIRED:",
                 {
-                  invoiceId:
-                    invoice.id,
-
-                  subscriptionId:
-                    extensionSubscription
-                      .id,
-
-                  subCategoryId:
-                    extensionSubscription
-                      .subCategoryId ||
-                    resolvedSubCategoryId ||
-                    null,
+                  razorpayOrderId,
+                  razorpayPaymentId,
+                  invoiceId: invoice.id,
+                  subscriptionId: metadata.subscriptionId,
+                  reason: error.message,
                 }
               );
-            } else {
-              /**
-               * =================================================
-               * NEW SUBSCRIPTION
-               * =================================================
-               */
 
-              const startDate =
-                requestedStartDate ||
-                nowUTC();
+              await tx.payment.update({
+                where: {
+                  id: paymentRecord.id,
+                },
 
-              const endDate =
-                requestedEndDate ||
-                addDaysUTC(
-                  startDate,
-
-                  invoice
-                    .packageDurationInDays
-                );
-
-              /**
-               * IMPORTANT:
-               *
-               * The selected subCategoryId is now copied
-               * from the invoice into the subscription.
-               */
-              const subscription =
-                await tx
-                  .subscription
-                  .create({
-                    data: {
-                      memberId:
-                        invoice.memberId,
-
-                      branchId:
-                        invoice.branchId,
-
-                      packageId:
-                        invoice.packageId,
-
-                      invoiceId:
-                        invoice.id,
-
-                      /**
-                       * NEW:
-                       * Preserve selected sub-category.
-                       */
-                      subCategoryId:
-                        resolvedSubCategoryId,
-
-                      serviceName:
-                        invoice
-                          .serviceName,
-
-                      usageType:
-                        invoice
-                          .package
-                          .usageType,
-
-                      totalSessions:
-                        invoice
-                          .package
-                          .totalSessions,
-
-                      packageName:
-                        invoice
-                          .packageName,
-
-                      packageDurationInDays:
-                        invoice
-                          .packageDurationInDays,
-
-                      originalPrice:
-                        invoice
-                          .packageAmount,
-
-                      finalPrice:
-                        invoice
-                          .finalAmount,
-
-                      branchName:
-                        invoice
-                          .branchName,
-
-                      startDate,
-
-                      endDate,
-
-                      status:
-                        "ACTIVE",
-                    },
-                  });
-
-              /**
-               * The invoice/subscription relation is already
-               * established through invoiceId above.
-               *
-               * No need to reconnect it here.
-               */
-
-              finalSubscriptionEndDate =
-                endDate;
-
-              console.log(
-                "🆕 Subscription created:",
-                {
-                  invoiceId:
-                    invoice.id,
-
-                  subscriptionId:
-                    subscription.id,
-
-                  subCategoryId:
-                    subscription
-                      .subCategoryId ||
-                    null,
-                }
-              );
+                data: {
+                  notes: JSON.stringify({
+                    ...metadata,
+                    transferError: error.message,
+                  }),
+                },
+              });
             }
 
             processed.push({
-              paymentId:
-                paymentRecord.id,
+              paymentId: paymentRecord.id,
 
-              invoiceId:
-                invoice.id,
+              invoiceId: invoice.id,
 
-              paymentType:
-                paymentRecord
-                  .paymentType,
+              paymentType: paymentRecord.paymentType,
 
-              finalSubscriptionEndDate,
+              finalSubscriptionEndDate: null,
+            });
+
+            continue;
+          }
+
+          /**
+           * =================================================
+           * BALANCE PAYMENT
+           * =================================================
+           *
+           * A balance payment must NOT create a new
+           * subscription.
+           */
+
+          if (paymentRecord.paymentType === "BALANCE") {
+            processed.push({
+              paymentId: paymentRecord.id,
+
+              invoiceId: invoice.id,
+
+              paymentType: paymentRecord.paymentType,
+
+              finalSubscriptionEndDate:
+                invoice.subscription?.endDate || null,
+            });
+
+            continue;
+          }
+
+          /**
+           * =================================================
+           * INITIAL PAYMENT
+           * =================================================
+           */
+
+          const requestedStartDate =
+            parseDate(metadata.subscriptionStartDate) ||
+            parseDate(orderNotes.subscriptionStartDate);
+
+          const requestedEndDate =
+            parseDate(metadata.subscriptionEndDate) ||
+            parseDate(orderNotes.subscriptionEndDate);
+
+          let finalSubscriptionEndDate: Date | null = null;
+
+          /**
+           * =================================================
+           * EXTENSION SUBSCRIPTION
+           * =================================================
+           *
+           * Prefer explicit subscription ID from the
+           * group-order endpoint.
+           */
+
+          let extensionSubscription = metadata.extensionSubscriptionId
+            ? await tx.subscription.findUnique({
+                where: {
+                  id: metadata.extensionSubscriptionId,
+                },
+              })
+            : null;
+
+          /**
+           * Backward compatibility for invoices that are
+           * already linked to a subscription.
+           */
+
+          if (!extensionSubscription && invoice.subscription) {
+            extensionSubscription = await tx.subscription.findUnique({
+              where: {
+                id: invoice.subscription.id,
+              },
             });
           }
 
-          return processed;
+          /**
+           * Final fallback for individual EXTEND invoices.
+           */
+
+          if (!extensionSubscription && invoice.intent === "EXTEND") {
+            extensionSubscription = await tx.subscription.findFirst({
+              where: {
+                memberId: invoice.memberId,
+
+                status: {
+                  in: ["ACTIVE", "FROZEN"],
+                },
+
+                endDate: {
+                  gte: new Date(),
+                },
+              },
+
+              orderBy: {
+                endDate: "desc",
+              },
+            });
+          }
+
+          /**
+           * =================================================
+           * EXTEND
+           * =================================================
+           */
+
+          if (invoice.intent === "EXTEND" && extensionSubscription) {
+            const newEndDate =
+              requestedEndDate ||
+              addDaysUTC(
+                extensionSubscription.endDate,
+
+                invoice.packageDurationInDays
+              );
+
+            await tx.subscription.update({
+              where: {
+                id: extensionSubscription.id,
+              },
+
+              data: {
+                endDate: newEndDate,
+
+                /**
+                 * If the extension invoice has a
+                 * sub-category and the existing
+                 * subscription does not, preserve it.
+                 *
+                 * If the existing subscription already
+                 * has one, do not overwrite it.
+                 */
+                ...(resolvedSubCategoryId &&
+                !extensionSubscription.subCategoryId
+                  ? {
+                      subCategoryId: resolvedSubCategoryId,
+                    }
+                  : {}),
+              },
+            });
+
+            finalSubscriptionEndDate = newEndDate;
+
+            console.log("✅ Subscription extended:", {
+              invoiceId: invoice.id,
+
+              subscriptionId: extensionSubscription.id,
+
+              subCategoryId:
+                extensionSubscription.subCategoryId ||
+                resolvedSubCategoryId ||
+                null,
+            });
+          } else {
+            /**
+             * =================================================
+             * NEW SUBSCRIPTION
+             * =================================================
+             */
+
+            const startDate = requestedStartDate || nowUTC();
+
+            const endDate =
+              requestedEndDate ||
+              addDaysUTC(
+                startDate,
+
+                invoice.packageDurationInDays
+              );
+
+            /**
+             * IMPORTANT:
+             *
+             * The selected subCategoryId is copied
+             * from the invoice into the subscription.
+             */
+            const subscription = await tx.subscription.create({
+              data: {
+                memberId: invoice.memberId,
+
+                branchId: invoice.branchId,
+
+                packageId: invoice.packageId,
+
+                invoiceId: invoice.id,
+
+                subCategoryId: resolvedSubCategoryId,
+
+                serviceName: invoice.serviceName,
+
+                usageType: invoice.package.usageType,
+
+                totalSessions: invoice.package.totalSessions,
+
+                packageName: invoice.packageName,
+
+                packageDurationInDays: invoice.packageDurationInDays,
+
+                originalPrice: invoice.packageAmount,
+
+                finalPrice: invoice.finalAmount,
+
+                branchName: invoice.branchName,
+
+                startDate,
+
+                endDate,
+
+                status: "ACTIVE",
+              },
+            });
+
+            finalSubscriptionEndDate = endDate;
+
+            console.log("🆕 Subscription created:", {
+              invoiceId: invoice.id,
+
+              subscriptionId: subscription.id,
+
+              subCategoryId: subscription.subCategoryId || null,
+            });
+          }
+
+          processed.push({
+            paymentId: paymentRecord.id,
+
+            invoiceId: invoice.id,
+
+            paymentType: paymentRecord.paymentType,
+
+            finalSubscriptionEndDate,
+          });
         }
-      );
+
+        return processed;
+      }
+    );
 
     /**
      * =======================================================
@@ -1704,38 +1264,27 @@ export async function POST(
      *
      * Notification/referral failures must not roll back
      * the completed payment transaction.
+     *
+     * TRANSFER payments are skipped here on purpose
+     * (paymentType !== "INITIAL"): no referral reward and
+     * no "subscription_success" message for a transfer fee.
      */
 
-    for (
-      const processed of
-      processedPayments
-    ) {
-      if (
-        processed.paymentType !==
-        "INITIAL"
-      ) {
+    for (const processed of processedPayments) {
+      if (processed.paymentType !== "INITIAL") {
         continue;
       }
 
-      await processReferralReward(
-        processed.invoiceId
-      );
+      await processReferralReward(processed.invoiceId);
 
-      if (
-        processed
-          .finalSubscriptionEndDate
-      ) {
+      if (processed.finalSubscriptionEndDate) {
         try {
           await sendMembershipNotification({
-            invoiceId:
-              processed.invoiceId,
+            invoiceId: processed.invoiceId,
 
-            paymentId:
-              processed.paymentId,
+            paymentId: processed.paymentId,
 
-            finalSubscriptionEndDate:
-              processed
-                .finalSubscriptionEndDate,
+            finalSubscriptionEndDate: processed.finalSubscriptionEndDate,
           });
         } catch (error) {
           console.error(
@@ -1753,40 +1302,32 @@ export async function POST(
      * =======================================================
      */
 
-    console.log(
-      "✅ Razorpay payment processed",
-      {
-        razorpayOrderId,
+    console.log("✅ Razorpay payment processed", {
+      razorpayOrderId,
 
-        allocationsProcessed:
-          processedPayments.length,
+      allocationsProcessed: processedPayments.length,
 
-        checkoutType:
-          paymentRecords.length >
-          1
-            ? "GROUP"
-            : "INDIVIDUAL",
-      }
-    );
+      checkoutType:
+        paymentRecords[0]?.paymentType === "TRANSFER"
+          ? "TRANSFER"
+          : paymentRecords.length > 1
+          ? "GROUP"
+          : "INDIVIDUAL",
+    });
 
     return NextResponse.json({
       received: true,
 
-      processed:
-        processedPayments.length,
+      processed: processedPayments.length,
     });
   } catch (error) {
-    console.error(
-      "🔥 WEBHOOK ERROR",
-      error
-    );
+    console.error("🔥 WEBHOOK ERROR", error);
 
     return NextResponse.json(
       {
         success: false,
 
-        message:
-          "Unable to process Razorpay webhook.",
+        message: "Unable to process Razorpay webhook.",
       },
       {
         status: 500,
