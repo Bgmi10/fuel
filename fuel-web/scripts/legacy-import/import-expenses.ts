@@ -14,7 +14,7 @@ import * as XLSX from 'xlsx';
 // ------------------------------------------------------------------ CONFIG
 const FILE = './legacy-data/Expenses.xlsx';
 /** id of the User these expenses are recorded under (see the SQL in the chat) */
-const BY_USER_ID = 'PASTE_USER_ID_HERE';
+const BY_USER_ID = 'cmsfuojy80001c8sots2p7nry';
 /** 1 if Expense.amount is stored in rupees, 100 if in paise */
 const AMOUNT_MULTIPLIER = 1;
 const EXPENSE_TYPE = 'OTHER' as const;
