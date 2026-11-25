@@ -10,7 +10,6 @@ import fs from "fs";
 import {
   paiseToRupees,
   formatDate,
-  calculateGSTBreakdown,
 } from "@/app/utils/helper";
 
 export async function GET(
@@ -56,26 +55,126 @@ export async function GET(
     );
   }
 
+  // CHANGED: a receipt is only valid for a payment that was actually received.
+  // (The PAID stamp below would otherwise be printed on refunded / voided /
+  // failed payments.)
+  if (payment.status !== "PAID") {
+    return new Response(
+      "Receipt is available only for paid payments",
+      {
+        status: 400,
+      }
+    );
+  }
+
   // =====================================================
   // GST
   // =====================================================
 
-  // For receipts, we need to calculate the GST breakdown from the payment amount
-  // The payment amount already includes GST, so we need to extract it
-  const paymentAmountWithGST =
-    paiseToRupees(payment.amount);
+  // IMPORTANT: all calculations here are in PAISE.
+  //
+  // CHANGED: the GST shown on a receipt is the share of the tax that was
+  // stored on the INVOICE, in proportion to the amount of this payment.
+  //   - invoice with GST (new software): receipt shows that part of the GST
+  //   - invoice with no GST (old software, totalTax = 0): receipt shows no GST
+  // Only when the invoice has no stored tax at all (null) do we fall back to
+  // extracting GST from the payment using the percentages in Settings.
+  // A stored 0 is never treated as "missing".
 
-  // Get GST percentages from settings
-  const setting = await prisma.setting.findFirst();
-  const cgstPercentage = setting?.cgstPercentage || 9;
-  const sgstPercentage = setting?.sgstPercentage || 9;
-  const totalGSTPercentage = cgstPercentage + sgstPercentage;
+  const invoice = payment.invoice;
 
-  // Extract base fee from payment amount (payment includes GST)
-  const baseFee = paymentAmountWithGST / (1 + totalGSTPercentage / 100);
-  const cgst = baseFee * (cgstPercentage / 100);
-  const sgst = baseFee * (sgstPercentage / 100);
-  const totalTax = cgst + sgst;
+  const hasStoredTax =
+    invoice.totalTax !== null &&
+    invoice.totalTax !== undefined;
+
+  let taxPaise: number;
+  let cgstPaise: number;
+  let sgstPaise: number;
+  let cgstPercentage: number;
+  let sgstPercentage: number;
+
+  if (hasStoredTax) {
+    const invoiceTaxPaise = Math.round(
+      invoice.totalTax ?? 0
+    );
+
+    const invoiceTaxableAmount = Math.max(
+      invoice.packageAmount -
+        invoice.discountAmount -
+        (invoice.referralDiscountAmount || 0),
+      0
+    );
+
+    const invoiceTotalPaise =
+      invoiceTaxableAmount +
+      invoiceTaxPaise;
+
+    taxPaise =
+      invoiceTaxPaise > 0 &&
+      invoiceTotalPaise > 0
+        ? Math.round(
+            (payment.amount *
+              invoiceTaxPaise) /
+              invoiceTotalPaise
+          )
+        : 0;
+
+    const cgstShare =
+      invoiceTaxPaise > 0
+        ? (invoice.cgstAmount ??
+            invoiceTaxPaise / 2) /
+          invoiceTaxPaise
+        : 0.5;
+
+    cgstPaise = Math.round(
+      taxPaise * cgstShare
+    );
+
+    sgstPaise = taxPaise - cgstPaise;
+
+    cgstPercentage =
+      invoice.cgstPercentage ?? 0;
+
+    sgstPercentage =
+      invoice.sgstPercentage ?? 0;
+  } else {
+    const setting =
+      await prisma.setting.findFirst();
+
+    cgstPercentage =
+      setting?.cgstPercentage ?? 0;
+
+    sgstPercentage =
+      setting?.sgstPercentage ?? 0;
+
+    const totalGSTPercentage =
+      cgstPercentage + sgstPercentage;
+
+    const extractedBasePaise =
+      Math.round(
+        payment.amount /
+          (1 + totalGSTPercentage / 100)
+      );
+
+    taxPaise =
+      payment.amount -
+      extractedBasePaise;
+
+    cgstPaise = Math.round(
+      taxPaise *
+        (totalGSTPercentage > 0
+          ? cgstPercentage /
+            totalGSTPercentage
+          : 0.5)
+    );
+
+    sgstPaise = taxPaise - cgstPaise;
+  }
+
+  const basePaise =
+    payment.amount - taxPaise;
+
+  const showTax = taxPaise > 0;
 
   // =====================================================
   // ASSETS
@@ -456,79 +555,119 @@ Receipt Date : ${formatDate(
         );
       };
 
-      // Show GST breakdown in amount column
+      // CHANGED: the CGST / SGST / Tax lines are printed only when GST is
+      // part of this payment. Receipts for old-software invoices (no GST)
+      // show just the base fee.
+
+      // Breakdown in amount column
       doc
         .fontSize(8)
         .text(
-          `Base Fee : ₹ ${baseFee.toFixed(2)}`,
+          `Base Fee : ₹ ${paiseToRupees(
+            basePaise
+          )}`,
           470,
           rowY,
           {
             width: 80,
             lineGap: 2,
           }
-        )
-        .text(
-          `CGST (${cgstPercentage.toFixed(1)}%) : ₹ ${cgst.toFixed(2)}`,
-          470,
-          rowY + 14,
-          {
-            width: 80,
-            lineGap: 2,
-          }
-        )
-        .text(
-          `SGST (${sgstPercentage.toFixed(1)}%) : ₹ ${sgst.toFixed(2)}`,
-          470,
-          rowY + 28,
-          {
-            width: 80,
-            lineGap: 2,
-          }
-        )
-        .text(
-          `Total Tax : ₹ ${totalTax.toFixed(2)}`,
-          470,
-          rowY + 42,
-          {
-            width: 80,
-            lineGap: 2,
-          }
         );
+
+      if (showTax) {
+        doc
+          .text(
+            `CGST (${cgstPercentage.toFixed(
+              1
+            )}%) : ₹ ${paiseToRupees(
+              cgstPaise
+            )}`,
+            470,
+            rowY + 14,
+            {
+              width: 80,
+              lineGap: 2,
+            }
+          )
+          .text(
+            `SGST (${sgstPercentage.toFixed(
+              1
+            )}%) : ₹ ${paiseToRupees(
+              sgstPaise
+            )}`,
+            470,
+            rowY + 28,
+            {
+              width: 80,
+              lineGap: 2,
+            }
+          )
+          .text(
+            `Total Tax : ₹ ${paiseToRupees(
+              taxPaise
+            )}`,
+            470,
+            rowY + 42,
+            {
+              width: 80,
+              lineGap: 2,
+            }
+          );
+      }
 
       // Breakdown table
       drawRow(
         "Base Fee",
-        `₹ ${baseFee.toFixed(2)}`,
+        `₹ ${paiseToRupees(
+          basePaise
+        )}`,
         totalsY
       );
 
-      drawRow(
-        `CGST (${cgstPercentage.toFixed(1)}%)`,
-        `₹ ${cgst.toFixed(2)}`,
-        totalsY + 20
-      );
+      if (showTax) {
+        drawRow(
+          `CGST (${cgstPercentage.toFixed(
+            1
+          )}%)`,
+          `₹ ${paiseToRupees(
+            cgstPaise
+          )}`,
+          totalsY + 20
+        );
 
-      drawRow(
-        `SGST (${sgstPercentage.toFixed(1)}%)`,
-        `₹ ${sgst.toFixed(2)}`,
-        totalsY + 40
-      );
+        drawRow(
+          `SGST (${sgstPercentage.toFixed(
+            1
+          )}%)`,
+          `₹ ${paiseToRupees(
+            sgstPaise
+          )}`,
+          totalsY + 40
+        );
 
-      drawRow(
-        "Total Tax",
-        `₹ ${totalTax.toFixed(2)}`,
-        totalsY + 60
-      );
+        drawRow(
+          "Total Tax",
+          `₹ ${paiseToRupees(
+            taxPaise
+          )}`,
+          totalsY + 60
+        );
+      }
 
       // =====================================================
       // GRAND TOTAL
       // =====================================================
 
+      // CHANGED: position depends on how many rows were drawn above
+      // (80 with the GST rows, 24 without), so there is no big gap.
+      const grandY = showTax
+        ? totalsY + 80
+        : totalsY + 24;
+
       doc
         .rect(
           320,
-          totalsY + 80,
+          grandY,
           235,
           22
         )
@@ -542,18 +681,22 @@ Receipt Date : ${formatDate(
         .text(
           "Paid Amount",
           330,
-          totalsY + 87
+          grandY + 7
         )
 
         .text(
-          `₹ ${paymentAmountWithGST}`,
+          `₹ ${paiseToRupees(
+            payment.amount
+          )}`,
           470,
-          totalsY + 87
+          grandY + 7
         );
 
       // =====================================================
       // PAID STAMP
       // =====================================================
+
+      const stampY = grandY + 40;
 
       doc.save();
 
@@ -562,7 +705,7 @@ Receipt Date : ${formatDate(
         {
           origin: [
             495,
-            totalsY + 125,
+            stampY + 5,
           ],
         }
       );
@@ -570,7 +713,7 @@ Receipt Date : ${formatDate(
       doc
         .roundedRect(
           470,
-          totalsY + 120,
+          stampY,
           58,
           24,
           4
@@ -586,7 +729,7 @@ Receipt Date : ${formatDate(
         .text(
           "PAID",
           480,
-          totalsY + 125
+          stampY + 5
         );
 
       doc.restore();
@@ -596,7 +739,7 @@ Receipt Date : ${formatDate(
       // =====================================================
 
       const sigY =
-        totalsY + 200;
+        grandY + 120;
 
       doc
         .fontSize(8)

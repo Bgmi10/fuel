@@ -74,18 +74,36 @@ export async function GET(
     invoice.discountAmount -
     (invoice.referralDiscountAmount || 0);
 
-  const {
-    baseFee,
-    cgst,
-    sgst,
-    totalTax,
-    cgstPercentage,
-    sgstPercentage,
-  } = await calculateGSTBreakdown(
-    taxableAmountPaise
-  );
+  // CHANGED: use the tax that was actually stored on the invoice when it was
+  // created (it is 0 for invoices migrated from the old software).
+  // Only recalculate from Settings when NO tax was stored at all (null).
+  // A stored 0 must never be treated as "missing".
+  // This also means changing the GST rate in Settings no longer rewrites
+  // the tax on old invoices.
+  const hasStoredTax =
+    invoice.totalTax !== null && invoice.totalTax !== undefined;
+
+  let baseFee: number;
+  let cgst: number;
+  let sgst: number;
+  let totalTax: number;
+  let cgstPercentage: number;
+  let sgstPercentage: number;
+
+  if (hasStoredTax) {
+    baseFee = taxableAmountPaise;
+    totalTax = Math.round(invoice.totalTax ?? 0);
+    cgst = Math.round(invoice.cgstAmount ?? 0);
+    sgst = totalTax - cgst;
+    cgstPercentage = invoice.cgstPercentage ?? 0;
+    sgstPercentage = invoice.sgstPercentage ?? 0;
+  } else {
+    ({ baseFee, cgst, sgst, totalTax, cgstPercentage, sgstPercentage } =
+      await calculateGSTBreakdown(taxableAmountPaise));
+  }
 
   // Grand total remains in PAISE
+  // (same maths as the Billing page and the Collect Balance API)
   const invoiceTotalPaise =
     taxableAmountPaise + totalTax;
 
@@ -398,6 +416,9 @@ Period: ${
 
     const amountY = rowY;
 
+    // CHANGED: the CGST / SGST / Tax lines are printed only when tax was
+    // actually charged, so invoices with no GST (old software) do not show
+    // "CGST(0%): ₹0.00" lines.
     doc
       .fontSize(8)
       .text(
@@ -410,40 +431,44 @@ Period: ${
           width: 100,
           lineGap: 1,
         }
-      )
-      .text(
-        `CGST(${cgstPercentage}%): ₹${paiseToRupees(
-          cgst
-        )}`,
-        440,
-        amountY + 12,
-        {
-          width: 100,
-          lineGap: 1,
-        }
-      )
-      .text(
-        `SGST(${sgstPercentage}%): ₹${paiseToRupees(
-          sgst
-        )}`,
-        440,
-        amountY + 24,
-        {
-          width: 100,
-          lineGap: 1,
-        }
-      )
-      .text(
-        `Tax: ₹${paiseToRupees(
-          totalTax
-        )}`,
-        440,
-        amountY + 36,
-        {
-          width: 100,
-          lineGap: 1,
-        }
       );
+
+    if (totalTax > 0) {
+      doc
+        .text(
+          `CGST(${cgstPercentage}%): ₹${paiseToRupees(
+            cgst
+          )}`,
+          440,
+          amountY + 12,
+          {
+            width: 100,
+            lineGap: 1,
+          }
+        )
+        .text(
+          `SGST(${sgstPercentage}%): ₹${paiseToRupees(
+            sgst
+          )}`,
+          440,
+          amountY + 24,
+          {
+            width: 100,
+            lineGap: 1,
+          }
+        )
+        .text(
+          `Tax: ₹${paiseToRupees(
+            totalTax
+          )}`,
+          440,
+          amountY + 36,
+          {
+            width: 100,
+            lineGap: 1,
+          }
+        );
+    }
 
     // =====================================================
     // TOTALS TABLE
@@ -642,8 +667,11 @@ Period: ${
     let currentY = paymentY + 15;
 
     if (invoice.payments.length > 0) {
+      // CHANGED: show up to 8 payments (was 3) so invoices paid in several
+      // instalments are not cut off, use the real payment date (paidAt),
+      // and mark payments that are not PAID (e.g. a refund).
       invoice.payments
-        .slice(0, 3)
+        .slice(0, 8)
         .forEach((payment) => {
           doc
             .fontSize(7.5)
@@ -651,8 +679,12 @@ Period: ${
               `${payment.paymentMode} • ₹${paiseToRupees(
                 payment.amount
               )} • ${formatDate(
-                payment.createdAt
-              )}`,
+                payment.paidAt
+              )}${
+                payment.status !== "PAID"
+                  ? ` (${payment.status})`
+                  : ""
+              }`,
               50,
               currentY
             );
@@ -897,4 +929,3 @@ Period: ${
     doc.end();
   });
 }
-  

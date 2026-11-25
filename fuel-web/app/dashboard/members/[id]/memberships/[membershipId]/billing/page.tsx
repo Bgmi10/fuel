@@ -42,11 +42,11 @@ const sumPaid = (payments: Payment[]) =>
 
 const invoiceTax = (invoice: Invoice) => Math.round(invoice.totalTax ?? 0);
 
+/* Total payable = finalAmount + totalTax.
+ * finalAmount is already net of discounts (package - discount - referral),
+ * same as the Collect Balance API. Do NOT subtract discountAmount again. */
 const invoiceTotal = (invoice: Invoice) =>
-  Math.max(
-    (invoice.finalAmount || 0) + invoiceTax(invoice) - (invoice.discountAmount || 0),
-    0
-  );
+  Math.max((invoice.finalAmount || 0) + invoiceTax(invoice), 0);
 
 const invoiceBalance = (invoice: InvoiceWithPayments) =>
   Math.max(invoiceTotal(invoice) - sumPaid(invoice.payments), 0);
