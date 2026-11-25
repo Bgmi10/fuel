@@ -118,11 +118,11 @@ model Branch {
   address   String
   phone     String
   gstNumber String
-
+  
   terms        String?
   supportEmail String?
   supportPhone String?
-
+  expenses     Expense[]
   members           Member[]
   services          Service[]
   subscriptions     Subscription[]
@@ -1486,6 +1486,8 @@ model Expense {
   amount      Int?
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
+  branchId    String?
+  branch      Branch?      @relation(fields: [branchId], references: [id])
 
   @@index([byUserId, date])
 }
